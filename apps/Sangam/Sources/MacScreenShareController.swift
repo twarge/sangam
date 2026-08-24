@@ -22,10 +22,10 @@
       qos: .userInteractive
     )
 
-    /// Picker callbacks arrive on the main thread, `SCStreamDelegate` callbacks
-    /// arrive on ScreenCaptureKit's own queue, and `stop()` is called from the
-    /// main actor, so the active stream may only be read or written under
-    /// `lock`.
+    /// Picker callbacks arrive on ReplayKit's XPC queue (com.apple.replayd —
+    /// NOT the main thread), `SCStreamDelegate` callbacks arrive on
+    /// ScreenCaptureKit's own queue, and `stop()` is called from the main
+    /// actor, so the active stream may only be read or written under `lock`.
     private let lock = NSLock()
     private var stream: SCStream?
 
@@ -117,15 +117,22 @@
     }
   }
 
+  // Every callback below must be `nonisolated`: the app target defaults to
+  // MainActor isolation, and a conformance declared in an extension does not
+  // inherit the class's `nonisolated`. ReplayKit delivers the picker callbacks
+  // on its replayd XPC queue and ScreenCaptureKit delivers stream callbacks on
+  // the capture queue, so a MainActor-isolated method here dies on the
+  // runtime's executor assertion (dispatch_assert_queue_fail) the moment a
+  // window is picked or a frame arrives.
   extension MacScreenShareController: SCContentSharingPickerObserver {
-    func contentSharingPicker(
+    nonisolated func contentSharingPicker(
       _ picker: SCContentSharingPicker,
       didCancelFor stream: SCStream?
     ) {
       report(.idle)
     }
 
-    func contentSharingPicker(
+    nonisolated func contentSharingPicker(
       _ picker: SCContentSharingPicker,
       didUpdateWith filter: SCContentFilter,
       for stream: SCStream?
@@ -138,18 +145,18 @@
       }
     }
 
-    func contentSharingPickerStartDidFailWithError(_ error: any Error) {
+    nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
       report(.failed(error.localizedDescription))
     }
   }
 
   extension MacScreenShareController: SCStreamDelegate, SCStreamOutput {
-    func stream(_ stream: SCStream, didStopWithError error: any Error) {
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
       _ = takeStream()
       report(.failed(error.localizedDescription))
     }
 
-    func stream(
+    nonisolated func stream(
       _ stream: SCStream,
       didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
       of type: SCStreamOutputType
