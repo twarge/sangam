@@ -1,6 +1,6 @@
 /// Transition adapter that hosts the official Jitsi iOS SDK. It exists only so
 /// the native transport can be compared against a known-good client during
-/// bring-up, is selected with `GAFSAF_LEGACY_JITSI=1`, and is deleted once the
+/// bring-up, is selected with `SANGAM_LEGACY_JITSI=1`, and is deleted once the
 /// native path clears the end-to-end conference gate. macOS has no legacy
 /// surface: its WebKit iframe adapter has been removed.
 #if os(iOS)

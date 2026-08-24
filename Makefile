@@ -1,4 +1,4 @@
-# Builds the native Gafsaf clients using the same schemes as Xcode.
+# Builds the native Sangam clients using the same schemes as Xcode.
 #
 #   make             native-core tests + macOS + iOS simulator builds
 #   make test        native conference-core unit tests
@@ -18,7 +18,7 @@ project:
 	xcodegen generate --spec apps/project.yml --project apps
 
 format:
-	swift format --in-place --recursive apps/Gafsaf apps/GafsafBroadcastExtension \
+	swift format --in-place --recursive apps/Sangam apps/SangamBroadcastExtension \
 	  packages/JitsiNativeCore/Sources packages/JitsiNativeCore/Tests
 
 # SwiftPM does not embed a binary xcframework next to its test bundles, so
@@ -40,23 +40,23 @@ media:
 	swift build --package-path packages/JitsiNativeCore --target JitsiConference
 
 mac:
-	xcodebuild -project apps/Gafsaf.xcodeproj -scheme Gafsaf-macOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-macOS \
 	  -destination "platform=macOS" -derivedDataPath build/DerivedData \
 	  -allowProvisioningUpdates -quiet build
-	@echo "==> Built Gafsaf for macOS"
+	@echo "==> Built Sangam for macOS"
 
 ios:
-	xcodebuild -project apps/Gafsaf.xcodeproj -scheme Gafsaf-iOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS \
 	  -destination "generic/platform=iOS Simulator" \
 	  -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build
-	@echo "==> Built Gafsaf for iOS Simulator"
+	@echo "==> Built Sangam for iOS Simulator"
 
 ios-device:
-	xcodebuild -project apps/Gafsaf.xcodeproj -scheme Gafsaf-iOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS \
 	  -destination "generic/platform=iOS" -derivedDataPath build/DerivedData \
 	  -allowProvisioningUpdates -quiet build
-	@echo "==> Built Gafsaf for iOS device"
+	@echo "==> Built Sangam for iOS device"
 
 clean:
-	xcodebuild -project apps/Gafsaf.xcodeproj -scheme Gafsaf-macOS clean
-	xcodebuild -project apps/Gafsaf.xcodeproj -scheme Gafsaf-iOS clean
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-macOS clean
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS clean

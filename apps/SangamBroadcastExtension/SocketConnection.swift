@@ -124,7 +124,7 @@ final class SocketConnection: NSObject, StreamDelegate, @unchecked Sendable {
       forKey: Stream.PropertyKey(kCFStreamPropertyShouldCloseNativeSocket as String)
     )
 
-    let queue = DispatchQueue(label: "com.twarge.gafsaf.broadcast.socket")
+    let queue = DispatchQueue(label: "com.twarge.sangam.broadcast.socket")
     lock.withLock {
       inputStream = input
       outputStream = output

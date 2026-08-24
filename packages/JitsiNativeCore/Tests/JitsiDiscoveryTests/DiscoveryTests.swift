@@ -24,7 +24,7 @@ func rejectsPlaintextRemoteServers() {
 func loadsControlledDeploymentManifest() async throws {
   let response = try #require(
     HTTPURLResponse(
-      url: URL(string: "https://meet.example.test/gafsaf-native.json")!,
+      url: URL(string: "https://meet.example.test/sangam-native.json")!,
       statusCode: 200,
       httpVersion: nil,
       headerFields: nil
@@ -63,7 +63,7 @@ func fallsBackFromHTMLShellToStandardJitsiConfig() async throws {
         headerFields: nil
       )
     )
-    if url.lastPathComponent == "gafsaf-native.json" {
+    if url.lastPathComponent == "sangam-native.json" {
       return (Data("<html>Jitsi Meet</html>".utf8), response)
     }
     return (
@@ -104,7 +104,7 @@ func fallsBackFromHTMLShellToStandardJitsiConfig() async throws {
 @Test
 func parsesSelfHostedConfigWithInferredWebSocketAndFocus() async throws {
   let client = DiscoveryClient { url in
-    let status = url.lastPathComponent == "gafsaf-native.json" ? 404 : 200
+    let status = url.lastPathComponent == "sangam-native.json" ? 404 : 200
     let response = try #require(
       HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)
     )
@@ -147,7 +147,7 @@ func parsesSelfHostedConfigWithInferredWebSocketAndFocus() async throws {
 func fallsBackToConventionalEndpointsOn404() async throws {
   let response = try #require(
     HTTPURLResponse(
-      url: URL(string: "https://meet.example.test/gafsaf-native.json")!,
+      url: URL(string: "https://meet.example.test/sangam-native.json")!,
       statusCode: 404,
       httpVersion: nil,
       headerFields: nil

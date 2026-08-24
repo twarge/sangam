@@ -81,7 +81,7 @@ extension XMPPConnection {
   /// join, because direct connectivity may still work.
   public func discoverExternalServices(
     domain: String,
-    id: String = "gafsaf-extdisco-\(UUID().uuidString.lowercased())",
+    id: String = "sangam-extdisco-\(UUID().uuidString.lowercased())",
     maximumUnmatchedFrames: Int = 128
   ) async throws -> [ExternalService] {
     let query = XMPPElement(

@@ -2,7 +2,7 @@
 
 ## Product shape
 
-Gafsaf is an Apple-native Jitsi client. SwiftUI owns the application shell,
+Sangam is an Apple-native Jitsi client. SwiftUI owns the application shell,
 AppKit and UIKit provide the platform surfaces, and one shared Swift conference
 core owns both signaling and WebRTC media. No meeting UI or media pipeline runs
 in WebKit, Chromium, React Native, or an iframe.
@@ -108,7 +108,7 @@ arbitrary public installations.
 ## Media and rendering
 
 Jitsi's native WebRTC XCFramework supplies peer connections, codecs, capture,
-hardware acceleration, audio processing, and Metal-backed rendering. Gafsaf
+hardware acceleration, audio processing, and Metal-backed rendering. Sangam
 owns source selection and layout.
 
 - The selected remote track renders aspect-fill and crops at the window edge.
@@ -130,7 +130,7 @@ frames and published as a desktop source.
 
 The sharing engine:
 
-- excludes Gafsaf's own windows by default;
+- excludes Sangam's own windows by default;
 - follows a selected window across displays;
 - stops cleanly when the source closes or permission is revoked;
 - adapts frame rate and resolution independently from camera video;

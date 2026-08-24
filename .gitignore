@@ -3,6 +3,6 @@ DerivedData/
 build/
 *.xcuserstate
 xcuserdata/
-apps/Gafsaf.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+apps/Sangam.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 .build/

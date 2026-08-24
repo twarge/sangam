@@ -18,7 +18,7 @@
 
     private let videoTrack: LocalVideoTrack
     private let captureQueue = DispatchQueue(
-      label: "com.twarge.gafsaf.screen-capture",
+      label: "com.twarge.sangam.screen-capture",
       qos: .userInteractive
     )
 

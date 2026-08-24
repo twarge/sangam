@@ -11,7 +11,7 @@ import SwiftUI
   /// transport and never consults this switch.
   enum NativeTransportMode {
     static var isEnabled: Bool {
-      ProcessInfo.processInfo.environment["GAFSAF_LEGACY_JITSI"] != "1"
+      ProcessInfo.processInfo.environment["SANGAM_LEGACY_JITSI"] != "1"
     }
   }
 #endif
@@ -574,7 +574,7 @@ final class NativeMeetingModel: ObservableObject {
     waitForHost: Bool = false
   ) async {
     guard joinTask == nil, handle == nil else { return }
-    GafsafLog.event(
+    SangamLog.event(
       "join begin room=\(configuration.normalizedRoom) server=\(configuration.serverURL.absoluteString) "
         + "waitForHost=\(waitForHost) authenticated=\(username != nil)")
     let task = Task { @MainActor [weak self, weak controller] in
@@ -594,15 +594,15 @@ final class NativeMeetingModel: ObservableObject {
             Task { @MainActor in
               switch progress {
               case .waitingInLobby(let waitingForHost):
-                GafsafLog.event("join progress: waitingInLobby waitForHost=\(waitingForHost)")
+                SangamLog.event("join progress: waitingInLobby waitForHost=\(waitingForHost)")
                 controller?.didEnterLobby(waitingForHost: waitingForHost)
               case .stage(let stage):
-                GafsafLog.event("join stage: \(stage.rawValue)")
+                SangamLog.event("join stage: \(stage.rawValue)")
               }
             }
           }
         )
-        GafsafLog.event(
+        SangamLog.event(
           "join: entered MUC as \(handle.occupantJID); focus ready=\(handle.focus.ready)")
         self.handle = handle
         self.localCameraTrack = handle.coordinator.cameraVideoTrack
@@ -613,16 +613,16 @@ final class NativeMeetingModel: ObservableObject {
         // receive a Jingle media offer yet.
         controller.didJoin()
       } catch NativeConferenceBootstrapError.authenticationRequired {
-        GafsafLog.event("join: authenticationRequired")
+        SangamLog.event("join: authenticationRequired")
         controller.requireAccess()
       } catch NativeConferenceBootstrapError.invalidCredentials {
-        GafsafLog.event("join: invalidCredentials")
+        SangamLog.event("join: invalidCredentials")
         controller.requireAccess(message: "That username or password wasn’t accepted.")
       } catch is CancellationError {
-        GafsafLog.event("join: cancelled")
+        SangamLog.event("join: cancelled")
         return
       } catch {
-        GafsafLog.event("join: failed \(error)")
+        SangamLog.event("join: failed \(error)")
         controller.didFailToJoin(error: error.localizedDescription)
       }
       self.joinTask = nil
@@ -654,17 +654,17 @@ final class NativeMeetingModel: ObservableObject {
     }
   }
 
-  /// Periodically logs the video RTP flow while `GAFSAF_LOG` is set, so what
+  /// Periodically logs the video RTP flow while `SANGAM_LOG` is set, so what
   /// the app actually sends and receives is visible during bring-up.
   private func startStatsLogging(handle: NativeConferenceHandle) {
-    guard GafsafLog.isEnabled else { return }
+    guard SangamLog.isEnabled else { return }
     statsTask?.cancel()
     statsTask = Task { @MainActor [weak self] in
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3))
         guard let self, let handle = self.handle else { return }
         let summary = await handle.coordinator.mediaStatsSummary()
-        GafsafLog.event("stats: \(summary)")
+        SangamLog.event("stats: \(summary)")
       }
     }
   }
@@ -676,17 +676,17 @@ final class NativeMeetingModel: ObservableObject {
         guard let self, let controller else { return }
         switch event {
         case .negotiating(let sessionID):
-          GafsafLog.event("event: negotiating session=\(sessionID)")
+          SangamLog.event("event: negotiating session=\(sessionID)")
         case .connected(let sessionID):
-          GafsafLog.event("event: connected session=\(sessionID)")
+          SangamLog.event("event: connected session=\(sessionID)")
           controller.didJoin()
         case .peerConnectionState(let state):
-          GafsafLog.event("event: peerConnectionState=\(state.rawValue)")
+          SangamLog.event("event: peerConnectionState=\(state.rawValue)")
           if state == .failed {
             controller.report(error: "The native media connection failed.")
           }
         case .remoteVideoTrackAdded(let stream):
-          GafsafLog.event(
+          SangamLog.event(
             "event: remoteVideoTrackAdded id=\(stream.id) source=\(stream.sourceName ?? "?") "
               + "owner=\(stream.endpointID ?? "?") placeholder=\(stream.isBridgePlaceholder)")
           // The bridge's mixed placeholder source never carries real video and
@@ -696,10 +696,10 @@ final class NativeMeetingModel: ObservableObject {
           streams.append(stream)
         case .remoteVideoTrackRemoved(let id):
           streams.removeAll { $0.id == id }
-          GafsafLog.event(
+          SangamLog.event(
             "event: remoteVideoTrackRemoved id=\(id) (remote video sources: \(streams.count))")
         case .remoteSessionEnded(let reason):
-          GafsafLog.event("event: remoteSessionEnded reason=\(reason ?? "nil")")
+          SangamLog.event("event: remoteSessionEnded reason=\(reason ?? "nil")")
           // Like the web client, a Jingle session ending does not end the
           // conference: Jicofo tears the media session down whenever this
           // client is the only participant left and re-invites when someone
@@ -711,35 +711,35 @@ final class NativeMeetingModel: ObservableObject {
             controller.report(error: "The media session ended (\(reason)).")
           }
         case .screenSharingChanged(let sharing):
-          GafsafLog.event("event: screenSharingChanged=\(sharing)")
+          SangamLog.event("event: screenSharingChanged=\(sharing)")
           controller.didChangeScreenSharing(sharing)
         case .unsupportedAction(let action):
-          GafsafLog.event("event: unsupportedAction=\(action.rawValue)")
+          SangamLog.event("event: unsupportedAction=\(action.rawValue)")
           controller.report(error: "Native Jitsi does not yet support \(action.rawValue).")
         case .warning(let message):
-          GafsafLog.event("event: warning \(message)")
+          SangamLog.event("event: warning \(message)")
           controller.report(error: message)
         case .diagnostic(let message):
-          GafsafLog.event("diag: \(message)")
+          SangamLog.event("diag: \(message)")
         case .failed(let message):
-          GafsafLog.event("event: failed \(message)")
+          SangamLog.event("event: failed \(message)")
           controller.didEnd(error: message)
         case .participantsChanged(let updated):
-          GafsafLog.event(
+          SangamLog.event(
             "event: participantsChanged count=\(updated.count) "
               + "[\(updated.map(\.id).joined(separator: ", "))]")
           participants = updated
         case .dominantSpeakerChanged(let endpointID):
           dominantSpeakerID = endpointID
         case .moderatorStatusChanged(let moderator):
-          GafsafLog.event("event: moderatorStatusChanged=\(moderator)")
+          SangamLog.event("event: moderatorStatusChanged=\(moderator)")
           isModerator = moderator
         case .chatMessageReceived(let message):
           chatMessages.append(message)
           if chatMessages.count > 500 { chatMessages.removeFirst(chatMessages.count - 500) }
           if !message.isLocal { controller.noteUnreadChatMessage() }
         case .reactionsReceived(let endpointID, let reactions):
-          GafsafLog.event(
+          SangamLog.event(
             "event: reactions from=\(endpointID ?? "self") [\(reactions.joined(separator: ", "))]")
           for name in reactions {
             let emoji = Self.reactionEmoji.first { $0.name == name }?.emoji ?? "✨"
@@ -751,7 +751,7 @@ final class NativeMeetingModel: ObservableObject {
             }
           }
         case .remoteSourceVideoTypeChanged(let sourceName, let videoType):
-          GafsafLog.event("event: sourceVideoType \(sourceName) -> \(videoType)")
+          SangamLog.event("event: sourceVideoType \(sourceName) -> \(videoType)")
           streams = streams.map { stream in
             guard stream.sourceName == sourceName else { return stream }
             var updated = stream
@@ -759,9 +759,9 @@ final class NativeMeetingModel: ObservableObject {
             return updated
           }
         case .lobbyEnabledChanged(let enabled):
-          GafsafLog.event("event: lobbyEnabledChanged=\(enabled)")
+          SangamLog.event("event: lobbyEnabledChanged=\(enabled)")
         case .lobbyKnockersChanged(let knockers):
-          GafsafLog.event("event: lobbyKnockersChanged count=\(knockers.count)")
+          SangamLog.event("event: lobbyKnockersChanged count=\(knockers.count)")
           controller.didChangeLobbyRequests(
             knockers.map { MeetingController.LobbyRequest(id: $0.id, displayName: $0.displayName) }
           )
@@ -961,7 +961,7 @@ final class NativeMeetingModel: ObservableObject {
   private struct NativeBroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
       let picker = RPSystemBroadcastPickerView(frame: .zero)
-      picker.preferredExtension = "com.twarge.gafsaf.broadcast"
+      picker.preferredExtension = "com.twarge.sangam.broadcast"
       picker.showsMicrophoneButton = false
       return picker
     }

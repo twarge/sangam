@@ -7,7 +7,7 @@ final class SampleUploader: @unchecked Sendable {
   private static let maximumChunkLength = 10_240
 
   private let connection: SocketConnection
-  private let queue = DispatchQueue(label: "com.twarge.gafsaf.broadcast.uploader")
+  private let queue = DispatchQueue(label: "com.twarge.sangam.broadcast.uploader")
   private var dataToSend: Data?
   private var byteIndex = 0
   private var isReady = false

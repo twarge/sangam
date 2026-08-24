@@ -14,7 +14,7 @@
       case failed(String)
     }
 
-    private static let appGroupIdentifier = "group.com.twarge.gafsaf"
+    private static let appGroupIdentifier = "group.com.twarge.sangam"
     private static let socketName = "rtc_SSFD"
     private static let maximumHeaderBytes = 64 * 1_024
     private static let maximumFrameBytes = 16 * 1_024 * 1_024
@@ -22,7 +22,7 @@
     var stateDidChange: (@MainActor @Sendable (State) -> Void)?
 
     private let track: LocalVideoTrack
-    private let queue = DispatchQueue(label: "com.twarge.gafsaf.broadcast.receiver")
+    private let queue = DispatchQueue(label: "com.twarge.sangam.broadcast.receiver")
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
 
     /// `start()` and `stop()` are called from the main actor while `queue` runs

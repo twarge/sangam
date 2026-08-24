@@ -175,7 +175,7 @@ public actor PeerConnectionNegotiator {
     }
   }
 
-  /// A concise one-line summary of media flow, for the opt-in `GAFSAF_LOG`
+  /// A concise one-line summary of media flow, for the opt-in `SANGAM_LOG`
   /// bring-up log: ICE state and the video/audio send and receive rates. Reads
   /// the live `RTCStatisticsReport`, extracting only Sendable primitives so no
   /// non-Sendable object crosses back out.

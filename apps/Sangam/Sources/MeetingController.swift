@@ -42,7 +42,7 @@ final class MeetingController: ObservableObject {
   @Published private(set) var connectionState: ConnectionState = .connecting {
     didSet {
       if connectionState != oldValue {
-        GafsafLog.event("connectionState \(oldValue) -> \(connectionState)")
+        SangamLog.event("connectionState \(oldValue) -> \(connectionState)")
       }
     }
   }
@@ -237,18 +237,18 @@ final class MeetingController: ObservableObject {
   }
 }
 
-/// Opt-in diagnostic log for bring-up. Silent unless `GAFSAF_LOG` is set in the
+/// Opt-in diagnostic log for bring-up. Silent unless `SANGAM_LOG` is set in the
 /// process environment, so release builds stay quiet by default. It records
 /// lifecycle events and error text only — never XMPP, SDP, or media payloads —
 /// which keeps it within the architecture's "no protocol payload logging"
 /// rule while still showing the sequence of events that led somewhere.
-enum GafsafLog {
+enum SangamLog {
   nonisolated static let isEnabled =
-    ProcessInfo.processInfo.environment["GAFSAF_LOG"].map { !$0.isEmpty && $0 != "0" } ?? false
+    ProcessInfo.processInfo.environment["SANGAM_LOG"].map { !$0.isEmpty && $0 != "0" } ?? false
 
   nonisolated static func event(_ message: @autoclosure () -> String) {
     guard isEnabled else { return }
-    FileHandle.standardError.write(Data("[gafsaf \(timestamp())] \(message())\n".utf8))
+    FileHandle.standardError.write(Data("[sangam \(timestamp())] \(message())\n".utf8))
   }
 
   nonisolated private static func timestamp() -> String {

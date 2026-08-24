@@ -209,7 +209,7 @@ public actor URLSessionXMPPBOSHSocket: XMPPTextSocket {
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-    request.setValue("Gafsaf/1 CFNetwork", forHTTPHeaderField: "User-Agent")
+    request.setValue("Sangam/1 CFNetwork", forHTTPHeaderField: "User-Agent")
     request.httpBody = Data(xml.utf8)
     if let timeout { request.timeoutInterval = timeout }
     return request

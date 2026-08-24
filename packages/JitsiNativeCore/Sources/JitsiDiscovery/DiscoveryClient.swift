@@ -22,7 +22,7 @@ public struct DiscoveryClient: Sendable {
   }
 
   public func discover(baseURL: URL) async throws -> DeploymentConfiguration {
-    let manifestURL = baseURL.appending(path: "gafsaf-native.json")
+    let manifestURL = baseURL.appending(path: "sangam-native.json")
     let (data, response) = try await loader(manifestURL)
 
     if (200..<300).contains(response.statusCode), Self.looksLikeJSON(data) {

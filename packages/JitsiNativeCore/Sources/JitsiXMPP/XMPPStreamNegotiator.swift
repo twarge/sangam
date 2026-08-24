@@ -42,7 +42,7 @@ public struct XMPPStreamNegotiator: Sendable {
     domain: String,
     resource: String,
     credential: XMPPCredential,
-    bindID: String = "gafsaf-bind-1"
+    bindID: String = "sangam-bind-1"
   ) {
     self.domain = domain
     self.resource = resource

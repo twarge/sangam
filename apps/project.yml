@@ -1,4 +1,4 @@
-name: Gafsaf
+name: Sangam
 options:
   bundleIdPrefix: com.twarge
   createIntermediateGroups: true
@@ -27,13 +27,13 @@ packages:
     exactVersion: 13.1.1
 
 targets:
-  Gafsaf-macOS:
+  Sangam-macOS:
     type: application
     platform: macOS
-    productName: Gafsaf
+    productName: Sangam
     sources:
-      - path: Gafsaf/Sources
-      - path: Gafsaf/Assets.xcassets
+      - path: Sangam/Sources
+      - path: Sangam/Assets.xcassets
     dependencies:
       - package: JitsiNativeCore
         product: JitsiNativeCore
@@ -44,20 +44,20 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
-        CODE_SIGN_ENTITLEMENTS: Gafsaf/GafsafMac.entitlements
-        INFOPLIST_FILE: Gafsaf/Info-macOS.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf
-        PRODUCT_NAME: Gafsaf
+        CODE_SIGN_ENTITLEMENTS: Sangam/SangamMac.entitlements
+        INFOPLIST_FILE: Sangam/Info-macOS.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
+        PRODUCT_NAME: Sangam
     scheme:
       gatherCoverageData: false
 
-  Gafsaf-iOS:
+  Sangam-iOS:
     type: application
     platform: iOS
-    productName: Gafsaf
+    productName: Sangam
     sources:
-      - path: Gafsaf/Sources
-      - path: Gafsaf/Assets.xcassets
+      - path: Sangam/Sources
+      - path: Sangam/Assets.xcassets
     dependencies:
       - package: JitsiNativeCore
         product: JitsiNativeCore
@@ -66,32 +66,32 @@ targets:
       - package: JitsiNativeCore
         product: JitsiConference
       - package: JitsiMeetSDK
-      - target: GafsafBroadcastExtension
+      - target: SangamBroadcastExtension
         embed: true
     settings:
       base:
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
-        CODE_SIGN_ENTITLEMENTS: Gafsaf/GafsafIOS.entitlements
+        CODE_SIGN_ENTITLEMENTS: Sangam/SangamIOS.entitlements
         ENABLE_BITCODE: NO
-        INFOPLIST_FILE: Gafsaf/Info-iOS.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf
-        PRODUCT_NAME: Gafsaf
+        INFOPLIST_FILE: Sangam/Info-iOS.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
+        PRODUCT_NAME: Sangam
         TARGETED_DEVICE_FAMILY: "1,2"
     scheme:
       gatherCoverageData: false
 
-  GafsafBroadcastExtension:
+  SangamBroadcastExtension:
     type: app-extension
     platform: iOS
-    productName: GafsafBroadcastExtension
+    productName: SangamBroadcastExtension
     sources:
-      - path: GafsafBroadcastExtension
+      - path: SangamBroadcastExtension
     settings:
       base:
-        CODE_SIGN_ENTITLEMENTS: GafsafBroadcastExtension/GafsafBroadcastExtension.entitlements
-        INFOPLIST_FILE: GafsafBroadcastExtension/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf.broadcast
-        PRODUCT_NAME: GafsafBroadcastExtension
+        CODE_SIGN_ENTITLEMENTS: SangamBroadcastExtension/SangamBroadcastExtension.entitlements
+        INFOPLIST_FILE: SangamBroadcastExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam.broadcast
+        PRODUCT_NAME: SangamBroadcastExtension
         SKIP_INSTALL: YES
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
         SWIFT_EMIT_LOC_STRINGS: YES

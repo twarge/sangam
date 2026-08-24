@@ -119,7 +119,7 @@ public enum NativeJingleEvent: Sendable {
   /// An opt-in bring-up trace, distinct from `warning`: it reports what the
   /// signaling path is doing (incoming actions, bridge-channel state, receiver
   /// constraints) without implying anything is wrong. The app logs it only when
-  /// `GAFSAF_LOG` is set.
+  /// `SANGAM_LOG` is set.
   case diagnostic(message: String)
   case failed(message: String)
   /// The meeting's lobby was switched on or off. Only reported to moderators,
@@ -396,7 +396,7 @@ public actor NativeJingleCoordinator {
   }
 
   /// A concise one-line summary of current media flow, for the opt-in
-  /// `GAFSAF_LOG` bring-up log.
+  /// `SANGAM_LOG` bring-up log.
   public func mediaStatsSummary() async -> String {
     await peerConnection.videoStatsSummary()
   }
@@ -1339,7 +1339,7 @@ public actor NativeJingleCoordinator {
 
   private func nextID(prefix: String) -> String {
     outgoingSequence &+= 1
-    return "gafsaf-\(prefix)-\(outgoingSequence)"
+    return "sangam-\(prefix)-\(outgoingSequence)"
   }
 
   private func sendSourcePresence() async {

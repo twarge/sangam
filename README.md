@@ -1,4 +1,4 @@
-# Gafsaf
+# Sangam
 
 A deliberately small Apple-native Jitsi client for iOS and macOS. The meeting
 video owns the window; the native interface is a compact bottom toolbar for
@@ -19,15 +19,15 @@ make ios-device   # signing and the ReplayKit extension need a real device
 make format
 ```
 
-Open `apps/Gafsaf.xcodeproj` for normal development. Xcode resolves the official
+Open `apps/Sangam.xcodeproj` for normal development. Xcode resolves the official
 Jitsi iOS SDK Swift package at version 13.1.1.
 
 ## Structure
 
 ```text
-apps/Gafsaf/Sources/                 shared SwiftUI app and platform integration
-apps/GafsafBroadcastExtension/       bounded ReplayKit frame uploader
-apps/Gafsaf.xcodeproj/               checked-in Xcode project
+apps/Sangam/Sources/                 shared SwiftUI app and platform integration
+apps/SangamBroadcastExtension/       bounded ReplayKit frame uploader
+apps/Sangam.xcodeproj/               checked-in Xcode project
 apps/project.yml                     reproducible XcodeGen project description
 packages/JitsiNativeCore/            shared state and protocol implementation
 docs/ARCHITECTURE.md                 target native architecture and delivery gates
@@ -45,7 +45,7 @@ THIRD_PARTY_NOTICES.md               redistribution notes
 
 The iOS adapter is the last remaining fallback transport. Both platforms default
 to `JitsiNativeCore`, the Jitsi WebRTC XCFramework, and native platform capture.
-Set `GAFSAF_LEGACY_JITSI=1` on iOS only when explicitly testing that adapter; the
+Set `SANGAM_LEGACY_JITSI=1` on iOS only when explicitly testing that adapter; the
 variable has no effect on macOS.
 
 The native core now includes bounded XMPP WebSocket transport, SASL and resource

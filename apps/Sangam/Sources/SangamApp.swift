@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct GafsafApp: App {
+struct SangamApp: App {
   var body: some Scene {
     WindowGroup {
       RootView()

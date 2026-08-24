@@ -7,7 +7,7 @@ import Testing
 func negotiatesAnonymousSASLAndResourceBinding() throws {
   var negotiator = XMPPStreamNegotiator(
     domain: "meet.example.test",
-    resource: "gafsaf-device",
+    resource: "sangam-device",
     credential: .anonymous,
     bindID: "bind-7"
   )
@@ -41,21 +41,21 @@ func negotiatesAnonymousSASLAndResourceBinding() throws {
   )
   let binding = try negotiator.receive(postAuth)
   #expect(binding.first?.xml?.contains("id=\"bind-7\"") == true)
-  #expect(binding.first?.xml?.contains("gafsaf-device") == true)
+  #expect(binding.first?.xml?.contains("sangam-device") == true)
 
   let result = try XMPPParser().parse(
     """
     <iq id="bind-7" type="result">
       <bind xmlns="urn:ietf:params:xml:ns:xmpp-bind">
-        <jid>guest@meet.example.test/gafsaf-device</jid>
+        <jid>guest@meet.example.test/sangam-device</jid>
       </bind>
     </iq>
     """
   )
   #expect(
-    try negotiator.receive(result) == [.ready(jid: "guest@meet.example.test/gafsaf-device")]
+    try negotiator.receive(result) == [.ready(jid: "guest@meet.example.test/sangam-device")]
   )
-  #expect(negotiator.state == .ready(jid: "guest@meet.example.test/gafsaf-device"))
+  #expect(negotiator.state == .ready(jid: "guest@meet.example.test/sangam-device"))
 }
 
 @Test

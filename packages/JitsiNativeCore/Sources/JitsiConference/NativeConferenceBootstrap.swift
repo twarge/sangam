@@ -129,7 +129,7 @@ public struct NativeConferenceBootstrap: Sendable {
     else { throw NativeConferenceBootstrapError.invalidRoom }
 
     let deployment = try await discoveryClient.discover(baseURL: options.serverURL)
-    let endpointID = "gafsaf-" + UUID().uuidString.prefix(8).lowercased()
+    let endpointID = "sangam-" + UUID().uuidString.prefix(8).lowercased()
     let roomJID = "\(room)@\(deployment.mucDomain)"
     let username = options.username?.trimmingCharacters(in: .whitespacesAndNewlines)
     let hasCredentials = username?.isEmpty == false && options.password?.isEmpty == false
@@ -312,7 +312,7 @@ public struct NativeConferenceBootstrap: Sendable {
           domain: domain,
           resource: endpointID,
           credential: credential,
-          bindID: "gafsaf-bind-\(UUID().uuidString.lowercased())"
+          bindID: "sangam-bind-\(UUID().uuidString.lowercased())"
         )
       )
       do {
@@ -451,7 +451,7 @@ public struct NativeConferenceBootstrap: Sendable {
         } else {
           response = try await connection.allocateConference(
             FocusConferenceRequest(
-              id: "gafsaf-focus-\(attempt)-\(UUID().uuidString.lowercased())",
+              id: "sangam-focus-\(attempt)-\(UUID().uuidString.lowercased())",
               focusJID: deployment.focusJID,
               roomJID: roomJID,
               machineUID: machineUID,

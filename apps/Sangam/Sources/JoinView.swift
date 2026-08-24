@@ -15,7 +15,7 @@ struct JoinView: View {
         .foregroundStyle(.tint)
 
       VStack(spacing: 6) {
-        Text("Gafsaf")
+        Text("Sangam")
           .font(.largeTitle.bold())
         Text("Join a Jitsi meeting")
           .foregroundStyle(.secondary)

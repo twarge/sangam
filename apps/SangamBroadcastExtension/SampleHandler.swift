@@ -1,7 +1,7 @@
 import ReplayKit
 
 final class SampleHandler: RPBroadcastSampleHandler {
-  private static let appGroupIdentifier = "group.com.twarge.gafsaf"
+  private static let appGroupIdentifier = "group.com.twarge.sangam"
 
   private var connection: SocketConnection?
   private var uploader: SampleUploader?
@@ -61,7 +61,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
   private func openConnectionWhenReady() {
     let timer = DispatchSource.makeTimerSource(
-      queue: DispatchQueue(label: "com.twarge.gafsaf.broadcast.connect")
+      queue: DispatchQueue(label: "com.twarge.sangam.broadcast.connect")
     )
     timer.schedule(deadline: .now(), repeating: .milliseconds(100), leeway: .milliseconds(50))
     timer.setEventHandler { [weak self] in

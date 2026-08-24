@@ -98,8 +98,8 @@
     ) throws -> MTLRenderPipelineState {
       let library = try device.makeLibrary(source: shaderSource, options: nil)
       let descriptor = MTLRenderPipelineDescriptor()
-      descriptor.vertexFunction = library.makeFunction(name: "gafsaf_video_vertex")
-      descriptor.fragmentFunction = library.makeFunction(name: "gafsaf_video_fragment")
+      descriptor.vertexFunction = library.makeFunction(name: "sangam_video_vertex")
+      descriptor.fragmentFunction = library.makeFunction(name: "sangam_video_fragment")
       descriptor.colorAttachments[0].pixelFormat = pixelFormat
       return try device.makeRenderPipelineState(descriptor: descriptor)
     }
@@ -178,7 +178,7 @@
       struct VideoVertex { float2 position; float2 textureCoordinate; };
       struct RasterizerData { float4 position [[position]]; float2 textureCoordinate; };
 
-      vertex RasterizerData gafsaf_video_vertex(
+      vertex RasterizerData sangam_video_vertex(
         uint vertexID [[vertex_id]],
         constant VideoVertex *vertices [[buffer(0)]]) {
         RasterizerData out;
@@ -187,7 +187,7 @@
         return out;
       }
 
-      fragment float4 gafsaf_video_fragment(
+      fragment float4 sangam_video_fragment(
         RasterizerData in [[stage_in]],
         texture2d<float> yTexture [[texture(0)]],
         texture2d<float> uTexture [[texture(1)]],

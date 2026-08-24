@@ -47,7 +47,7 @@ targets:
 
 The native coordinator and renderer are the default meeting implementation.
 The transition adapters can be selected explicitly with
-`GAFSAF_LEGACY_JITSI=1`. The next milestone is integration testing against the
+`SANGAM_LEGACY_JITSI=1`. The next milestone is integration testing against the
 pinned deployment, reconnect behavior, and the remaining Apple integrations.
 Current lib-jitsi-meet does not implement client-side `transport-replace`, so
 the native coordinator acknowledges and reports it without unsafe mutation.

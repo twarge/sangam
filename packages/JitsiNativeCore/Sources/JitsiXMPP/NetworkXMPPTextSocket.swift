@@ -5,7 +5,7 @@
 
   public actor NetworkXMPPTextSocket: XMPPTextSocket {
     private let connection: NWConnection
-    private let queue = DispatchQueue(label: "com.twarge.gafsaf.xmpp-websocket")
+    private let queue = DispatchQueue(label: "com.twarge.sangam.xmpp-websocket")
     private let host: String
     private let path: String
     private let preflightURL: URL?

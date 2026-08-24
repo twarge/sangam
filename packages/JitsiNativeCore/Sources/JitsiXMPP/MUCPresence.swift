@@ -364,7 +364,7 @@ extension MUCJoinError: LocalizedError {
     case .membersOnly:
       return "This meeting only admits invited participants."
     case .passwordRequired:
-      return "This meeting requires a password, which Gafsaf does not support yet."
+      return "This meeting requires a password, which Sangam does not support yet."
     case .notAllowed(let text):
       if let text, !text.isEmpty { return "You are not allowed to join this meeting (\(text))." }
       return "You are not allowed to join this meeting."
