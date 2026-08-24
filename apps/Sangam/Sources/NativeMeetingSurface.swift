@@ -22,27 +22,12 @@ struct NativeMeetingSurface: View {
 
   @StateObject private var model = NativeMeetingModel()
 
+  #if os(macOS)
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+  #endif
+
   var body: some View {
-    meetingGrid
-      .background(.black)
-      .overlay(alignment: .topTrailing) {
-        // A corner self-preview for the grid layout only: the sidebar layout
-        // shows the local camera at the top of the sidebar, and when nobody
-        // else is in the meeting the self view already fills the window.
-        if let localCameraTrack = model.localCameraTrack, !controller.isVideoMuted,
-          !model.tiles.isEmpty, controller.usesTileGrid
-        {
-          LocalVideoSurface(track: localCameraTrack)
-            .frame(width: 132, height: 176)
-            .clipShape(.rect(cornerRadius: 14))
-            .overlay {
-              RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.22))
-            }
-            .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
-            .padding(16)
-            .accessibilityLabel("Your camera")
-        }
-      }
+    meetingRoot
       .task {
         await model.join(configuration: configuration, controller: controller)
       }
@@ -57,8 +42,34 @@ struct NativeMeetingSurface: View {
       #endif
   }
 
+  #if os(macOS)
+    /// The native navigation sidebar carries the video sources — the local
+    /// camera on top — with the standard toolbar toggle and resizable divider.
+    /// The detail column is the stage, or the tile grid when toggled.
+    private var meetingRoot: some View {
+      NavigationSplitView(columnVisibility: $columnVisibility) {
+        ScrollView(showsIndicators: false) {
+          LazyVStack(spacing: 8) {
+            selfSidebarTile
+            ForEach(model.tiles) { tile in
+              tileView(for: tile)
+                .frame(height: 104)
+            }
+          }
+          .padding(10)
+        }
+        .navigationSplitViewColumnWidth(min: 180, ideal: 212, max: 300)
+      } detail: {
+        detailContent
+      }
+      .navigationSplitViewStyle(.balanced)
+    }
+  #else
+    private var meetingRoot: some View { detailContent }
+  #endif
+
   @ViewBuilder
-  private var meetingGrid: some View {
+  private var detailContent: some View {
     let tiles = model.tiles
     ZStack {
       if tiles.isEmpty {
@@ -85,7 +96,33 @@ struct NativeMeetingSurface: View {
       } else if controller.usesTileGrid {
         gridView(tiles: tiles)
       } else {
-        sidebarStageView(tiles: tiles)
+        #if os(macOS)
+          // The sources live in the navigation sidebar; the detail column is
+          // the stage alone.
+          tileView(for: Self.featuredTile(in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID))
+            .padding(6)
+        #else
+          sidebarStageView(tiles: tiles)
+        #endif
+      }
+    }
+    .background(.black)
+    .overlay(alignment: .topTrailing) {
+      // A corner self-preview for the grid layout only: the other layouts show
+      // the local camera in the sidebar, and when nobody else is in the
+      // meeting the self view already fills the window.
+      if let localCameraTrack = model.localCameraTrack, !controller.isVideoMuted,
+        !model.tiles.isEmpty, controller.usesTileGrid
+      {
+        LocalVideoSurface(track: localCameraTrack)
+          .frame(width: 132, height: 176)
+          .clipShape(.rect(cornerRadius: 14))
+          .overlay {
+            RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.22))
+          }
+          .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
+          .padding(16)
+          .accessibilityLabel("Your camera")
       }
     }
     .overlay(alignment: .trailing) {
@@ -138,11 +175,11 @@ struct NativeMeetingSurface: View {
   /// local camera on top — beside a stage featuring the pinned tile, a screen
   /// share, or the dominant speaker, in that order of preference.
   private func sidebarStageView(tiles: [NativeMeetingModel.MeetingTile]) -> some View {
-    let featured =
-      tiles.first { $0.id == model.pinnedTileID }
-      ?? tiles.first { $0.stream?.videoType == "desktop" }
-      ?? tiles.first { $0.endpointID != nil && $0.endpointID == model.dominantSpeakerID }
-      ?? tiles[0]
+    let featured = Self.featuredTile(
+      in: tiles,
+      pinned: model.pinnedTileID,
+      dominantSpeakerID: model.dominantSpeakerID
+    )
     return HStack(spacing: 4) {
       if !model.sidebarCollapsed {
         VStack(spacing: 6) {
@@ -251,6 +288,19 @@ struct NativeMeetingSurface: View {
     case ...9: 3
     default: 4
     }
+  }
+
+  /// The tile the stage features: the pinned tile, else a screen share, else
+  /// the dominant speaker, else the first.
+  private static func featuredTile(
+    in tiles: [NativeMeetingModel.MeetingTile],
+    pinned: String?,
+    dominantSpeakerID: String?
+  ) -> NativeMeetingModel.MeetingTile {
+    tiles.first { $0.id == pinned }
+      ?? tiles.first { $0.stream?.videoType == "desktop" }
+      ?? tiles.first { $0.endpointID != nil && $0.endpointID == dominantSpeakerID }
+      ?? tiles[0]
   }
 }
 
