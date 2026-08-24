@@ -43,26 +43,85 @@ struct NativeMeetingSurface: View {
   }
 
   #if os(macOS)
-    /// The native navigation sidebar carries the video sources — the local
-    /// camera on top — with the standard toolbar toggle and resizable divider.
-    /// The detail column is the stage, or the tile grid when toggled.
+    /// The native navigation sidebar merges the participant roster with their
+    /// feeds: one section per person, the name as its header, and a selectable
+    /// thumbnail row per feed beneath. Audio-only participants are just their
+    /// header. Selecting a thumbnail pins it to the stage.
     private var meetingRoot: some View {
       NavigationSplitView(columnVisibility: $columnVisibility) {
-        ScrollView(showsIndicators: false) {
-          LazyVStack(spacing: 8) {
-            selfSidebarTile
-            ForEach(model.tiles) { tile in
-              tileView(for: tile)
-                .frame(height: 104)
-            }
-          }
-          .padding(10)
-        }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 212, max: 300)
+        sidebarRoster
+          .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 320)
       } detail: {
         detailContent
       }
       .navigationSplitViewStyle(.balanced)
+    }
+
+    private var sidebarRoster: some View {
+      List(selection: $model.pinnedTileID) {
+        Section {
+          if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
+            SidebarThumbnail(isPinned: false, videoType: nil) {
+              LocalVideoSurface(track: localCameraTrack)
+            }
+            .accessibilityLabel("Your camera")
+          }
+        } header: {
+          RosterHeader(
+            name: "You",
+            audioMuted: controller.isAudioMuted,
+            handRaised: controller.isHandRaised,
+            isSpeaking: false
+          )
+        }
+
+        ForEach(model.roster) { entry in
+          Section {
+            ForEach(entry.streams) { stream in
+              SidebarThumbnail(
+                isPinned: model.pinnedTileID == stream.id,
+                videoType: stream.videoType
+              ) {
+                NativeVideoSurface(track: stream.track)
+              }
+              .tag(stream.id)
+              .contextMenu { rosterMenu(for: entry, stream: stream) }
+              .accessibilityLabel(Text("\(entry.displayName) video"))
+            }
+          } header: {
+            RosterHeader(
+              name: entry.displayName,
+              audioMuted: entry.audioMuted,
+              handRaised: entry.handRaised,
+              isSpeaking: entry.endpointID != nil
+                && entry.endpointID == model.dominantSpeakerID
+            )
+            .contextMenu { rosterMenu(for: entry, stream: nil) }
+          }
+        }
+      }
+      .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func rosterMenu(for entry: NativeMeetingModel.RosterEntry, stream: RemoteVideoStream?) -> some View {
+      if let stream {
+        if model.pinnedTileID == stream.id {
+          Button("Unpin") { model.pinnedTileID = nil }
+        } else {
+          Button("Pin to stage") { model.pinnedTileID = stream.id }
+        }
+      }
+      if model.isModerator, let endpointID = entry.endpointID,
+        let participant = model.participants.first(where: { $0.id == endpointID })
+      {
+        if !participant.isModerator, participant.realJID != nil {
+          Button("Make moderator") { controller.grantModerator(participant.id) }
+        }
+        Button("Remove from meeting", role: .destructive) {
+          controller.kickParticipant(participant.id)
+        }
+      }
     }
   #else
     private var meetingRoot: some View { detailContent }
@@ -304,6 +363,82 @@ struct NativeMeetingSurface: View {
   }
 }
 
+#if os(macOS)
+  /// A participant's name line in the sidebar, with their live state beside
+  /// it: a speaking indicator while they are the dominant speaker, a raised
+  /// hand, and their microphone state.
+  private struct RosterHeader: View {
+    let name: String
+    let audioMuted: Bool
+    let handRaised: Bool
+    let isSpeaking: Bool
+
+    var body: some View {
+      HStack(spacing: 6) {
+        Text(name)
+          .lineLimit(1)
+          .truncationMode(.tail)
+        if isSpeaking {
+          Image(systemName: "speaker.wave.2.fill")
+            .foregroundStyle(Color.accentColor)
+        }
+        Spacer(minLength: 4)
+        if handRaised {
+          Image(systemName: "hand.raised.fill")
+            .foregroundStyle(.yellow)
+        }
+        if audioMuted {
+          Image(systemName: "mic.slash.fill")
+            .foregroundStyle(.red)
+        }
+      }
+      .font(.subheadline)
+    }
+  }
+
+  /// One feed's thumbnail row under its owner's name.
+  private struct SidebarThumbnail<Surface: View>: View {
+    let isPinned: Bool
+    let videoType: String?
+    @ViewBuilder var surface: Surface
+
+    var body: some View {
+      surface
+        .frame(maxWidth: .infinity)
+        .frame(height: 92)
+        .clipShape(.rect(cornerRadius: 7))
+        .overlay {
+          RoundedRectangle(cornerRadius: 7)
+            .strokeBorder(
+              isPinned ? Color.accentColor : .white.opacity(0.1),
+              lineWidth: isPinned ? 2 : 1
+            )
+        }
+        .overlay(alignment: .topTrailing) {
+          HStack(spacing: 4) {
+            if videoType == "desktop" {
+              Image(systemName: "rectangle.inset.filled.and.person.filled")
+                .font(.caption2)
+            }
+            if isPinned {
+              Image(systemName: "pin.fill")
+                .font(.caption2)
+            }
+          }
+          .padding(4)
+          .background(
+            videoType == "desktop" || isPinned
+              ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear),
+            in: .capsule
+          )
+          .foregroundStyle(.white)
+          .padding(5)
+        }
+        .padding(.vertical, 2)
+    }
+  }
+#endif
+
 /// The in-meeting group chat, in the zephyr style: an avatar and a bold
 /// sender name head each run of consecutive messages from one person, with
 /// the messages stacked beneath.
@@ -544,6 +679,47 @@ final class NativeMeetingModel: ObservableObject {
   #if os(iOS)
     @Published var showsBroadcastPicker = false
   #endif
+
+  /// One sidebar section: a participant and whatever they're sending. A
+  /// stream whose owner is not (yet) known from presence gets its own entry.
+  struct RosterEntry: Identifiable {
+    let id: String
+    let displayName: String
+    let audioMuted: Bool
+    let handRaised: Bool
+    let endpointID: String?
+    let streams: [RemoteVideoStream]
+  }
+
+  /// The participant roster in join order, each with their feeds.
+  var roster: [RosterEntry] {
+    var placedStreamIDs: Set<String> = []
+    var entries = participants.map { participant -> RosterEntry in
+      let owned = streams.filter { $0.endpointID == participant.id }
+      owned.forEach { placedStreamIDs.insert($0.id) }
+      return RosterEntry(
+        id: participant.id,
+        displayName: participant.displayName,
+        audioMuted: participant.audioMuted,
+        handRaised: participant.handRaised,
+        endpointID: participant.id,
+        streams: owned
+      )
+    }
+    for stream in streams where !placedStreamIDs.contains(stream.id) {
+      entries.append(
+        RosterEntry(
+          id: "stream-\(stream.id)",
+          displayName: stream.sourceName ?? stream.endpointID ?? "Participant",
+          audioMuted: false,
+          handRaised: false,
+          endpointID: stream.endpointID,
+          streams: [stream]
+        )
+      )
+    }
+    return entries
+  }
 
   /// The grid contents: every participant in join order — with a tile per
   /// video source for someone sending both camera and screen share — plus any
