@@ -1,0 +1,99 @@
+name: Gafsaf
+options:
+  bundleIdPrefix: com.twarge
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+  developmentLanguage: en
+  xcodeVersion: "27.0"
+
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: 257KW9ZJFP
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+    MARKETING_VERSION: 0.1.0
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_VERSION: 6.0
+
+packages:
+  JitsiNativeCore:
+    path: ../packages/JitsiNativeCore
+  JitsiMeetSDK:
+    url: https://github.com/jitsi/jitsi-meet-ios-sdk-releases.git
+    exactVersion: 13.1.1
+
+targets:
+  Gafsaf-macOS:
+    type: application
+    platform: macOS
+    productName: Gafsaf
+    sources:
+      - path: Gafsaf/Sources
+      - path: Gafsaf/Assets.xcassets
+    dependencies:
+      - package: JitsiNativeCore
+        product: JitsiNativeCore
+      - package: JitsiNativeCore
+        product: JitsiMedia
+      - package: JitsiNativeCore
+        product: JitsiConference
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_ENTITLEMENTS: Gafsaf/GafsafMac.entitlements
+        INFOPLIST_FILE: Gafsaf/Info-macOS.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf
+        PRODUCT_NAME: Gafsaf
+    scheme:
+      gatherCoverageData: false
+
+  Gafsaf-iOS:
+    type: application
+    platform: iOS
+    productName: Gafsaf
+    sources:
+      - path: Gafsaf/Sources
+      - path: Gafsaf/Assets.xcassets
+    dependencies:
+      - package: JitsiNativeCore
+        product: JitsiNativeCore
+      - package: JitsiNativeCore
+        product: JitsiMedia
+      - package: JitsiNativeCore
+        product: JitsiConference
+      - package: JitsiMeetSDK
+      - target: GafsafBroadcastExtension
+        embed: true
+    settings:
+      base:
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
+        CODE_SIGN_ENTITLEMENTS: Gafsaf/GafsafIOS.entitlements
+        ENABLE_BITCODE: NO
+        INFOPLIST_FILE: Gafsaf/Info-iOS.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf
+        PRODUCT_NAME: Gafsaf
+        TARGETED_DEVICE_FAMILY: "1,2"
+    scheme:
+      gatherCoverageData: false
+
+  GafsafBroadcastExtension:
+    type: app-extension
+    platform: iOS
+    productName: GafsafBroadcastExtension
+    sources:
+      - path: GafsafBroadcastExtension
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: GafsafBroadcastExtension/GafsafBroadcastExtension.entitlements
+        INFOPLIST_FILE: GafsafBroadcastExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.gafsaf.broadcast
+        PRODUCT_NAME: GafsafBroadcastExtension
+        SKIP_INSTALL: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        SWIFT_EMIT_LOC_STRINGS: YES
+    scheme:
+      gatherCoverageData: false

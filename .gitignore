@@ -1,0 +1,8 @@
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+apps/Gafsaf.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+.build/

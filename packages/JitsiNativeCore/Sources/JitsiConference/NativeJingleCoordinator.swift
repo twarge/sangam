@@ -1,0 +1,1417 @@
+import Foundation
+import JitsiBridge
+import JitsiConcurrency
+import JitsiJingle
+import JitsiMedia
+import JitsiXMPP
+
+public struct NativeJingleConfiguration: Equatable, Sendable {
+  public var responderJID: String
+  public var occupantJID: String
+  /// Shown to moderators while this client waits in, or watches, a lobby.
+  public var displayName: String
+  public var streamID: String
+  public var audioTrackID: String
+  public var cameraTrackID: String
+  public var audioSourceName: String
+  public var cameraSourceName: String
+  public var screenSourceName: String
+
+  /// The meeting room's bare address, derived from `occupantJID`.
+  public var roomJID: String { XMPPJID.bare(occupantJID) }
+  /// This client's nickname in the meeting room, derived from `occupantJID`.
+  public var nickname: String { XMPPJID.resource(occupantJID) ?? "" }
+
+  public init(
+    responderJID: String,
+    occupantJID: String,
+    displayName: String = "",
+    streamID: String = UUID().uuidString.lowercased(),
+    audioTrackID: String = "native-audio-0",
+    cameraTrackID: String = "native-video-0",
+    audioSourceName: String = "native-a0",
+    cameraSourceName: String = "native-v0",
+    screenSourceName: String = "native-v1"
+  ) {
+    self.responderJID = responderJID
+    self.occupantJID = occupantJID
+    self.displayName = displayName
+    self.streamID = streamID
+    self.audioTrackID = audioTrackID
+    self.cameraTrackID = cameraTrackID
+    self.audioSourceName = audioSourceName
+    self.cameraSourceName = cameraSourceName
+    self.screenSourceName = screenSourceName
+  }
+}
+
+/// A remote video source with its rendering track, as shown in a tile.
+public struct RemoteVideoStream: Identifiable, Sendable {
+  /// The WebRTC track id, which for a signaled source is the track part of its
+  /// msid — the stable handle both signaling and media agree on.
+  public var id: String { track.id }
+  public var track: RemoteVideoTrack
+  /// The Jitsi source name ("abcd1234-v0"), when the source was signaled.
+  public var sourceName: String?
+  /// The owning participant's endpoint id, from the source's owner or the
+  /// source-name prefix.
+  public var endpointID: String?
+  /// "camera" or "desktop".
+  public var videoType: String?
+  /// The videobridge's own mixed placeholder source (jvb-v0), which never
+  /// carries real video and is not shown as a participant.
+  public var isBridgePlaceholder: Bool
+}
+
+/// A remote participant in the meeting room, tracked from MUC presence.
+public struct RemoteParticipant: Identifiable, Equatable, Sendable {
+  /// The endpoint id — the participant's MUC nickname.
+  public var id: String
+  public var displayName: String
+  public var audioMuted: Bool
+  public var videoMuted: Bool
+  public var isModerator: Bool
+  public var handRaised: Bool
+  /// The occupant's real XMPP address, disclosed by the room to moderators;
+  /// granting moderator rights needs it.
+  public var realJID: String?
+}
+
+/// A group chat message in the meeting.
+public struct ChatMessage: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var senderEndpointID: String
+  public var senderDisplayName: String
+  public var text: String
+  public var isLocal: Bool
+  public var timestamp: Date
+}
+
+public enum NativeJingleEvent: Sendable {
+  case negotiating(sessionID: String)
+  case connected(sessionID: String)
+  case peerConnectionState(NativePeerConnectionState)
+  case remoteVideoTrackAdded(RemoteVideoStream)
+  case remoteVideoTrackRemoved(id: String)
+  /// The media session ended. Like the reference client, this does NOT end the
+  /// conference: the client stays in the room — Jicofo tears the session down
+  /// whenever fewer than two participants remain and re-invites when someone
+  /// joins again.
+  case remoteSessionEnded(reason: String?)
+  /// The other people in the meeting room changed — someone joined, left, or
+  /// updated their presence (name, mute state, role).
+  case participantsChanged([RemoteParticipant])
+  /// The bridge's dominant-speaker notification (`nil` for silence).
+  case dominantSpeakerChanged(endpointID: String?)
+  /// This client gained or lost moderator status — granted by the room when
+  /// the previous moderator leaves, among other ways.
+  case moderatorStatusChanged(Bool)
+  /// A group chat message arrived (or the local one was sent).
+  case chatMessageReceived(ChatMessage)
+  /// Someone sent emoji reactions; `endpointID` is `nil` for our own, echoed
+  /// back so the sender's UI shows them too.
+  case reactionsReceived(endpointID: String?, reactions: [String])
+  /// A remote source switched between camera and desktop mid-call.
+  case remoteSourceVideoTypeChanged(sourceName: String, videoType: String)
+  case screenSharingChanged(Bool)
+  case unsupportedAction(JingleAction)
+  case warning(message: String)
+  /// An opt-in bring-up trace, distinct from `warning`: it reports what the
+  /// signaling path is doing (incoming actions, bridge-channel state, receiver
+  /// constraints) without implying anything is wrong. The app logs it only when
+  /// `GAFSAF_LOG` is set.
+  case diagnostic(message: String)
+  case failed(message: String)
+  /// The meeting's lobby was switched on or off. Only reported to moderators,
+  /// who are the only ones the room tells.
+  case lobbyEnabledChanged(Bool)
+  /// Who is waiting in the lobby right now, for a moderator to admit or deny.
+  case lobbyKnockersChanged([LobbyKnocker])
+}
+
+/// Someone waiting in the meeting's lobby to be let in.
+public struct LobbyKnocker: Identifiable, Equatable, Sendable {
+  /// The knocker's nickname in the lobby room; the handle `admit`/`deny` take.
+  public var id: String
+  public var displayName: String
+
+  public init(id: String, displayName: String) {
+    self.id = id
+    self.displayName = displayName
+  }
+}
+
+public actor NativeJingleCoordinator {
+  public nonisolated let events: AsyncStream<NativeJingleEvent>
+  public nonisolated let screenVideoTrack: LocalVideoTrack
+  /// The local camera track, exposed so the app can render a self-preview.
+  /// It is the same track published to the conference, so the preview shows
+  /// exactly what other participants receive.
+  public nonisolated let cameraVideoTrack: LocalVideoTrack
+
+  private let connection: XMPPConnection
+  private let configuration: NativeJingleConfiguration
+  private let mediaFactory: WebRTCMediaFactory
+  private let policy: PeerConnectionPolicy
+  // Rebuilt when Jicofo replaces the Jingle session, so neither is `let`.
+  private var eventBridge: PeerConnectionEventBridge
+  private var peerConnection: PeerConnectionNegotiator
+
+  /// Session setup, remote source updates, and local screen publication each
+  /// read the installed remote SDP and then derive a new one from it. Actor
+  /// isolation does not keep those two steps together, because every `await`
+  /// inside them releases this actor and lets the receive loop or a toolbar
+  /// action start its own negotiation. Routing all three through one queue
+  /// makes each read-modify-write atomic with respect to the others.
+  private let negotiations = SerialTaskQueue()
+  private let audioTrack: LocalAudioTrack
+  private let cameraTrack: LocalCameraTrack
+  private let continuation: AsyncStream<NativeJingleEvent>.Continuation
+  private var receiveTask: Task<Void, Never>?
+  private var mediaTask: Task<Void, Never>?
+  private var activeOffer: IncomingJingleIQ?
+  private var localICECredentials: ICECredentials?
+  /// The id of the session-accept awaiting Jicofo's answer. Jicofo rejecting
+  /// the accept means no media can ever flow on this session, and the
+  /// reference client treats that as fatal — silently ignoring the error IQ
+  /// leaves an apparently joined meeting with a black screen and no clue why.
+  private var pendingAcceptID: String?
+  private var cameraStarted = false
+  private var microphoneMuted = false
+  private var cameraEnabled = true
+  /// Epoch milliseconds of when the local hand went up; rides on every
+  /// presence update while set.
+  private var raisedHandTimestamp: String?
+  private var screenEnabled = false
+  private var screenPublished = false
+  private var outgoingSequence: UInt64 = 0
+
+  // Local ICE candidates gather the moment the local description is installed,
+  // which is before `accept` captures our ICE credentials. A candidate sent
+  // without them wipes the bridge's copy and breaks every connectivity check,
+  // so candidates that arrive early are held here and flushed once credentials
+  // exist. Dropping them instead can leave ICE stuck in `checking` with no
+  // local candidates ever reaching the bridge.
+  private var pendingLocalCandidates: [NativeICECandidate] = []
+  /// Colibri bridge channel for the current session; the videobridge only
+  /// forwards remote video after we send it receiver constraints over this.
+  private var bridgeChannel: BridgeChannel?
+  /// The remote video source names the bridge knows (e.g. "abcd-v0"). The
+  /// videobridge forwards a video source only once we ask for it by name in
+  /// receiver constraints, so these are named there.
+  private var remoteVideoSourceNames: [String] = []
+  /// Remote video source descriptions keyed by track id (the msid's track
+  /// part), so a WebRTC track can be attributed to its participant.
+  private var videoSourceByTrackID: [String: RemoteVideoSourceInfo] = [:]
+  /// The other occupants of the meeting room, keyed by endpoint id, plus their
+  /// join order for a stable tile layout.
+  private var participants: [String: RemoteParticipant] = [:]
+  private var participantOrder: [String] = []
+  /// Set when Jicofo tore the media session down (fewer than two participants
+  /// remain, say). The client stays in the room, and the next session-initiate
+  /// must rebuild the peer connection instead of reusing the closed one.
+  private var sessionEnded = false
+
+  private struct RemoteVideoSourceInfo {
+    var name: String?
+    var owner: String?
+    var videoType: String?
+    var isBridgePlaceholder: Bool
+  }
+
+  // Lobby moderation. The room only tells moderators where its lobby is, and
+  // only they can see who is waiting, so all of this stays idle for everyone
+  // else.
+  private var isModerator = false
+  private var lobbyRoomJID: String?
+  private var lobbyJoinRequested = false
+  private var lobbyJoined = false
+  private var lobbyOccupants: [String: LobbyOccupant] = [:]
+  private var roomInfoRefresh: Task<Void, Never>?
+  /// IQ requests awaiting their answer, keyed by stanza id. The receive loop
+  /// owns the transport once it runs, so requests made after `start()` cannot
+  /// read the socket themselves; the loop hands matching answers over here.
+  private var pendingRequests: [String: CheckedContinuation<XMPPElement, any Error>] = [:]
+
+  private struct LobbyOccupant {
+    var knocker: LobbyKnocker
+    var realJID: String?
+  }
+
+  public init(
+    connection: XMPPConnection,
+    configuration: NativeJingleConfiguration,
+    policy: PeerConnectionPolicy = .init(),
+    mediaFactory: WebRTCMediaFactory = .init()
+  ) throws {
+    let bridge = PeerConnectionEventBridge()
+    let nativeConnection = try mediaFactory.makePeerConnection(policy: policy, delegate: bridge)
+    let stream = AsyncStream<NativeJingleEvent>.makeStream(
+      bufferingPolicy: .bufferingNewest(256)
+    )
+    self.connection = connection
+    self.configuration = configuration
+    self.mediaFactory = mediaFactory
+    self.policy = policy
+    eventBridge = bridge
+    peerConnection = PeerConnectionNegotiator(connection: nativeConnection)
+    audioTrack = mediaFactory.makeLocalAudioTrack(id: configuration.audioTrackID)
+    let camera = mediaFactory.makeCameraTrack(id: configuration.cameraTrackID)
+    cameraTrack = camera
+    cameraVideoTrack = camera.videoTrack
+    screenVideoTrack = mediaFactory.makeVideoTrack(id: "native-desktop-0", screenCast: true)
+    events = stream.stream
+    continuation = stream.continuation
+  }
+
+  deinit {
+    continuation.finish()
+  }
+
+  public func start() {
+    guard receiveTask == nil, mediaTask == nil else { return }
+    receiveTask = Task { [weak self] in await self?.runReceiveLoop() }
+    mediaTask = Task { [weak self] in await self?.runMediaLoop() }
+  }
+
+  public func startCamera(
+    position: CameraPosition = .front,
+    width: Int32 = 1_280,
+    height: Int32 = 720,
+    framesPerSecond: Int = 30
+  ) async throws {
+    guard !cameraStarted else { return }
+    try await cameraTrack.start(
+      position: position,
+      width: width,
+      height: height,
+      framesPerSecond: framesPerSecond
+    )
+    cameraStarted = true
+  }
+
+  public func setMicrophoneMuted(_ muted: Bool) async {
+    microphoneMuted = muted
+    audioTrack.isMuted = muted
+    await sendSourcePresence()
+  }
+
+  public func setCameraEnabled(_ enabled: Bool) async {
+    cameraEnabled = enabled
+    cameraTrack.videoTrack.isEnabled = enabled
+    await sendSourcePresence()
+  }
+
+  /// Raises or lowers the local hand, signalled as Jitsi's
+  /// `jitsi_participant_raisedHand` presence property.
+  public func setHandRaised(_ raised: Bool) async {
+    raisedHandTimestamp =
+      raised ? String(Int(Date().timeIntervalSince1970 * 1000)) : nil
+    await sendSourcePresence()
+  }
+
+  /// Sends a group chat message to the meeting and reports it back as a local
+  /// `chatMessageReceived`, so the sender's own transcript needs no separate
+  /// bookkeeping.
+  public func sendChatMessage(_ text: String) async throws {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    let id = nextID(prefix: "chat")
+    try await connection.send(
+      XMPPElement(
+        name: "message",
+        attributes: ["id": id, "to": configuration.roomJID, "type": "groupchat"],
+        children: [XMPPElement(name: "body", text: trimmed)]
+      )
+    )
+    emit(
+      .chatMessageReceived(
+        ChatMessage(
+          id: id,
+          senderEndpointID: configuration.nickname,
+          senderDisplayName: configuration.displayName.isEmpty
+            ? "You" : configuration.displayName,
+          text: trimmed,
+          isLocal: true,
+          timestamp: Date()
+        )
+      )
+    )
+  }
+
+  /// Broadcasts an emoji reaction the way the web app does — an endpoint
+  /// message over the bridge channel. Best effort: without a bridge channel
+  /// there is nobody to see it anyway.
+  public func sendReaction(_ name: String) async {
+    if let bridgeChannel,
+      let data = try? ReactionEndpointMessage(
+        reactions: [name],
+        timestampMilliseconds: Int(Date().timeIntervalSince1970 * 1000)
+      ).encoded()
+    {
+      try? await bridgeChannel.send(raw: data)
+    }
+    emit(.reactionsReceived(endpointID: nil, reactions: [name]))
+  }
+
+  /// Removes a participant from the meeting. Only moderators can.
+  public func kickParticipant(id: String) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard participants[id] != nil else {
+      throw NativeJingleCoordinatorError.unknownParticipant
+    }
+    let requestID = nextID(prefix: "kick")
+    _ = try await request(
+      MUCKickRequest(
+        id: requestID,
+        roomJID: configuration.roomJID,
+        nickname: id,
+        reason: "Removed by the host"
+      ).element(),
+      id: requestID
+    )
+  }
+
+  /// Makes a participant a moderator (room owner, as the web app grants it).
+  /// The affiliation change addresses the occupant's real JID, which the room
+  /// only discloses to moderators.
+  public func grantModerator(id: String) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let participant = participants[id] else {
+      throw NativeJingleCoordinatorError.unknownParticipant
+    }
+    guard let jid = participant.realJID else {
+      throw NativeJingleCoordinatorError.participantAddressUnknown
+    }
+    let requestID = nextID(prefix: "grant")
+    _ = try await request(
+      MUCAffiliationRequest(
+        id: requestID,
+        roomJID: configuration.roomJID,
+        jid: jid,
+        affiliation: "owner"
+      ).element(),
+      id: requestID
+    )
+  }
+
+  /// A concise one-line summary of current media flow, for the opt-in
+  /// `GAFSAF_LOG` bring-up log.
+  public func mediaStatsSummary() async -> String {
+    await peerConnection.videoStatsSummary()
+  }
+
+  /// The number of remote ICE candidates WebRTC has accepted. Exposed for tests
+  /// that verify the bridge's inline session-initiate candidates were ingested.
+  public func remoteCandidateCount() async -> Int {
+    await peerConnection.remoteCandidateCount()
+  }
+
+  public func setScreenFramesEnabled(_ enabled: Bool) {
+    screenEnabled = enabled
+    screenVideoTrack.isEnabled = enabled
+    if screenPublished { emit(.screenSharingChanged(enabled)) }
+  }
+
+  /// Publishes the first desktop source. Once allocated, its sender is retained
+  /// and subsequent stop/start operations only disable or enable its frames.
+  public func publishScreen() async throws {
+    screenEnabled = true
+    screenVideoTrack.isEnabled = true
+    try await negotiations.run { try await self.performPublishScreen() }
+    emit(.screenSharingChanged(true))
+    await sendSourcePresence()
+  }
+
+  private func performPublishScreen() async throws {
+    if screenPublished { return }
+    guard let activeOffer, let remoteSDP = await peerConnection.currentRemoteSDP() else {
+      throw NativeJingleCoordinatorError.sessionNotReady
+    }
+    let addition = try JitsiMultistreamSDP().addingLocalSourceMedia(to: remoteSDP)
+    let negotiation = try await peerConnection.addLocalVideoSource(
+      screenVideoTrack,
+      streamID: configuration.streamID,
+      mid: addition.mid,
+      expandedRemoteOfferSDP: addition.sdp
+    )
+    let content = try JitsiMultistreamSDP().sourceContent(
+      from: negotiation.localSDP,
+      mid: addition.mid,
+      metadata: LocalSourceMetadata(
+        name: configuration.screenSourceName,
+        videoType: "desktop"
+      )
+    )
+    let update = JingleIQBuilder().sourceUpdate(
+      action: .sourceAdd,
+      sessionID: activeOffer.session.sessionID,
+      content: content,
+      initiator: activeOffer.session.initiator ?? activeOffer.sender,
+      to: activeOffer.sender,
+      from: configuration.responderJID,
+      id: nextID(prefix: "source-add")
+    )
+    try await connection.send(update)
+    screenPublished = true
+  }
+
+  public func stopScreen() async {
+    screenEnabled = false
+    screenVideoTrack.isEnabled = false
+    emit(.screenSharingChanged(false))
+    await sendSourcePresence()
+  }
+
+  /// Hands over the room's answer to this client's own join presence, which
+  /// the join consumed before the receive loop started. Moderator status
+  /// comes from it; later changes arrive through the loop.
+  public func noteLocalPresence(_ presence: MUCParticipantPresence) {
+    updateLocalRole(presence)
+  }
+
+  /// Lets a lobby participant into the meeting. Only moderators can; the room
+  /// refuses the invitation from anyone else.
+  public func admitLobbyParticipant(id: String) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let occupant = lobbyOccupants[id] else {
+      throw NativeJingleCoordinatorError.unknownLobbyParticipant
+    }
+    guard let jid = occupant.realJID else {
+      throw NativeJingleCoordinatorError.lobbyParticipantAddressUnknown
+    }
+    try await connection.send(
+      MUCInviteMessage(roomJID: configuration.roomJID, inviteeJIDs: [jid]).element()
+    )
+  }
+
+  /// Turns a lobby participant away. They see it as a refusal; the lobby
+  /// tells the meeting room, which moderators may show as a notification.
+  public func denyLobbyParticipant(id: String) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let lobbyRoomJID, lobbyOccupants[id] != nil else {
+      throw NativeJingleCoordinatorError.unknownLobbyParticipant
+    }
+    let requestID = nextID(prefix: "lobby-deny")
+    _ = try await request(
+      MUCKickRequest(
+        id: requestID,
+        roomJID: lobbyRoomJID,
+        nickname: id,
+        reason: "The host did not admit you."
+      ).element(),
+      id: requestID
+    )
+  }
+
+  public func stop() async {
+    receiveTask?.cancel()
+    mediaTask?.cancel()
+    roomInfoRefresh?.cancel()
+    receiveTask = nil
+    mediaTask = nil
+    roomInfoRefresh = nil
+    failPendingRequests(with: CancellationError())
+    if cameraStarted {
+      await cameraTrack.stop()
+      cameraStarted = false
+    }
+    await negotiations.drain()
+    await peerConnection.close()
+    await bridgeChannel?.close()
+    bridgeChannel = nil
+    await connection.disconnect()
+    activeOffer = nil
+    localICECredentials = nil
+    pendingAcceptID = nil
+    screenPublished = false
+    sessionEnded = false
+    pendingLocalCandidates.removeAll()
+    videoSourceByTrackID.removeAll()
+    participants.removeAll()
+    participantOrder.removeAll()
+    lobbyRoomJID = nil
+    lobbyJoinRequested = false
+    lobbyJoined = false
+    lobbyOccupants.removeAll()
+  }
+
+  private func runReceiveLoop() async {
+    defer {
+      // Nothing answers once the loop stops; a request left waiting would
+      // otherwise hang until its timeout.
+      failPendingRequests(with: XMPPConnectionError.notReady)
+    }
+    while !Task.isCancelled {
+      let element: XMPPElement
+      do {
+        element = try await connection.nextElement()
+      } catch is CancellationError {
+        return
+      } catch {
+        // Nothing further will arrive on a transport that cannot be read.
+        emit(.failed(message: error.localizedDescription))
+        return
+      }
+
+      do {
+        try await handle(element)
+      } catch is CancellationError {
+        return
+      } catch let error as FatalSignalingError {
+        emit(.failed(message: error.underlying.localizedDescription))
+        return
+      } catch {
+        // One stanza could not be processed. The conference itself is still
+        // live, so report it and keep reading instead of hanging up on
+        // everyone because a single message was unusable.
+        emit(
+          .warning(
+            message: "Ignored a conference message that could not be processed: "
+              + error.localizedDescription
+          )
+        )
+      }
+    }
+  }
+
+  private func handle(_ element: XMPPElement) async throws {
+    if let response = XMPPClientCapabilities.jitsiNative.response(to: element) {
+      try await connection.send(response)
+      return
+    }
+    switch element.name {
+    case "iq":
+      try await handleIQ(element)
+    case "presence":
+      handlePresence(element)
+    case "message":
+      handleMessage(element)
+    default:
+      break
+    }
+  }
+
+  private func handleIQ(_ element: XMPPElement) async throws {
+    let type = element[attribute: "type"]
+    if let id = element[attribute: "id"], id == pendingAcceptID,
+      type == "result" || type == "error"
+    {
+      pendingAcceptID = nil
+      if type == "error" {
+        let error = element.child(named: "error")
+        let condition = error?.children.first(where: { $0.name != "text" })?.name ?? "unknown error"
+        // Jicofo's <text> names the exact objection; without it "bad-request"
+        // is undebuggable.
+        let text = (error?.child(named: "text")?.text).flatMap { $0.isEmpty ? nil : $0 }
+        let detail = text.map { " — \($0)" } ?? ""
+        emit(.failed(message: "The conference rejected the session answer (\(condition)\(detail))."))
+      } else {
+        emit(.diagnostic(message: "session-accept acknowledged"))
+      }
+      return
+    }
+    if let id = element[attribute: "id"], pendingRequests[id] != nil,
+      type == "result" || type == "error"
+    {
+      if type == "error" {
+        let error = element.child(named: "error")
+        resolveRequest(
+          id: id,
+          with: .failure(
+            XMPPConnectionError.iqError(
+              id: id,
+              condition: error?.children.first(where: { $0.name != "text" })?.name,
+              text: error?.child(named: "text")?.text
+            )
+          )
+        )
+      } else {
+        resolveRequest(id: id, with: .success(element))
+      }
+      return
+    }
+    guard type == "set" else { return }
+    guard element.child(named: "jingle", namespace: JingleParser.jingleNamespace) != nil else {
+      return
+    }
+    let incoming = try IncomingJingleIQ(element: element)
+    try await connection.send(incoming.acknowledgment())
+
+    emit(
+      .diagnostic(
+        message: "jingle in: \(incoming.session.action.rawValue) "
+          + "focus=\(isFocus(incoming.sender)) "
+          + "video=\(remoteVideoSourceNames(in: incoming.session))"))
+
+    // Only the room focus (Jicofo) drives the bridge session this client runs.
+    // A session-initiate from any other occupant is a peer's peer-to-peer
+    // offer, declined below because answering it hands the peer an SDP it
+    // cannot apply and takes its conference down. Every *other* Jingle action
+    // from a non-focus sender — its trickled ICE candidates, its terminate —
+    // belongs to that same unsupported session and must be ignored: applying a
+    // peer's candidate to the bridge connection fails ("Error processing ICE
+    // candidate"), and honouring a peer's terminate would close the bridge
+    // session outright.
+    guard isFocus(incoming.sender) else {
+      if incoming.session.action == .sessionInitiate {
+        await declineForeignSession(incoming)
+      }
+      return
+    }
+
+    switch incoming.session.action {
+    case .sessionInitiate:
+      if let activeOffer, activeOffer.session.sessionID == incoming.session.sessionID {
+        // A duplicate of the session already accepted; the acknowledgement sent
+        // above is all Jicofo is waiting for.
+        break
+      }
+      // A second initiate with a new id is Jicofo replacing the session — a
+      // bridge reselect or ICE restart, common right after joining a meeting
+      // that is already live — or a re-invite after the previous session was
+      // torn down because this client was alone in the room. Either way the
+      // closed or mid-negotiation peer connection cannot answer the new offer;
+      // rebuild and answer it fresh, as lib-jitsi-meet does.
+      //
+      // Without an accepted session there is no media at all, so a failure here
+      // is the one signaling error the conference cannot continue past.
+      let needsFreshConnection = activeOffer != nil || sessionEnded
+      do {
+        try await negotiations.run {
+          if needsFreshConnection { try await self.resetForNewSession() }
+          try await self.accept(incoming)
+        }
+        sessionEnded = false
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        throw FatalSignalingError(underlying: error)
+      }
+    case .transportInfo:
+      try await addRemoteCandidates(incoming.session)
+    case .sessionTerminate:
+      let reason = element.child(named: "jingle", namespace: JingleParser.jingleNamespace)?
+        .child(named: "reason", namespace: JingleParser.jingleNamespace)?
+        .children.first?.name
+      emit(.remoteSessionEnded(reason: reason))
+      await negotiations.drain()
+      await peerConnection.close()
+      await bridgeChannel?.close()
+      bridgeChannel = nil
+      activeOffer = nil
+      videoSourceByTrackID.removeAll()
+      remoteVideoSourceNames.removeAll()
+      // The conference goes on: stay in the room and expect a fresh
+      // session-initiate once there are two participants again.
+      sessionEnded = true
+    case .sourceAdd, .sourceRemove:
+      let session = incoming.session
+      try await negotiations.run { try await self.applyRemoteSourceUpdate(session) }
+    case .contentAdd, .contentRemove:
+      emit(.unsupportedAction(incoming.session.action))
+    case .sessionAccept, .transportReplace, .transportAccept:
+      emit(.unsupportedAction(incoming.session.action))
+    }
+  }
+
+  private func handlePresence(_ element: XMPPElement) {
+    guard let from = element[attribute: "from"] else { return }
+    if let lobbyRoomJID, XMPPJID.matches(XMPPJID.bare(from), lobbyRoomJID) {
+      handleLobbyPresence(element)
+    } else if XMPPJID.matches(from, configuration.occupantJID),
+      let presence = try? MUCParticipantPresence(element: element)
+    {
+      updateLocalRole(presence)
+    } else if XMPPJID.matches(XMPPJID.bare(from), configuration.roomJID),
+      let presence = try? MUCParticipantPresence(element: element)
+    {
+      updateParticipant(presence)
+    }
+  }
+
+  /// Tracks the other occupants of the meeting room. The focus (Jicofo joins
+  /// under the reserved nickname "focus") is infrastructure, not a
+  /// participant; our own presence goes through `updateLocalRole`.
+  private func updateParticipant(_ presence: MUCParticipantPresence) {
+    guard presence.endpointID != "focus", !presence.isSelf else { return }
+    let before = participants
+    if presence.isAvailable {
+      // Mute states arrive both as legacy elements and per-source SourceInfo;
+      // take whichever the sender provided.
+      let audioMuted =
+        presence.audioMuted
+        ?? presence.sources.first(where: { $0.kind == "audio" })?.muted
+      let videoMuted =
+        presence.videoMuted
+        ?? presence.sources.first(where: { $0.kind == "video" })?.muted
+      if participants[presence.endpointID] == nil {
+        participantOrder.append(presence.endpointID)
+      }
+      participants[presence.endpointID] = RemoteParticipant(
+        id: presence.endpointID,
+        displayName: presence.displayName.flatMap { $0.isEmpty ? nil : $0 }
+          ?? presence.endpointID,
+        audioMuted: audioMuted ?? false,
+        videoMuted: videoMuted ?? false,
+        isModerator: presence.isModerator,
+        handRaised: presence.raisedHandTimestamp != nil,
+        realJID: presence.realJID ?? participants[presence.endpointID]?.realJID
+      )
+    } else {
+      participants.removeValue(forKey: presence.endpointID)
+      participantOrder.removeAll { $0 == presence.endpointID }
+    }
+    if participants != before {
+      emit(.participantsChanged(participantOrder.compactMap { participants[$0] }))
+    }
+  }
+
+  private func handleMessage(_ element: XMPPElement) {
+    guard
+      let from = element[attribute: "from"],
+      XMPPJID.matches(XMPPJID.bare(from), configuration.roomJID)
+    else { return }
+    // Group chat. The room reflects our own message back; that echo is
+    // skipped because sending already reported the message locally.
+    if element[attribute: "type"] == "groupchat",
+      let body = element.child(named: "body")?.text.prefix(4_096),
+      !body.isEmpty,
+      let sender = XMPPJID.resource(from),
+      sender != configuration.nickname
+    {
+      emit(
+        .chatMessageReceived(
+          ChatMessage(
+            id: element[attribute: "id"] ?? UUID().uuidString,
+            senderEndpointID: sender,
+            senderDisplayName: participants[sender]?.displayName ?? sender,
+            text: String(body),
+            isLocal: false,
+            timestamp: Date()
+          )
+        )
+      )
+    }
+    // The room says only that *something* about its configuration changed;
+    // whether the lobby is among it takes another look at the room.
+    if isModerator, MUCRoomNotice.isConfigurationChange(element) {
+      scheduleRoomInfoRefresh()
+    }
+  }
+
+  private func updateLocalRole(_ presence: MUCParticipantPresence) {
+    let moderator = presence.isAvailable && presence.isModerator
+    guard moderator != isModerator else { return }
+    isModerator = moderator
+    emit(.moderatorStatusChanged(moderator))
+    if moderator {
+      scheduleRoomInfoRefresh()
+    } else {
+      forgetLobby()
+    }
+  }
+
+  private func scheduleRoomInfoRefresh() {
+    roomInfoRefresh = Task { [weak self] in await self?.refreshRoomInfo() }
+  }
+
+  private func refreshRoomInfo() async {
+    let id = nextID(prefix: "roominfo")
+    do {
+      let response = try await request(
+        MUCRoomInfoRequest(id: id, roomJID: configuration.roomJID).element(),
+        id: id
+      )
+      try await apply(roomInfo: MUCRoomInfo(element: response))
+    } catch is CancellationError {
+      return
+    } catch {
+      emit(
+        .warning(
+          message: "Could not read the meeting's lobby settings: \(error.localizedDescription)"
+        )
+      )
+    }
+  }
+
+  private func apply(roomInfo: MUCRoomInfo) async throws {
+    let lobby = roomInfo.activeLobbyRoomJID
+    if let current = lobbyRoomJID, lobby.map({ XMPPJID.matches($0, current) }) != true {
+      if lobbyJoined {
+        try? await connection.send(
+          MUCLeavePresence(occupantJID: "\(current)/\(configuration.nickname)").element()
+        )
+      }
+      forgetLobby()
+    }
+    guard let lobby else { return }
+    if lobbyRoomJID == nil {
+      lobbyRoomJID = lobby
+      emit(.lobbyEnabledChanged(true))
+    }
+    guard isModerator, !lobbyJoinRequested else { return }
+    // Moderators sit in the lobby room too: that is how the room shows them
+    // who is waiting, and the room hides everyone else from each other.
+    lobbyJoinRequested = true
+    try await connection.send(
+      LobbyJoinPresence(
+        lobbyRoomJID: lobby,
+        nickname: configuration.nickname,
+        displayName: configuration.displayName
+      ).element()
+    )
+  }
+
+  private func forgetLobby() {
+    let wasEnabled = lobbyRoomJID != nil
+    lobbyRoomJID = nil
+    lobbyJoinRequested = false
+    lobbyJoined = false
+    if !lobbyOccupants.isEmpty {
+      lobbyOccupants.removeAll()
+      emit(.lobbyKnockersChanged([]))
+    }
+    if wasEnabled { emit(.lobbyEnabledChanged(false)) }
+  }
+
+  private func handleLobbyPresence(_ element: XMPPElement) {
+    if let refusal = MUCJoinError(element: element) {
+      // Leave room for another attempt on the next configuration change; a
+      // lobby room that does not exist yet is the usual reason.
+      lobbyJoinRequested = false
+      emit(.warning(message: "Could not watch the meeting lobby: \(refusal.localizedDescription)"))
+      return
+    }
+    guard let presence = try? MUCParticipantPresence(element: element) else { return }
+    if presence.destroyed != nil {
+      forgetLobby()
+      return
+    }
+    if presence.isSelf {
+      lobbyJoined = presence.isAvailable
+      if !presence.isAvailable {
+        lobbyJoinRequested = false
+        if !lobbyOccupants.isEmpty {
+          lobbyOccupants.removeAll()
+          emit(.lobbyKnockersChanged([]))
+        }
+      }
+      return
+    }
+    // Other moderators watch the lobby as well; only non-moderators are
+    // waiting to be let in.
+    let waiting = presence.isAvailable && !presence.isModerator
+    let before = lobbyOccupants.mapValues(\.knocker)
+    if waiting {
+      let name = presence.displayName.flatMap { $0.isEmpty ? nil : $0 } ?? presence.endpointID
+      lobbyOccupants[presence.endpointID] = LobbyOccupant(
+        knocker: LobbyKnocker(id: presence.endpointID, displayName: name),
+        realJID: presence.realJID ?? lobbyOccupants[presence.endpointID]?.realJID
+      )
+    } else {
+      lobbyOccupants.removeValue(forKey: presence.endpointID)
+    }
+    if lobbyOccupants.mapValues(\.knocker) != before {
+      emit(.lobbyKnockersChanged(lobbyOccupants.values.map(\.knocker).sorted { $0.id < $1.id }))
+    }
+  }
+
+  /// Sends an IQ and suspends until its answer comes through the receive
+  /// loop. The continuation is registered before anything is sent, so an
+  /// answer can never beat the registration.
+  private func request(
+    _ element: XMPPElement,
+    id: String,
+    timeout: Duration = .seconds(15)
+  ) async throws -> XMPPElement {
+    let connection = self.connection
+    return try await withCheckedThrowingContinuation { continuation in
+      pendingRequests[id] = continuation
+      Task { [weak self] in
+        do {
+          try await connection.send(element)
+        } catch {
+          await self?.resolveRequest(id: id, with: .failure(error))
+        }
+      }
+      Task { [weak self] in
+        try? await Task.sleep(for: timeout)
+        await self?.resolveRequest(
+          id: id,
+          with: .failure(NativeJingleCoordinatorError.requestTimedOut)
+        )
+      }
+    }
+  }
+
+  private func resolveRequest(id: String, with result: Result<XMPPElement, any Error>) {
+    guard let continuation = pendingRequests.removeValue(forKey: id) else { return }
+    continuation.resume(with: result)
+  }
+
+  private func failPendingRequests(with error: any Error) {
+    let pending = pendingRequests
+    pendingRequests.removeAll()
+    for continuation in pending.values { continuation.resume(throwing: error) }
+  }
+
+  /// Rebuilds the peer connection so a replacement Jingle session can be
+  /// answered from a clean slate.
+  ///
+  /// Must run inside the `negotiations` queue: it closes the connection the
+  /// other negotiation entry points read and swaps in a new one, and the media
+  /// loop is torn down and restarted on the new bridge's event stream. Local
+  /// capture tracks are unaffected — `accept` re-attaches them to the new
+  /// connection — so a running camera keeps producing frames across the reset.
+  private func resetForNewSession() async throws {
+    mediaTask?.cancel()
+    mediaTask = nil
+    await peerConnection.close()
+    let bridge = PeerConnectionEventBridge()
+    let native = try mediaFactory.makePeerConnection(policy: policy, delegate: bridge)
+    eventBridge = bridge
+    peerConnection = PeerConnectionNegotiator(connection: native)
+    activeOffer = nil
+    localICECredentials = nil
+    pendingAcceptID = nil
+    screenPublished = false
+    pendingLocalCandidates.removeAll()
+    remoteVideoSourceNames.removeAll()
+    videoSourceByTrackID.removeAll()
+    await bridgeChannel?.close()
+    bridgeChannel = nil
+    mediaTask = Task { [weak self] in await self?.runMediaLoop() }
+  }
+
+  /// Whether a Jingle stanza came from Jicofo, the only initiator whose
+  /// bridge session this client answers. The focus joins the room under the
+  /// reserved nickname `focus`; every other occupant is a peer.
+  private func isFocus(_ jid: String) -> Bool {
+    XMPPJID.resource(jid) == "focus"
+      && XMPPJID.matches(XMPPJID.bare(jid), configuration.roomJID)
+  }
+
+  /// Refuses a session this client will not run — a peer's peer-to-peer offer —
+  /// with a Jingle `decline`. Best effort: failing to decline is harmless (the
+  /// peer simply falls back to the bridge on its own), so it must never fault
+  /// the receive loop that is handling our own bridge session.
+  private func declineForeignSession(_ incoming: IncomingJingleIQ) async {
+    let terminate = JingleIQBuilder().sessionTerminate(
+      sessionID: incoming.session.sessionID,
+      reason: "decline",
+      initiator: incoming.session.initiator ?? incoming.sender,
+      to: incoming.sender,
+      from: configuration.responderJID,
+      id: nextID(prefix: "decline")
+    )
+    try? await connection.send(terminate)
+  }
+
+  private func accept(_ incoming: IncomingJingleIQ) async throws {
+    emit(.negotiating(sessionID: incoming.session.sessionID))
+    activeOffer = incoming
+    noteRemoteVideoSources(from: incoming.session)
+    registerRemoteVideoSources(from: incoming.session)
+    let offerSDP = try JingleSDPTranslator().offerSDP(from: incoming.session)
+    var localVideoTracks: [LocalVideoTrack] = []
+    if cameraStarted { localVideoTracks.append(cameraTrack.videoTrack) }
+    if screenEnabled { localVideoTracks.append(screenVideoTrack) }
+    let answerSDP = try await peerConnection.answer(
+      remoteOfferSDP: offerSDP,
+      localAudioTrack: audioTrack,
+      localVideoTracks: localVideoTracks,
+      streamID: configuration.streamID
+    )
+    let acceptID = nextID(prefix: "accept")
+    let response = try JingleIQBuilder().sessionAccept(
+      answerSDP: answerSDP,
+      incoming: incoming,
+      responder: configuration.responderJID,
+      id: acceptID,
+      sourceMetadataByMediaType: localSourceMetadata()
+    )
+    pendingAcceptID = acceptID
+    // Captured before the accept goes out: candidates start trickling the
+    // moment the local description is set, and each one must carry these.
+    localICECredentials = ICECredentials(sdp: answerSDP)
+    try await connection.send(response)
+    // The session-accept carries our ICE ufrag/pwd, so the bridge can only use
+    // trickled candidates after it. Flush the ones held during negotiation now.
+    await flushPendingLocalCandidates()
+    // The bridge's candidates ride inline in the session-initiate, but WebRTC
+    // does not reliably ingest inline `a=candidate` lines from a remote offer —
+    // the canonical path is `addIceCandidate`. Add them explicitly, or ICE has
+    // no remote candidates to check against and sits in `checking` forever.
+    try? await addRemoteCandidates(incoming.session)
+    await openBridgeChannel(for: incoming.session)
+    emit(.connected(sessionID: incoming.session.sessionID))
+  }
+
+  /// Opens the colibri bridge channel advertised in the session-initiate and
+  /// asks the bridge to forward remote video. Best effort: a conference can
+  /// exist without it, only without incoming video.
+  private func openBridgeChannel(for session: JingleSessionDescription) async {
+    await bridgeChannel?.close()
+    bridgeChannel = nil
+    guard
+      let urlString = session.contents.compactMap({ $0.transport?.bridgeWebSocketURL }).first,
+      let url = URL(string: urlString)
+    else {
+      emit(.diagnostic(message: "bridge-channel: no colibri ws url in session-initiate"))
+      return
+    }
+    let channel = BridgeChannel(url: url) { [weak self] event in
+      Task { await self?.handleBridgeChannelEvent(event) }
+    }
+    bridgeChannel = channel
+    await channel.open()
+    emit(.diagnostic(message: "bridge-channel: opened \(url.host ?? urlString)"))
+    await sendReceiverVideoConstraints()
+  }
+
+  /// Acts on the bridge's control messages and reports them as diagnostics —
+  /// the bridge's own account of what it forwards to us and what it wants us
+  /// to send is also the first place to look when media freezes.
+  private func handleBridgeChannelEvent(_ event: BridgeChannelEvent) async {
+    switch event {
+    case .closed(let reason):
+      emit(.diagnostic(message: "bridge-channel: closed (\(reason))"))
+    case .message(let message):
+      switch message {
+      case .forwardedSources(let sources):
+        emit(.diagnostic(message: "bridge: forwarding [\(sources.joined(separator: ", "))]"))
+      case .senderSourceConstraints(let sourceName, let maxHeight):
+        emit(.diagnostic(message: "bridge: sender constraint \(sourceName) maxHeight=\(maxHeight)"))
+        await applySenderConstraint(sourceName: sourceName, maxHeight: maxHeight)
+      case .senderVideoConstraints(let idealHeight):
+        emit(.diagnostic(message: "bridge: sender constraint idealHeight=\(idealHeight)"))
+        await applySenderConstraint(
+          sourceName: configuration.cameraSourceName,
+          maxHeight: idealHeight
+        )
+      case .serverHello(let version):
+        emit(.diagnostic(message: "bridge: hello version=\(version ?? "?")"))
+      case .connectionStats(let bandwidth):
+        emit(
+          .diagnostic(
+            message: "bridge: downlink bwe=\(bandwidth.map { String(Int($0)) } ?? "?") bps"))
+      case .sourcesRemapped(let media, let mappedSources):
+        emit(.diagnostic(message: "bridge: \(media) sources remapped to \(mappedSources)"))
+      case .dominantSpeaker(let endpointID):
+        emit(.diagnostic(message: "bridge: dominant speaker \(endpointID ?? "none")"))
+        emit(.dominantSpeakerChanged(endpointID: endpointID))
+      case .lastNChanged(let current, _, _):
+        emit(.diagnostic(message: "bridge: lastN endpoints [\(current.joined(separator: ", "))]"))
+      case .endpointConnectivity(let endpointID, let active):
+        emit(.diagnostic(message: "bridge: endpoint \(endpointID) active=\(active)"))
+      case .sourceVideoType(let sourceName, let videoType):
+        emit(.diagnostic(message: "bridge: source \(sourceName) videoType=\(videoType)"))
+        for (trackID, info) in videoSourceByTrackID where info.name == sourceName {
+          videoSourceByTrackID[trackID]?.videoType = videoType
+        }
+        emit(.remoteSourceVideoTypeChanged(sourceName: sourceName, videoType: videoType))
+      case .endpointMessage(let from, _, let payload):
+        // Reactions travel as endpoint messages with the well-known
+        // "endpoint-reaction" payload; other endpoint messages are ignored.
+        guard
+          case .object(let fields)? = payload,
+          case .string("endpoint-reaction")? = fields["name"],
+          case .array(let values)? = fields["reactions"]
+        else { break }
+        let reactions = values.compactMap { value -> String? in
+          if case .string(let name) = value { return name }
+          return nil
+        }
+        guard !reactions.isEmpty else { break }
+        emit(.reactionsReceived(endpointID: from, reactions: reactions))
+      case .unknown(let type):
+        emit(.diagnostic(message: "bridge: message \(type)"))
+      }
+    }
+  }
+
+  /// Applies the bridge's cap for one of our outgoing sources. Height 0 means
+  /// no receiver wants the source — stop encoding it instead of uploading
+  /// video nobody is shown; capture (and the self-preview) keeps running.
+  private func applySenderConstraint(sourceName: String, maxHeight: Int) async {
+    let trackID: String?
+    switch sourceName {
+    case configuration.cameraSourceName: trackID = cameraTrack.videoTrack.id
+    case configuration.screenSourceName: trackID = screenVideoTrack.id
+    default: trackID = nil
+    }
+    guard let trackID else { return }
+    await peerConnection.setVideoSenderActive(trackID: trackID, active: maxHeight > 0)
+  }
+
+  /// Records the remote video source names carried by a session or source
+  /// update, so receiver constraints can name them. Our own camera/screen
+  /// sources are excluded — the bridge does not forward our video back to us.
+  private func noteRemoteVideoSources(from session: JingleSessionDescription) {
+    for name in remoteVideoSourceNames(in: session)
+    where !remoteVideoSourceNames.contains(name) {
+      remoteVideoSourceNames.append(name)
+    }
+  }
+
+  /// Keeps the track-id → source map current, so the WebRTC track that later
+  /// surfaces for a source can be attributed to its participant. The track id
+  /// of a signaled remote source is the track part of its msid.
+  private func registerRemoteVideoSources(from session: JingleSessionDescription) {
+    for content in session.contents where content.description?.media == "video" {
+      for source in content.description?.sources ?? [] {
+        guard let msid = source.parameters["msid"] else { continue }
+        let parts = msid.split(separator: " ")
+        let trackID = parts.count == 2 ? String(parts[1]) : msid
+        if session.action == .sourceRemove {
+          videoSourceByTrackID.removeValue(forKey: trackID)
+          continue
+        }
+        let owner =
+          source.owner.map { XMPPJID.resource($0) ?? $0 }
+          ?? source.sourceName.flatMap(Self.endpointID(fromSourceName:))
+        videoSourceByTrackID[trackID] = RemoteVideoSourceInfo(
+          name: source.sourceName,
+          owner: owner,
+          videoType: source.videoType,
+          isBridgePlaceholder: owner == "jvb" || msid.contains("mixedmslabel")
+        )
+      }
+    }
+  }
+
+  /// "abcd1234-v0" → "abcd1234"; the naming convention shared with the
+  /// reference client (`getSourceNameForJitsiTrack`).
+  private static func endpointID(fromSourceName name: String) -> String? {
+    guard let dash = name.lastIndex(of: "-"), dash != name.startIndex else { return nil }
+    return String(name[name.startIndex..<dash])
+  }
+
+  /// The remote (non-local) video source names carried by a session, in order.
+  private func remoteVideoSourceNames(in session: JingleSessionDescription) -> [String] {
+    let mine: Set<String> = [configuration.cameraSourceName, configuration.screenSourceName]
+    return
+      session.contents
+      .filter { $0.description?.media == "video" }
+      .flatMap { $0.description?.sources ?? [] }
+      .compactMap(\.sourceName)
+      .filter { !$0.isEmpty && !mine.contains($0) }
+  }
+
+  /// Tells the bridge how much remote video to forward, using the same message
+  /// lib-jitsi-meet sends: `lastN` = -1 (every remote source) with a default
+  /// per-source height cap. The bridge forwards every source subject to those,
+  /// so no source has to be named — matching the reference client removes our
+  /// dependence on enumerating remote source names, which we could not do
+  /// reliably before a participant's real source was signalled.
+  private func sendReceiverVideoConstraints() async {
+    guard let bridgeChannel else {
+      emit(.diagnostic(message: "recv-constraints: no bridge channel, skipped"))
+      return
+    }
+    let constraints = ReceiverVideoConstraints(
+      lastN: -1,
+      assumedBandwidthBps: -1,
+      defaultConstraints: VideoConstraint(maxHeight: 720)
+    )
+    emit(.diagnostic(message: "recv-constraints: lastN=-1 defaultMaxHeight=720"))
+    try? await bridgeChannel.send(constraints)
+  }
+
+  private func addRemoteCandidates(_ session: JingleSessionDescription) async throws {
+    for content in session.contents {
+      for candidate in content.transport?.candidates ?? [] {
+        // One malformed or mistimed candidate must not abandon the rest, so a
+        // single bad trickle cannot leave ICE with no remote candidates at all.
+        do {
+          var sdp = try JingleCandidateCodec.sdp(candidate, contentName: content.name)
+          if sdp.hasPrefix("a=") { sdp.removeFirst(2) }
+          // Everything is bundled onto one transport and the offer's media
+          // lines are renumbered, so the jingle content names ("audio",
+          // "video") no longer match any mid. Adding each candidate to the
+          // first media line reaches the shared ICE agent.
+          try await peerConnection.addRemoteCandidate(
+            sdp: sdp,
+            mid: nil,
+            mediaLineIndex: 0
+          )
+        } catch {
+          continue
+        }
+      }
+    }
+  }
+
+  private func applyRemoteSourceUpdate(_ session: JingleSessionDescription) async throws {
+    guard let remoteSDP = await peerConnection.currentRemoteSDP() else {
+      throw NativeJingleCoordinatorError.sessionNotReady
+    }
+    let updated = try JitsiMultistreamSDP().applyingRemoteSourceUpdate(session, to: remoteSDP)
+    _ = try await peerConnection.answerRenegotiation(remoteOfferSDP: updated)
+    // A newly published remote source needs the bridge to be re-told we want it.
+    noteRemoteVideoSources(from: session)
+    registerRemoteVideoSources(from: session)
+    await sendReceiverVideoConstraints()
+  }
+
+  private func runMediaLoop() async {
+    for await event in eventBridge.events {
+      guard !Task.isCancelled else { return }
+      do {
+        switch event {
+        case .connectionStateChanged(let state):
+          emit(.peerConnectionState(state))
+        case .localCandidate(let candidate):
+          try await send(candidate)
+        case .remoteVideoTrackAdded(let track):
+          let info = videoSourceByTrackID[track.id]
+          emit(
+            .remoteVideoTrackAdded(
+              RemoteVideoStream(
+                track: track,
+                sourceName: info?.name,
+                endpointID: info?.owner,
+                videoType: info?.videoType,
+                isBridgePlaceholder: info?.isBridgePlaceholder
+                  ?? track.id.contains("mixedlabel")
+              )
+            )
+          )
+        case .remoteVideoTrackRemoved(let id):
+          emit(.remoteVideoTrackRemoved(id: id))
+        case .negotiationNeeded:
+          break
+        }
+      } catch {
+        emit(.failed(message: error.localizedDescription))
+      }
+    }
+  }
+
+  private func send(_ candidate: NativeICECandidate) async throws {
+    guard let activeOffer else { return }
+    guard let credentials = localICECredentials else {
+      // No credentials yet: hold the candidate rather than dropping it, so the
+      // bridge still receives every local candidate once `accept` flushes them.
+      pendingLocalCandidates.append(candidate)
+      return
+    }
+    // The reference client names a trickled candidate's content by the
+    // candidate's own sdpMid; the offer's media identifiers are the media-line
+    // indices, so the index is the fallback.
+    let mid = candidate.mid ?? String(candidate.mediaLineIndex)
+    let iq = try JingleIQBuilder().transportInfo(
+      sessionID: activeOffer.session.sessionID,
+      candidateSDP: candidate.sdp,
+      mid: mid,
+      credentials: credentials,
+      initiator: activeOffer.session.initiator ?? activeOffer.sender,
+      to: activeOffer.sender,
+      from: configuration.responderJID,
+      id: nextID(prefix: "candidate")
+    )
+    try await connection.send(iq)
+  }
+
+  /// Sends every candidate that gathered before our ICE credentials were known.
+  private func flushPendingLocalCandidates() async {
+    guard localICECredentials != nil, !pendingLocalCandidates.isEmpty else { return }
+    let pending = pendingLocalCandidates
+    pendingLocalCandidates.removeAll()
+    for candidate in pending {
+      do { try await send(candidate) } catch { break }
+    }
+  }
+
+  /// The name and video type for the local sources the session-accept
+  /// describes, keyed by media type the way the accept's contents are named.
+  /// The camera track binds the video line whenever it is running; only a
+  /// screen-share-without-camera session accepts with the desktop source.
+  private func localSourceMetadata() -> [String: LocalSourceMetadata] {
+    var result = ["audio": LocalSourceMetadata(name: configuration.audioSourceName)]
+    result["video"] =
+      !cameraStarted && screenEnabled
+      ? LocalSourceMetadata(name: configuration.screenSourceName, videoType: "desktop")
+      : LocalSourceMetadata(name: configuration.cameraSourceName, videoType: "camera")
+    return result
+  }
+
+  private func nextID(prefix: String) -> String {
+    outgoingSequence &+= 1
+    return "gafsaf-\(prefix)-\(outgoingSequence)"
+  }
+
+  private func sendSourcePresence() async {
+    var sources: [String: LocalSourcePresence] = [
+      configuration.audioSourceName: LocalSourcePresence(muted: microphoneMuted),
+      configuration.cameraSourceName: LocalSourcePresence(
+        muted: !cameraEnabled,
+        videoType: "camera"
+      ),
+    ]
+    if screenPublished {
+      sources[configuration.screenSourceName] = LocalSourcePresence(
+        muted: !screenEnabled,
+        videoType: "desktop"
+      )
+    }
+    do {
+      try await connection.send(
+        SourceInfoPresenceUpdate(
+          occupantJID: configuration.occupantJID,
+          audioMuted: microphoneMuted,
+          videoMuted: !cameraEnabled,
+          sources: sources,
+          displayName: configuration.displayName,
+          raisedHandTimestamp: raisedHandTimestamp
+        ).element()
+      )
+    } catch {
+      emit(
+        .warning(
+          message: "Could not update conference source presence: \(error.localizedDescription)"))
+    }
+  }
+
+  private func emit(_ event: NativeJingleEvent) {
+    continuation.yield(event)
+  }
+}
+
+public enum NativeJingleCoordinatorError: Error, Equatable, Sendable {
+  case sessionNotReady
+  case requestTimedOut
+  case notModerator
+  case unknownLobbyParticipant
+  /// The room did not disclose the participant's address, which the
+  /// invitation needs; only moderators are shown it.
+  case lobbyParticipantAddressUnknown
+  case unknownParticipant
+  /// The room did not disclose the participant's real address, which an
+  /// affiliation change needs.
+  case participantAddressUnknown
+}
+
+extension NativeJingleCoordinatorError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .sessionNotReady: return "The media session is not ready yet."
+    case .requestTimedOut: return "The meeting server did not answer in time."
+    case .notModerator: return "Only a meeting host can do that."
+    case .unknownLobbyParticipant: return "That person is no longer waiting in the lobby."
+    case .lobbyParticipantAddressUnknown:
+      return "The meeting did not say who is waiting, so they cannot be admitted."
+    case .unknownParticipant:
+      return "That person is no longer in the meeting."
+    case .participantAddressUnknown:
+      return "The meeting did not disclose that person's address, so they cannot be promoted."
+    }
+  }
+}
+
+/// Marks a signaling failure that leaves the conference unusable, so the
+/// receive loop can tell it apart from a single stanza it could not process.
+private struct FatalSignalingError: Error {
+  let underlying: any Error
+}
