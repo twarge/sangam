@@ -192,8 +192,10 @@ public actor PeerConnectionNegotiator {
           switch statistics.type {
           case "outbound-rtp" where values["kind"] as? String == "video":
             parts.append(
-              "vsend \(field(values, "frameWidth"))x\(field(values, "frameHeight"))"
-                + " enc=\(field(values, "framesEncoded"))")
+              "vsend ssrc=\(field(values, "ssrc"))"
+                + " \(field(values, "frameWidth"))x\(field(values, "frameHeight"))"
+                + " enc=\(field(values, "framesEncoded"))"
+                + " sent=\(field(values, "bytesSent"))")
           case "outbound-rtp" where values["kind"] as? String == "audio":
             parts.append("asend bytes=\(field(values, "bytesSent"))")
           case "inbound-rtp" where values["kind"] as? String == "video":

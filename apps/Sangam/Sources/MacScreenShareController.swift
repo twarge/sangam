@@ -28,6 +28,12 @@
     /// actor, so the active stream may only be read or written under `lock`.
     private let lock = NSLock()
     private var stream: SCStream?
+    // Bring-up counters for the SANGAM_LOG diagnostic timeline, guarded by
+    // `lock` because frames arrive on the capture queue.
+    private var receivedFrames = 0
+    private var pushedFrames = 0
+    private var skippedFrames = 0
+    private var lastStatus = "none"
 
     init(videoTrack: LocalVideoTrack) {
       self.videoTrack = videoTrack
@@ -95,6 +101,9 @@
       configuration.width = min(max(width - width % 2, 2), 3_840)
       configuration.height = min(max(height - height % 2, 2), 2_160)
       configuration.scalesToFit = true
+      SangamLog.event(
+        "screen-share: start content=\(Int(filter.contentRect.width))x\(Int(filter.contentRect.height)) "
+          + "scale=\(filter.pointPixelScale) stream=\(configuration.width)x\(configuration.height)")
       configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
       configuration.queueDepth = 5
       configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -181,13 +190,30 @@
       didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
       of type: SCStreamOutputType
     ) {
+      let status = Self.frameStatus(sampleBuffer)
+      let counters: (received: Int, pushed: Int, skipped: Int) = lock.withLock {
+        receivedFrames += 1
+        lastStatus = status.name
+        return (receivedFrames, pushedFrames, skippedFrames)
+      }
+      if counters.received == 1 || counters.received % 150 == 0 {
+        let size = sampleBuffer.imageBuffer.map {
+          "\(CVPixelBufferGetWidth($0))x\(CVPixelBufferGetHeight($0))"
+        }
+        SangamLog.event(
+          "screen-share: frames received=\(counters.received) pushed=\(counters.pushed) "
+            + "skipped=\(counters.skipped) status=\(status.name) buffer=\(size ?? "none")")
+      }
       guard
         type == .screen,
         sampleBuffer.isValid,
         CMSampleBufferDataIsReady(sampleBuffer),
         let pixelBuffer = sampleBuffer.imageBuffer,
-        Self.frameHasContent(sampleBuffer)
-      else { return }
+        status.hasContent
+      else {
+        lock.withLock { skippedFrames += 1 }
+        return
+      }
 
       let presentationTime = sampleBuffer.presentationTimeStamp
       let timestamp = CMTimeConvertScale(
@@ -199,20 +225,31 @@
         pixelBuffer: pixelBuffer,
         timestampNanoseconds: timestamp
       )
+      lock.withLock { pushedFrames += 1 }
     }
 
-    /// Whether a captured frame actually carries the picked content. Streams
-    /// begin with started/blank frames whose buffers are empty; encoding those
-    /// shows black at the far end. Complete frames carry new content and idle
-    /// frames repeat unchanged content — both are real.
-    private nonisolated static func frameHasContent(_ sampleBuffer: CMSampleBuffer) -> Bool {
+    /// A captured frame's status. Streams begin with started/blank frames
+    /// whose buffers are empty; encoding those shows black at the far end.
+    /// Complete frames carry new content and idle frames repeat unchanged
+    /// content — both are real.
+    private nonisolated static func frameStatus(
+      _ sampleBuffer: CMSampleBuffer
+    ) -> (name: String, hasContent: Bool) {
       guard
         let attachments = CMSampleBufferGetSampleAttachmentsArray(
           sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
         let rawStatus = attachments.first?[.status] as? Int,
         let status = SCFrameStatus(rawValue: rawStatus)
-      else { return false }
-      return status == .complete || status == .idle
+      else { return ("unreadable", false) }
+      switch status {
+      case .complete: return ("complete", true)
+      case .idle: return ("idle", true)
+      case .blank: return ("blank", false)
+      case .started: return ("started", false)
+      case .suspended: return ("suspended", false)
+      case .stopped: return ("stopped", false)
+      @unknown default: return ("unknown-\(rawStatus)", false)
+      }
     }
   }
 #endif
