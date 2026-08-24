@@ -108,6 +108,7 @@ private let nativeAnswer = """
   a=ice-pwd:local-v-password
   a=fingerprint:sha-256 EE:FF:00:11
   a=setup:active
+  a=ssrc:5555 cname:receiver-report-only
   """
 
 @Test
@@ -238,6 +239,16 @@ func buildsRoundTrippableSessionAcceptFromWebRTCAnswer() throws {
     answer.contents[1].description?.sources[0].parameters
       == ["msid": "local-stream local-video-track"]
   )
+  // The receive-only line's cname-only SSRC is a receiver-report SSRC, not a
+  // local source. Jicofo rejects any advertised source without an msid
+  // ("Required source parameter 'msid' is not present"), so it must not be
+  // folded into the accept.
+  #expect(answer.contents[1].description?.sources.map(\.ssrc) == [2222, 3333])
+  for content in answer.contents {
+    for source in content.description?.sources ?? [] {
+      #expect(source.parameters["msid"] != nil, "source \(source.ssrc) advertised without msid")
+    }
+  }
   #expect(answer.contents[1].transport?.candidates[0].relatedAddress == "10.0.0.3")
   #expect(answer.contents[1].transport?.candidates[0].tcpType == "passive")
 }

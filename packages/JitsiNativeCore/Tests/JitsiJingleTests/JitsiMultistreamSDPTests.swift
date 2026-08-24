@@ -59,7 +59,9 @@ func extractsDesktopSourceAndGroupsFromFinalLocalAnswer() throws {
   #expect(content.description?.sources[0].name == "endpoint-v1")
   #expect(content.description?.sources[0].videoType == "desktop")
   #expect(content.description?.sources[0].parameters == ["msid": "stream desktop"])
-  #expect(content.description?.sources[1].parameters == [:])
+  // The RTX stream has no msid line of its own; it inherits its FID partner's,
+  // because Jicofo rejects any advertised source without an msid.
+  #expect(content.description?.sources[1].parameters == ["msid": "stream desktop"])
   #expect(content.description?.sourceGroups[0].sources == [200, 201])
 }
 

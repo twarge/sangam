@@ -191,15 +191,30 @@ public struct JitsiMultistreamSDP: Sendable {
       guard property.count == 2 else { continue }
       parameters[ssrc, default: [:]][String(property[0])] = String(property[1])
     }
-    for group in sourceGroups(in: media) {
-      for ssrc in group.sources where parameters[ssrc] == nil { parameters[ssrc] = [:] }
+    // Current WebRTC puts the msid at media level and only the cname on the
+    // ssrc lines; the media-level value covers every ssrc the line sends.
+    if let mediaMsid = media.mediaLevelMSID {
+      for ssrc in parameters.keys where parameters[ssrc]?["msid"] == nil {
+        parameters[ssrc]?["msid"] = mediaMsid
+      }
     }
-    return parameters.keys.sorted().map { ssrc in
-      RTPSource(
+    // A group member with no lines of its own (the RTX stream) shares its
+    // partner's msid. Jicofo rejects any advertised source without one.
+    for group in sourceGroups(in: media) {
+      guard let msid = group.sources.compactMap({ parameters[$0]?["msid"] }).first else {
+        continue
+      }
+      for ssrc in group.sources where parameters[ssrc]?["msid"] == nil {
+        parameters[ssrc, default: [:]]["msid"] = msid
+      }
+    }
+    return parameters.keys.sorted().compactMap { ssrc in
+      guard let msid = parameters[ssrc]?["msid"] else { return nil }
+      return RTPSource(
         ssrc: ssrc,
         name: metadata.name,
         videoType: metadata.videoType,
-        parameters: (parameters[ssrc]?["msid"]).map { ["msid": $0] } ?? [:]
+        parameters: ["msid": msid]
       )
     }
   }
@@ -295,6 +310,12 @@ private struct MediaSection {
   var mid: String? {
     lines.first(where: { $0.hasPrefix("a=mid:") }).map {
       String($0.dropFirst("a=mid:".count))
+    }
+  }
+
+  var mediaLevelMSID: String? {
+    lines.first(where: { $0.hasPrefix("a=msid:") }).map {
+      String($0.dropFirst("a=msid:".count))
     }
   }
 

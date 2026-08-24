@@ -316,58 +316,73 @@ public struct JingleAnswerBuilder: Sendable {
       )
     }
 
-    // Fold the local sources of every media line of this type into the one
-    // content. The reference client signals the source name and video type as
-    // XML attributes and sends only the msid as a parameter.
-    let groupValues = sections.flatMap { $0.values(after: "a=ssrc-group:") }
-    let groupedSSRCs = Set(
-      groupValues.flatMap { value -> [UInt32] in
-        let parts = value.split(separator: " ")
-        return parts.dropFirst().compactMap { UInt32($0) }
-      }
-    )
+    // Fold the local sources of every SENDING media line of this type into the
+    // one content. Receive-only lines carry receiver-report SSRCs with a cname
+    // but no msid — those are not sources, and Jicofo rejects the whole accept
+    // over any advertised source without an msid ("Required source parameter
+    // 'msid' is not present"). The reference client signals the source name
+    // and video type as XML attributes and sends only the msid as a parameter.
+    let sendingSections = sections.filter { ["sendrecv", "sendonly"].contains($0.direction) }
+    let groupValues = sendingSections.flatMap { $0.values(after: "a=ssrc-group:") }
     var sourceParameters: [UInt32: [String: String]] = [:]
-    for value in sections.flatMap({ $0.values(after: "a=ssrc:") }) {
-      let pair = value.split(separator: " ", maxSplits: 1)
-      guard pair.count == 2, let ssrc = UInt32(pair[0]) else { continue }
-      let parameter = pair[1].split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-      guard parameter.count == 2 else { continue }
-      sourceParameters[ssrc, default: [:]][String(parameter[0])] = String(parameter[1])
+    for section in sendingSections {
+      var sectionSSRCs: Set<UInt32> = []
+      for value in section.values(after: "a=ssrc:") {
+        let pair = value.split(separator: " ", maxSplits: 1)
+        guard pair.count == 2, let ssrc = UInt32(pair[0]) else { continue }
+        let parameter = pair[1].split(
+          separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parameter.count == 2 else { continue }
+        sectionSSRCs.insert(ssrc)
+        sourceParameters[ssrc, default: [:]][String(parameter[0])] = String(parameter[1])
+      }
+      // Current WebRTC puts the msid at media level and only the cname on the
+      // ssrc lines; the media-level value covers every ssrc the line sends.
+      if let mediaMsid = section.value(after: "a=msid:") {
+        for ssrc in sectionSSRCs where sourceParameters[ssrc]?["msid"] == nil {
+          sourceParameters[ssrc, default: [:]]["msid"] = mediaMsid
+        }
+      }
     }
-    for ssrc in groupedSSRCs where sourceParameters[ssrc] == nil {
-      sourceParameters[ssrc] = [:]
+    // A group's members share one msid; a member with no lines of its own
+    // (an RTX stream, say) inherits its partner's rather than being dropped.
+    let groups = groupValues.compactMap { value -> (semantics: String, members: [UInt32])? in
+      let parts = value.split(separator: " ")
+      guard parts.count > 1 else { return nil }
+      return (String(parts[0]), parts.dropFirst().compactMap { UInt32($0) })
     }
-    for ssrc in sourceParameters.keys.sorted() {
-      let parameters = sourceParameters[ssrc] ?? [:]
+    for group in groups {
+      guard
+        let msid = group.members.compactMap({ sourceParameters[$0]?["msid"] }).first
+      else { continue }
+      for member in group.members where sourceParameters[member]?["msid"] == nil {
+        sourceParameters[member, default: [:]]["msid"] = msid
+      }
+    }
+    let advertised = sourceParameters.filter { $0.value["msid"] != nil }
+    for ssrc in advertised.keys.sorted() {
       var attributes = ["ssrc": String(ssrc)]
       if let metadata {
         attributes["name"] = metadata.name
         if let videoType = metadata.videoType { attributes["videoType"] = videoType }
       }
-      var children: [XMPPElement] = []
-      if let msid = parameters["msid"] {
-        children.append(
-          XMPPElement(name: "parameter", attributes: ["name": "msid", "value": msid])
-        )
-      }
+      let msid = advertised[ssrc]?["msid"] ?? ""
       descriptionChildren.append(
         XMPPElement(
           name: "source",
           namespace: JingleParser.sourceNamespace,
           attributes: attributes,
-          children: children
+          children: [XMPPElement(name: "parameter", attributes: ["name": "msid", "value": msid])]
         )
       )
     }
-    for value in groupValues {
-      let parts = value.split(separator: " ")
-      guard parts.count > 1 else { continue }
+    for group in groups where group.members.allSatisfy({ advertised[$0] != nil }) {
       descriptionChildren.append(
         XMPPElement(
           name: "ssrc-group",
           namespace: JingleParser.sourceNamespace,
-          attributes: ["semantics": String(parts[0])],
-          children: parts.dropFirst().map {
+          attributes: ["semantics": group.semantics],
+          children: group.members.map {
             XMPPElement(name: "source", attributes: ["ssrc": String($0)])
           }
         )
