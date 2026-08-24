@@ -12,6 +12,11 @@ public struct XMPPClientCapabilities: Equatable, Sendable {
     "http://jitsi.org/receive-multiple-video-streams",
     "http://jitsi.org/remb",
     "http://jitsi.org/source-name",
+    // Lets the bridge forward a fixed small set of SSRCs and remap which
+    // conference source each carries (VideoSourcesMap/AudioSourcesMap on the
+    // bridge channel). Only honest because the coordinator applies those
+    // remaps; advertised without that, every remap would freeze a tile.
+    "http://jitsi.org/ssrc-rewriting-1",
     "http://jitsi.org/tcc",
     "urn:ietf:rfc:4588",
     "urn:xmpp:jingle:1",

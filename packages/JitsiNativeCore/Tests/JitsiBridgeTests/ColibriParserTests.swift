@@ -103,6 +103,69 @@ func omitsUnsetReceiverConstraintFields() throws {
 }
 
 @Test
+func parsesVideoSourcesMap() throws {
+  // Field names and types mirror jitsi-videobridge's `VideoSourceMapping`:
+  // rtx is -1 when the source has no RTX partner, videoType arrives in the
+  // bridge's uppercase enum spelling, and mid appears only under mid demux.
+  let data = Data(
+    #"""
+    {"colibriClass":"VideoSourcesMap","mappedSources":[
+      {"source":"abcd1234-v0","owner":"abcd1234","ssrc":555001,"rtx":555002,"videoType":"CAMERA"},
+      {"source":"efgh5678-v1","owner":"efgh5678","ssrc":555003,"rtx":-1,"videoType":"DESKTOP","mid":"v1"},
+      {"source":"","ssrc":1},
+      {"source":"missing-ssrc-v0"}
+    ]}
+    """#.utf8
+  )
+  #expect(
+    try ColibriParser().parse(data)
+      == .sourcesRemapped(
+        media: "video",
+        sources: [
+          MappedSource(
+            sourceName: "abcd1234-v0",
+            owner: "abcd1234",
+            ssrc: 555_001,
+            rtxSSRC: 555_002,
+            videoType: "camera"
+          ),
+          MappedSource(
+            sourceName: "efgh5678-v1",
+            owner: "efgh5678",
+            ssrc: 555_003,
+            rtxSSRC: nil,
+            mid: "v1",
+            videoType: "desktop"
+          ),
+        ]
+      )
+  )
+}
+
+@Test
+func parsesAudioSourcesMap() throws {
+  let data = Data(
+    #"{"colibriClass":"AudioSourcesMap","mappedSources":[{"source":"abcd1234-a0","owner":"abcd1234","ssrc":666001}]}"#
+      .utf8
+  )
+  #expect(
+    try ColibriParser().parse(data)
+      == .sourcesRemapped(
+        media: "audio",
+        sources: [MappedSource(sourceName: "abcd1234-a0", owner: "abcd1234", ssrc: 666_001)]
+      )
+  )
+}
+
+@Test
+func rejectsASourcesMapWithoutMappings() {
+  let data = Data(#"{"colibriClass":"VideoSourcesMap"}"#.utf8)
+  #expect(throws: ColibriParsingError.missingField(type: "VideoSourcesMap")) {
+    try ColibriParser().parse(data)
+  }
+}
+
+@Test
 func boundsNestedMessages() {
   let data = Data(#"{"colibriClass":"EndpointMessage","msgPayload":{"a":{"b":true}}}"#.utf8)
   #expect(throws: ColibriParsingError.nestingTooDeep(limit: 1)) {

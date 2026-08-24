@@ -245,7 +245,8 @@ struct CoordinatorNegotiationTests {
     defer { harness.tearDown() }
 
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
     )
     _ = await eventually {
       await harness.events.contains {
@@ -255,7 +256,8 @@ struct CoordinatorNegotiationTests {
     }
 
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-2", action: "session-initiate", sid: "sid-2", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-2", action: "session-initiate", sid: "sid-2", body: bundledOffer)
     )
     let renegotiated = await eventually {
       await harness.events.contains {
@@ -274,7 +276,9 @@ struct CoordinatorNegotiationTests {
     )
 
     // The fresh answer references the new session id, not the retired one.
-    let accepts = await harness.socket.stanzasAfterBootstrap().filter { $0.contains("session-accept") }
+    let accepts = await harness.socket.stanzasAfterBootstrap().filter {
+      $0.contains("session-accept")
+    }
     #expect(accepts.contains { $0.contains("sid=\"sid-2\"") })
   }
 
@@ -286,7 +290,8 @@ struct CoordinatorNegotiationTests {
     defer { harness.tearDown() }
 
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
     )
     _ = await eventually {
       await harness.events.contains {
@@ -296,7 +301,8 @@ struct CoordinatorNegotiationTests {
     }
 
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-1b", action: "session-initiate", sid: "sid-1", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-1b", action: "session-initiate", sid: "sid-1", body: bundledOffer)
     )
     // It is acknowledged like every IQ...
     #expect(
@@ -380,7 +386,8 @@ struct CoordinatorNegotiationTests {
     defer { harness.tearDown() }
 
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-1", action: "session-initiate", sid: "sid-1", body: bundledOffer)
     )
     _ = await eventually {
       await harness.events.contains {
@@ -407,7 +414,8 @@ struct CoordinatorNegotiationTests {
 
     // Someone joins again: Jicofo re-invites with a new session id.
     await harness.socket.push(
-      TestConference.jingleIQ(id: "offer-2", action: "session-initiate", sid: "sid-2", body: bundledOffer)
+      TestConference.jingleIQ(
+        id: "offer-2", action: "session-initiate", sid: "sid-2", body: bundledOffer)
     )
     let reconnected = await eventually {
       await harness.events.contains {

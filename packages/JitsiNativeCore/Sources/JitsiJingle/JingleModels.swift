@@ -154,6 +154,11 @@ public struct RTPSource: Equatable, Sendable {
 public struct RTPSourceGroup: Equatable, Sendable {
   public var semantics: String
   public var sources: [UInt32]
+
+  public init(semantics: String, sources: [UInt32]) {
+    self.semantics = semantics
+    self.sources = sources
+  }
 }
 
 public struct ICETransport: Equatable, Sendable {

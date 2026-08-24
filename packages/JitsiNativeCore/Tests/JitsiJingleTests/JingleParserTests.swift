@@ -88,7 +88,8 @@ func expandsJSONEncodedSourcesPositionallyForEveryOwner() throws {
   #expect(audio.description?.sources.last?.owner == "jvb")
 
   // Group semantics are the compact "f"/"s" forms.
-  #expect(video.description?.sourceGroups == [RTPSourceGroup(semantics: "FID", sources: [1000, 1001])])
+  #expect(
+    video.description?.sourceGroups == [RTPSourceGroup(semantics: "FID", sources: [1000, 1001])])
   #expect(audio.description?.sourceGroups.isEmpty == true)
 }
 

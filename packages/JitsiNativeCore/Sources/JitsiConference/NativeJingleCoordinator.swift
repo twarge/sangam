@@ -203,6 +203,25 @@ public actor NativeJingleCoordinator {
   /// Remote video source descriptions keyed by track id (the msid's track
   /// part), so a WebRTC track can be attributed to its participant.
   private var videoSourceByTrackID: [String: RemoteVideoSourceInfo] = [:]
+  /// The live remote video tracks by id. Kept so an SSRC-rewriting bridge's
+  /// source remap can re-announce an existing track under its new owner —
+  /// the track object itself never changes, only whose video it carries.
+  private var remoteVideoTracks: [String: RemoteVideoTrack] = [:]
+  /// Which track id each remote video SSRC decodes into, from the signaled
+  /// sources and from receive slots created for an SSRC-rewriting bridge.
+  /// This is what lets a `VideoSourcesMap` remap find the affected tile.
+  private var trackIDByVideoSSRC: [UInt32: String] = [:]
+  /// Remote audio SSRCs already present in the remote description, so an
+  /// `AudioSourcesMap` only renegotiates for genuinely new ones.
+  private var remoteAudioSSRCs: Set<UInt32> = []
+  /// Receive slots created for an SSRC-rewriting bridge, numbered the way
+  /// lib-jitsi-meet numbers them ("remote-video-1", "remote-audio-1", …).
+  private var videoSlotCount = 0
+  private var audioSlotCount = 0
+  /// Consumes bridge-channel events strictly in arrival order. Source remaps
+  /// are ordered state — two applied backwards leave tiles showing the wrong
+  /// participant — so one consumer replaces a detached Task per event.
+  private var bridgeChannelEventsTask: Task<Void, Never>?
   /// The other occupants of the meeting room, keyed by endpoint id, plus their
   /// join order for a stable tile layout.
   private var participants: [String: RemoteParticipant] = [:]
@@ -518,8 +537,7 @@ public actor NativeJingleCoordinator {
     }
     await negotiations.drain()
     await peerConnection.close()
-    await bridgeChannel?.close()
-    bridgeChannel = nil
+    await closeBridgeChannel()
     await connection.disconnect()
     activeOffer = nil
     localICECredentials = nil
@@ -527,7 +545,7 @@ public actor NativeJingleCoordinator {
     screenPublished = false
     sessionEnded = false
     pendingLocalCandidates.removeAll()
-    videoSourceByTrackID.removeAll()
+    clearRemoteSourceState()
     participants.removeAll()
     participantOrder.removeAll()
     lobbyRoomJID = nil
@@ -605,7 +623,8 @@ public actor NativeJingleCoordinator {
         // is undebuggable.
         let text = (error?.child(named: "text")?.text).flatMap { $0.isEmpty ? nil : $0 }
         let detail = text.map { " — \($0)" } ?? ""
-        emit(.failed(message: "The conference rejected the session answer (\(condition)\(detail))."))
+        emit(
+          .failed(message: "The conference rejected the session answer (\(condition)\(detail))."))
       } else {
         emit(.diagnostic(message: "session-accept acknowledged"))
       }
@@ -697,10 +716,9 @@ public actor NativeJingleCoordinator {
       emit(.remoteSessionEnded(reason: reason))
       await negotiations.drain()
       await peerConnection.close()
-      await bridgeChannel?.close()
-      bridgeChannel = nil
+      await closeBridgeChannel()
       activeOffer = nil
-      videoSourceByTrackID.removeAll()
+      clearRemoteSourceState()
       remoteVideoSourceNames.removeAll()
       // The conference goes on: stay in the room and expect a fresh
       // session-initiate once there are two participants again.
@@ -978,10 +996,29 @@ public actor NativeJingleCoordinator {
     screenPublished = false
     pendingLocalCandidates.removeAll()
     remoteVideoSourceNames.removeAll()
+    clearRemoteSourceState()
+    await closeBridgeChannel()
+    mediaTask = Task { [weak self] in await self?.runMediaLoop() }
+  }
+
+  /// Forgets everything known about the remote sources of a session that is
+  /// being torn down or replaced — attribution, live tracks, SSRC routing,
+  /// and the receive-slot numbering an SSRC-rewriting bridge restarts per
+  /// session.
+  private func clearRemoteSourceState() {
     videoSourceByTrackID.removeAll()
+    remoteVideoTracks.removeAll()
+    trackIDByVideoSSRC.removeAll()
+    remoteAudioSSRCs.removeAll()
+    videoSlotCount = 0
+    audioSlotCount = 0
+  }
+
+  private func closeBridgeChannel() async {
+    bridgeChannelEventsTask?.cancel()
+    bridgeChannelEventsTask = nil
     await bridgeChannel?.close()
     bridgeChannel = nil
-    mediaTask = Task { [weak self] in await self?.runMediaLoop() }
   }
 
   /// Whether a Jingle stanza came from Jicofo, the only initiator whose
@@ -1052,8 +1089,7 @@ public actor NativeJingleCoordinator {
   /// asks the bridge to forward remote video. Best effort: a conference can
   /// exist without it, only without incoming video.
   private func openBridgeChannel(for session: JingleSessionDescription) async {
-    await bridgeChannel?.close()
-    bridgeChannel = nil
+    await closeBridgeChannel()
     guard
       let urlString = session.contents.compactMap({ $0.transport?.bridgeWebSocketURL }).first,
       let url = URL(string: urlString)
@@ -1061,8 +1097,19 @@ public actor NativeJingleCoordinator {
       emit(.diagnostic(message: "bridge-channel: no colibri ws url in session-initiate"))
       return
     }
-    let channel = BridgeChannel(url: url) { [weak self] event in
-      Task { await self?.handleBridgeChannelEvent(event) }
+    // Events flow through one stream and one consumer so they apply in the
+    // order the bridge sent them. A detached task per event would let two
+    // source remaps land in either order, attributing tiles to the wrong
+    // participants.
+    let events = AsyncStream<BridgeChannelEvent>.makeStream(
+      bufferingPolicy: .bufferingNewest(256)
+    )
+    let channel = BridgeChannel(url: url) { events.continuation.yield($0) }
+    bridgeChannelEventsTask = Task { [weak self] in
+      for await event in events.stream {
+        guard !Task.isCancelled else { return }
+        await self?.handleBridgeChannelEvent(event)
+      }
     }
     bridgeChannel = channel
     await channel.open()
@@ -1073,7 +1120,8 @@ public actor NativeJingleCoordinator {
   /// Acts on the bridge's control messages and reports them as diagnostics —
   /// the bridge's own account of what it forwards to us and what it wants us
   /// to send is also the first place to look when media freezes.
-  private func handleBridgeChannelEvent(_ event: BridgeChannelEvent) async {
+  /// Internal so tests can inject bridge messages without a live socket.
+  func handleBridgeChannelEvent(_ event: BridgeChannelEvent) async {
     switch event {
     case .closed(let reason):
       emit(.diagnostic(message: "bridge-channel: closed (\(reason))"))
@@ -1096,8 +1144,24 @@ public actor NativeJingleCoordinator {
         emit(
           .diagnostic(
             message: "bridge: downlink bwe=\(bandwidth.map { String(Int($0)) } ?? "?") bps"))
-      case .sourcesRemapped(let media, let mappedSources):
-        emit(.diagnostic(message: "bridge: \(media) sources remapped to \(mappedSources)"))
+      case .sourcesRemapped(let media, let sources):
+        emit(
+          .diagnostic(
+            message: "bridge: \(media) sources remapped ["
+              + sources.map { "\($0.sourceName)@\($0.ssrc)" }.joined(separator: ", ") + "]"))
+        do {
+          try await applySourceMap(media: media, sources: sources)
+        } catch {
+          // Without the remap applied the affected tiles keep decoding a
+          // stale source, which is exactly the freeze this message prevents —
+          // worth a warning, not just a diagnostic.
+          emit(
+            .warning(
+              message: "Could not apply the bridge's \(media) source map: "
+                + error.localizedDescription
+            )
+          )
+        }
       case .dominantSpeaker(let endpointID):
         emit(.diagnostic(message: "bridge: dominant speaker \(endpointID ?? "none")"))
         emit(.dominantSpeakerChanged(endpointID: endpointID))
@@ -1145,6 +1209,167 @@ public actor NativeJingleCoordinator {
     await peerConnection.setVideoSenderActive(trackID: trackID, active: maxHeight > 0)
   }
 
+  /// Applies an SSRC-rewriting bridge's source map (`VideoSourcesMap` /
+  /// `AudioSourcesMap`), mirroring lib-jitsi-meet's
+  /// `JingleSessionPC.processSourceMap`: the bridge forwards a fixed, small
+  /// set of SSRCs and remaps which conference source each one carries. An
+  /// SSRC seen for the first time gets a fresh receive slot in the remote
+  /// description; a known SSRC only changes attribution — the same WebRTC
+  /// track now shows a different participant, so the tile routing must
+  /// follow or every remap freezes a tile on stale video.
+  private func applySourceMap(media: String, sources: [MappedSource]) async throws {
+    var newSources: [RTPSource] = []
+    var newGroups: [RTPSourceGroup] = []
+    for mapped in sources {
+      // The bridge names owners by endpoint id; tolerate a full occupant JID.
+      let owner = mapped.owner.map { XMPPJID.resource($0) ?? $0 }
+      guard media == "video" else {
+        // Audio drives no tile; a new SSRC only has to enter the remote
+        // description so WebRTC decodes it at all.
+        guard media == "audio", !remoteAudioSSRCs.contains(mapped.ssrc) else { continue }
+        remoteAudioSSRCs.insert(mapped.ssrc)
+        audioSlotCount += 1
+        let slot = "remote-audio-\(audioSlotCount)"
+        newSources.append(
+          RTPSource(
+            ssrc: mapped.ssrc,
+            name: mapped.sourceName,
+            parameters: slotParameters(slot: slot, mid: mapped.mid)
+          )
+        )
+        emit(
+          .diagnostic(
+            message: "source-map: audio slot \(slot) <- \(mapped.sourceName)@\(mapped.ssrc)"))
+        continue
+      }
+      let info = RemoteVideoSourceInfo(
+        name: mapped.sourceName,
+        owner: owner,
+        videoType: mapped.videoType,
+        isBridgePlaceholder: owner == "jvb" || mapped.sourceName.hasPrefix("jvb-")
+      )
+      if let trackID = trackIDByVideoSSRC[mapped.ssrc] {
+        orphanStaleVideoSlots(named: mapped.sourceName, keeping: trackID)
+        let current = videoSourceByTrackID[trackID]
+        guard
+          current?.name != info.name || current?.owner != info.owner
+            || current?.videoType != info.videoType
+        else { continue }
+        videoSourceByTrackID[trackID] = info
+        emit(
+          .diagnostic(
+            message: "source-map: \(trackID) -> \(mapped.sourceName)@\(mapped.ssrc) "
+              + "owner=\(owner ?? "?")"))
+        announceRemoteVideoTrack(id: trackID)
+      } else {
+        orphanStaleVideoSlots(named: mapped.sourceName, keeping: nil)
+        videoSlotCount += 1
+        let slot = "remote-video-\(videoSlotCount)"
+        newSources.append(
+          RTPSource(
+            ssrc: mapped.ssrc,
+            name: mapped.sourceName,
+            videoType: mapped.videoType,
+            parameters: slotParameters(slot: slot, mid: mapped.mid)
+          )
+        )
+        if let rtx = mapped.rtxSSRC {
+          newSources.append(
+            RTPSource(
+              ssrc: rtx,
+              name: mapped.sourceName,
+              parameters: slotParameters(slot: slot, mid: nil)
+            )
+          )
+          newGroups.append(RTPSourceGroup(semantics: "FID", sources: [mapped.ssrc, rtx]))
+          trackIDByVideoSSRC[rtx] = slot
+        }
+        trackIDByVideoSSRC[mapped.ssrc] = slot
+        videoSourceByTrackID[slot] = info
+        emit(
+          .diagnostic(
+            message: "source-map: video slot \(slot) <- \(mapped.sourceName)@\(mapped.ssrc)"))
+      }
+    }
+    guard !newSources.isEmpty else { return }
+    try await negotiations.run { [newSources, newGroups] in
+      try await self.addRemoteSlots(media: media, sources: newSources, groups: newGroups)
+    }
+  }
+
+  /// The parameters of a synthetic receive-slot source: lib-jitsi-meet's
+  /// slot msid ("remote-video-1 remote-video-1"), whose track part becomes
+  /// the WebRTC track id, plus the bridge-stamped mid when mid demuxing
+  /// supplied one.
+  private func slotParameters(slot: String, mid: String?) -> [String: String] {
+    var parameters = ["msid": "\(slot) \(slot)"]
+    if let mid { parameters["mid"] = mid }
+    return parameters
+  }
+
+  /// A source that moved onto a new SSRC leaves its old track behind, still
+  /// labeled with it and now decoding someone else's (or nobody's) video.
+  /// The reference client clears that track's owner so the UI stops showing
+  /// it; here the stale tile is withdrawn until the bridge remaps its SSRC
+  /// to another source.
+  private func orphanStaleVideoSlots(named sourceName: String, keeping trackID: String?) {
+    for (staleID, info) in videoSourceByTrackID
+    where staleID != trackID && info.name == sourceName {
+      videoSourceByTrackID[staleID] = RemoteVideoSourceInfo(
+        name: nil,
+        owner: nil,
+        videoType: info.videoType,
+        isBridgePlaceholder: info.isBridgePlaceholder
+      )
+      emit(.remoteVideoTrackRemoved(id: staleID))
+    }
+  }
+
+  /// Renegotiates the remote description with fresh receive slots for SSRCs
+  /// the bridge just started forwarding, through the same source-add path a
+  /// Jingle update takes. Runs inside the `negotiations` queue.
+  private func addRemoteSlots(
+    media: String,
+    sources: [RTPSource],
+    groups: [RTPSourceGroup]
+  ) async throws {
+    guard let activeOffer, let remoteSDP = await peerConnection.currentRemoteSDP() else {
+      throw NativeJingleCoordinatorError.sessionNotReady
+    }
+    let update = JingleSessionDescription(
+      action: .sourceAdd,
+      sessionID: activeOffer.session.sessionID,
+      initiator: nil,
+      contents: [
+        JingleContent(
+          name: media,
+          description: RTPDescription(media: media, sources: sources, sourceGroups: groups)
+        )
+      ]
+    )
+    let updated = try JitsiMultistreamSDP().applyingRemoteSourceUpdate(update, to: remoteSDP)
+    _ = try await peerConnection.answerRenegotiation(remoteOfferSDP: updated)
+  }
+
+  /// Emits the current description of a live remote video track. Called both
+  /// when WebRTC surfaces the track and when a source remap changes what it
+  /// carries; the app replaces its copy by track id either way.
+  private func announceRemoteVideoTrack(id trackID: String) {
+    guard let track = remoteVideoTracks[trackID] else { return }
+    let info = videoSourceByTrackID[trackID]
+    emit(
+      .remoteVideoTrackAdded(
+        RemoteVideoStream(
+          track: track,
+          sourceName: info?.name,
+          endpointID: info?.owner,
+          videoType: info?.videoType,
+          isBridgePlaceholder: info?.isBridgePlaceholder ?? track.id.contains("mixedlabel")
+        )
+      )
+    )
+  }
+
   /// Records the remote video source names carried by a session or source
   /// update, so receiver constraints can name them. Our own camera/screen
   /// sources are excluded — the bridge does not forward our video back to us.
@@ -1157,20 +1382,35 @@ public actor NativeJingleCoordinator {
 
   /// Keeps the track-id → source map current, so the WebRTC track that later
   /// surfaces for a source can be attributed to its participant. The track id
-  /// of a signaled remote source is the track part of its msid.
+  /// of a signaled remote source is the track part of its msid. The SSRC →
+  /// track routing recorded alongside is what an SSRC-rewriting bridge's
+  /// source maps consult, and the audio SSRC set keeps those maps from
+  /// re-adding sources the description already has.
   private func registerRemoteVideoSources(from session: JingleSessionDescription) {
-    for content in session.contents where content.description?.media == "video" {
+    for content in session.contents {
+      let media = content.description?.media
+      guard media == "video" || media == "audio" else { continue }
       for source in content.description?.sources ?? [] {
+        if media == "audio" {
+          if session.action == .sourceRemove {
+            remoteAudioSSRCs.remove(source.ssrc)
+          } else {
+            remoteAudioSSRCs.insert(source.ssrc)
+          }
+          continue
+        }
         guard let msid = source.parameters["msid"] else { continue }
         let parts = msid.split(separator: " ")
         let trackID = parts.count == 2 ? String(parts[1]) : msid
         if session.action == .sourceRemove {
           videoSourceByTrackID.removeValue(forKey: trackID)
+          trackIDByVideoSSRC.removeValue(forKey: source.ssrc)
           continue
         }
         let owner =
           source.owner.map { XMPPJID.resource($0) ?? $0 }
           ?? source.sourceName.flatMap(Self.endpointID(fromSourceName:))
+        trackIDByVideoSSRC[source.ssrc] = trackID
         videoSourceByTrackID[trackID] = RemoteVideoSourceInfo(
           name: source.sourceName,
           owner: owner,
@@ -1265,20 +1505,10 @@ public actor NativeJingleCoordinator {
         case .localCandidate(let candidate):
           try await send(candidate)
         case .remoteVideoTrackAdded(let track):
-          let info = videoSourceByTrackID[track.id]
-          emit(
-            .remoteVideoTrackAdded(
-              RemoteVideoStream(
-                track: track,
-                sourceName: info?.name,
-                endpointID: info?.owner,
-                videoType: info?.videoType,
-                isBridgePlaceholder: info?.isBridgePlaceholder
-                  ?? track.id.contains("mixedlabel")
-              )
-            )
-          )
+          remoteVideoTracks[track.id] = track
+          announceRemoteVideoTrack(id: track.id)
         case .remoteVideoTrackRemoved(let id):
+          remoteVideoTracks.removeValue(forKey: id)
           emit(.remoteVideoTrackRemoved(id: id))
         case .negotiationNeeded:
           break

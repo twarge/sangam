@@ -21,8 +21,47 @@ public enum ColibriMessage: Equatable, Sendable {
   case connectionStats(estimatedDownlinkBandwidthBps: Double?)
   /// An SSRC-rewriting bridge remapped which stream carries which source.
   /// A client that ignores this listens to stale SSRCs and shows freezes.
-  case sourcesRemapped(media: String, mappedSources: String)
+  case sourcesRemapped(media: String, sources: [MappedSource])
   case unknown(type: String)
+}
+
+/// One entry of an SSRC-rewriting bridge's `VideoSourcesMap`/`AudioSourcesMap`:
+/// which conference source one of the bridge's fixed forwarded SSRCs carries
+/// right now. The field set matches jitsi-videobridge's `VideoSourceMapping` /
+/// `AudioSourceMapping` (BridgeChannelMessage.kt), consumed the way
+/// lib-jitsi-meet's `JingleSessionPC.processSourceMap` reads it.
+public struct MappedSource: Equatable, Sendable {
+  /// The Jitsi source name ("abcd1234-v0") this SSRC now carries.
+  public var sourceName: String
+  /// The owning endpoint id; the bridge's own synthetic sources have none.
+  public var owner: String?
+  public var ssrc: UInt32
+  /// The RTX (retransmission) partner SSRC. Video only; the bridge sends -1
+  /// when the source has no RTX stream.
+  public var rtxSSRC: UInt32?
+  /// The RTP `mid` the bridge stamps on this source's packets, present only
+  /// when mid-based demuxing was negotiated.
+  public var mid: String?
+  /// "camera" or "desktop" ("none" while the sender's video is off). Video
+  /// only. The bridge spells its enum in uppercase; normalized to lowercase
+  /// here, as the reference client does.
+  public var videoType: String?
+
+  public init(
+    sourceName: String,
+    owner: String? = nil,
+    ssrc: UInt32,
+    rtxSSRC: UInt32? = nil,
+    mid: String? = nil,
+    videoType: String? = nil
+  ) {
+    self.sourceName = sourceName
+    self.owner = owner
+    self.ssrc = ssrc
+    self.rtxSSRC = rtxSSRC
+    self.mid = mid
+    self.videoType = videoType
+  }
 }
 
 public enum JSONValue: Equatable, Sendable {
@@ -203,13 +242,34 @@ public struct ColibriParser: Sendable {
       return .serverHello(version: (dictionary["version"]).map { "\($0)" })
     case "ConnectionStats":
       return .connectionStats(
-        estimatedDownlinkBandwidthBps:
-          (dictionary["estimatedDownlinkBandwidth"] as? NSNumber)?.doubleValue
+        estimatedDownlinkBandwidthBps: (dictionary["estimatedDownlinkBandwidth"] as? NSNumber)?
+          .doubleValue
       )
     case "VideoSourcesMap", "AudioSourcesMap":
+      guard let entries = dictionary["mappedSources"] as? [Any] else {
+        throw ColibriParsingError.missingField(type: type)
+      }
+      // A malformed entry is skipped rather than failing the message: the
+      // valid remaps still route media, which beats freezing every tile.
+      let sources = entries.compactMap { entry -> MappedSource? in
+        guard
+          let fields = entry as? [String: Any],
+          let name = fields["source"] as? String, !name.isEmpty,
+          let ssrc = (fields["ssrc"] as? NSNumber).flatMap({ UInt32(exactly: $0.int64Value) })
+        else { return nil }
+        return MappedSource(
+          sourceName: name,
+          owner: fields["owner"] as? String,
+          ssrc: ssrc,
+          // -1 (no RTX) falls out of the UInt32 conversion.
+          rtxSSRC: (fields["rtx"] as? NSNumber).flatMap { UInt32(exactly: $0.int64Value) },
+          mid: fields["mid"] as? String,
+          videoType: (fields["videoType"] as? String)?.lowercased()
+        )
+      }
       return .sourcesRemapped(
         media: type == "VideoSourcesMap" ? "video" : "audio",
-        mappedSources: String(describing: dictionary["mappedSources"] ?? "?")
+        sources: sources
       )
     default:
       return .unknown(type: type)
