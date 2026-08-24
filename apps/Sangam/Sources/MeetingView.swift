@@ -15,10 +15,17 @@ struct MeetingView: View {
         .ignoresSafeArea()
 
       if controller.connectionState == .connecting {
-        ProgressView("Joining…")
-          .padding(18)
-          .background(.regularMaterial, in: .rect(cornerRadius: 14))
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 14) {
+          ProgressView("Joining…")
+          // Leaving the meeting view cancels the in-flight join and tears
+          // down whatever the bootstrap already opened.
+          Button("Cancel", role: .cancel, action: dismiss)
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: .rect(cornerRadius: 14))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
 
       if controller.connectionState == .accessRequired
