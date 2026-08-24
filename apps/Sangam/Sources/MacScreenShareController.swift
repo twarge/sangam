@@ -84,8 +84,17 @@
     private func start(filter: SCContentFilter) {
       report(.starting)
       let configuration = SCStreamConfiguration()
-      configuration.width = 3_840
-      configuration.height = 2_160
+      // Match the stream size to the picked content, and let ScreenCaptureKit
+      // scale into it. A fixed 4K canvas leaves a window's pixels in one
+      // corner of an otherwise black frame — which arrived at the far end as
+      // a black feed — since without `scalesToFit` window content is not
+      // scaled to the output size.
+      let scale = CGFloat(filter.pointPixelScale)
+      let width = Int(filter.contentRect.width * scale)
+      let height = Int(filter.contentRect.height * scale)
+      configuration.width = min(max(width - width % 2, 2), 3_840)
+      configuration.height = min(max(height - height % 2, 2), 2_160)
+      configuration.scalesToFit = true
       configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
       configuration.queueDepth = 5
       configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -153,7 +162,18 @@
   extension MacScreenShareController: SCStreamDelegate, SCStreamOutput {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
       _ = takeStream()
-      report(.failed(error.localizedDescription))
+      // Closing the shared window, or stopping from the system's screen
+      // sharing indicator, ends the stream with `userStopped`. That is an
+      // ordinary end of sharing — report it as stopped so the app resets the
+      // toolbar quietly instead of raising an error alert.
+      let nsError = error as NSError
+      if nsError.domain == SCStreamErrorDomain,
+        nsError.code == SCStreamError.Code.userStopped.rawValue
+      {
+        report(.stopped)
+      } else {
+        report(.failed(error.localizedDescription))
+      }
     }
 
     nonisolated func stream(
@@ -165,7 +185,8 @@
         type == .screen,
         sampleBuffer.isValid,
         CMSampleBufferDataIsReady(sampleBuffer),
-        let pixelBuffer = sampleBuffer.imageBuffer
+        let pixelBuffer = sampleBuffer.imageBuffer,
+        Self.frameHasContent(sampleBuffer)
       else { return }
 
       let presentationTime = sampleBuffer.presentationTimeStamp
@@ -178,6 +199,20 @@
         pixelBuffer: pixelBuffer,
         timestampNanoseconds: timestamp
       )
+    }
+
+    /// Whether a captured frame actually carries the picked content. Streams
+    /// begin with started/blank frames whose buffers are empty; encoding those
+    /// shows black at the far end. Complete frames carry new content and idle
+    /// frames repeat unchanged content — both are real.
+    private nonisolated static func frameHasContent(_ sampleBuffer: CMSampleBuffer) -> Bool {
+      guard
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(
+          sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+        let rawStatus = attachments.first?[.status] as? Int,
+        let status = SCFrameStatus(rawValue: rawStatus)
+      else { return false }
+      return status == .complete || status == .idle
     }
   }
 #endif
