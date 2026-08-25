@@ -434,12 +434,26 @@ public actor NativeJingleCoordinator {
 
   /// Publishes the first desktop source. Once allocated, its sender is retained
   /// and subsequent stop/start operations only disable or enable its frames.
+  ///
+  /// Sharing is allowed with no media session live — alone in the meeting,
+  /// say, after Jicofo expired the session. Capture keeps running and the
+  /// source is published automatically when the next session is accepted,
+  /// exactly as the web app arms a share before anyone joins.
   public func publishScreen() async throws {
     screenEnabled = true
     screenVideoTrack.isEnabled = true
-    try await negotiations.run { try await self.performPublishScreen() }
+    try await negotiations.run {
+      try await self.publishScreenIfSessionReady()
+    }
     emit(.screenSharingChanged(true))
     await sendSourcePresence()
+  }
+
+  /// Publishes the screen when a media session exists; otherwise leaves the
+  /// share armed for `accept` to publish. Must run on the negotiations queue.
+  private func publishScreenIfSessionReady() async throws {
+    guard activeOffer != nil, await peerConnection.currentRemoteSDP() != nil else { return }
+    try await performPublishScreen()
   }
 
   private func performPublishScreen() async throws {
@@ -1082,6 +1096,16 @@ public actor NativeJingleCoordinator {
     // no remote candidates to check against and sits in `checking` forever.
     try? await addRemoteCandidates(incoming.session)
     await openBridgeChannel(for: incoming.session)
+    // A share armed while no session was live (or lost with the previous
+    // session on a re-invite) is published as soon as media exists again.
+    if screenEnabled, !screenPublished {
+      do {
+        try await performPublishScreen()
+        await sendSourcePresence()
+      } catch {
+        emit(.warning(message: "Could not publish the armed screen share: \(error.localizedDescription)"))
+      }
+    }
     emit(.connected(sessionID: incoming.session.sessionID))
   }
 

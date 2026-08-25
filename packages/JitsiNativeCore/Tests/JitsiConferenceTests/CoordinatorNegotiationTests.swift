@@ -377,6 +377,32 @@ struct CoordinatorNegotiationTests {
     #expect(!webStream.isBridgePlaceholder)
   }
 
+  /// A share armed while no session was live is published automatically when
+  /// the session-initiate arrives, the way the web app shares pre-join.
+  @Test
+  func publishesAnArmedScreenShareWhenTheSessionArrives() async throws {
+    let harness = try await NegotiationHarness()
+    defer { harness.tearDown() }
+
+    try await harness.coordinator.publishScreen()
+
+    await harness.socket.push(
+      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", body: bundledOffer)
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .connected = $0 { return true }
+        return false
+      }
+    }
+    let published = await eventually {
+      await harness.socket.stanzasAfterBootstrap().contains {
+        $0.contains("source-add") && $0.contains("name=\"native-v1\"")
+      }
+    }
+    #expect(published, "the armed screen share was not published on session accept")
+  }
+
   /// Jicofo tears the media session down when this client is the only one
   /// left, and re-invites when someone joins again. The client must stay in
   /// the conference and answer the fresh offer on a rebuilt peer connection.

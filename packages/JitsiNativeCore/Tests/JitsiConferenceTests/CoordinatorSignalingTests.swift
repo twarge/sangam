@@ -281,14 +281,27 @@ struct CoordinatorSignalingTests {
     #expect(!disturbed, "a non-focus Jingle stanza disturbed the bridge session")
   }
 
+  /// Sharing with no media session live (alone in the meeting) arms the share
+  /// instead of failing; nothing is signalled until a session exists.
   @Test
-  func refusesToPublishScreenBeforeASessionExists() async throws {
+  func armsScreenShareBeforeASessionExists() async throws {
     let harness = try await Harness()
     defer { harness.tearDown() }
 
-    await #expect(throws: NativeJingleCoordinatorError.sessionNotReady) {
-      try await harness.coordinator.publishScreen()
-    }
+    try await harness.coordinator.publishScreen()
+
+    #expect(
+      await eventually {
+        await harness.events.contains {
+          if case .screenSharingChanged(true) = $0 { return true }
+          return false
+        }
+      }
+    )
+    #expect(
+      await harness.socket.stanzasAfterBootstrap().allSatisfy { !$0.contains("source-add") },
+      "an armed share was signalled without a session"
+    )
   }
 
   /// Other occupants' presences build the participant roster — with the

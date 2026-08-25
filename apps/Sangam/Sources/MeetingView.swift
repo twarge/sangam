@@ -11,8 +11,13 @@ struct MeetingView: View {
       Color.black
         .ignoresSafeArea()
 
+      // On macOS the surface manages safe areas itself: the stage ignores
+      // them (video runs under the titlebar), while the floating sidebar
+      // must start below the toolbar.
       meetingSurface
-        .ignoresSafeArea()
+        #if os(iOS)
+          .ignoresSafeArea()
+        #endif
 
       if controller.connectionState == .connecting {
         VStack(spacing: 14) {

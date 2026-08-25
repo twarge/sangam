@@ -51,11 +51,18 @@ struct NativeMeetingSurface: View {
     private var meetingRoot: some View {
       ZStack(alignment: .leading) {
         detailContent
+          .ignoresSafeArea()
         if !model.sidebarCollapsed {
+          // The list itself honors the toolbar's safe area; only the panel's
+          // backdrop runs all the way to the window edge behind it.
           sidebarRoster
             .scrollContentBackground(.hidden)
             .frame(width: 236)
-            .background(SidebarBackdrop().overlay(Color.black.opacity(0.35)))
+            .background {
+              SidebarBackdrop()
+                .overlay(Color.black.opacity(0.35))
+                .ignoresSafeArea()
+            }
             .environment(\.colorScheme, .dark)
             .transition(.move(edge: .leading).combined(with: .opacity))
         }
@@ -415,6 +422,8 @@ struct NativeMeetingSurface: View {
     var body: some View {
       HStack(spacing: 6) {
         Text(name)
+          .font(.body.bold())
+          .foregroundStyle(.white)
           .lineLimit(1)
           .truncationMode(.tail)
         if isSpeaking {
