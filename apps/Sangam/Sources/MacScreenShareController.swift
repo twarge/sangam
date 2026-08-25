@@ -240,7 +240,12 @@
           sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
         let rawStatus = attachments.first?[.status] as? Int,
         let status = SCFrameStatus(rawValue: rawStatus)
-      else { return ("unreadable", false) }
+      else {
+        // Fail open: a frame without a readable status attachment is pushed
+        // rather than dropped — discarding everything on a parsing assumption
+        // is a self-inflicted black feed.
+        return ("unreadable", true)
+      }
       switch status {
       case .complete: return ("complete", true)
       case .idle: return ("idle", true)

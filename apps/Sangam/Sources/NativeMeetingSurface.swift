@@ -5,6 +5,9 @@ import SwiftUI
 #if os(iOS)
   import ReplayKit
 #endif
+#if os(macOS)
+  import AppKit
+#endif
 
 #if os(iOS)
   /// The legacy adapter survives on iOS only, so macOS always runs the native
@@ -22,9 +25,6 @@ struct NativeMeetingSurface: View {
 
   @StateObject private var model = NativeMeetingModel()
 
-  #if os(macOS)
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
-  #endif
 
   var body: some View {
     meetingRoot
@@ -43,18 +43,35 @@ struct NativeMeetingSurface: View {
   }
 
   #if os(macOS)
-    /// The native navigation sidebar merges the participant roster with their
-    /// feeds: one section per person, the name as its header, and a selectable
-    /// thumbnail row per feed beneath. Audio-only participants are just their
+    /// The stage fills the whole window — edge to edge, under the sidebar —
+    /// and the participant roster floats over it as a dark translucent panel.
+    /// One section per person, the name as its header, and a selectable
+    /// thumbnail row per feed beneath; audio-only participants are just their
     /// header. Selecting a thumbnail pins it to the stage.
     private var meetingRoot: some View {
-      NavigationSplitView(columnVisibility: $columnVisibility) {
-        sidebarRoster
-          .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 320)
-      } detail: {
+      ZStack(alignment: .leading) {
         detailContent
+        if !model.sidebarCollapsed {
+          sidebarRoster
+            .scrollContentBackground(.hidden)
+            .frame(width: 236)
+            .background(SidebarBackdrop().overlay(Color.black.opacity(0.35)))
+            .environment(\.colorScheme, .dark)
+            .transition(.move(edge: .leading).combined(with: .opacity))
+        }
       }
-      .navigationSplitViewStyle(.balanced)
+      .animation(.snappy, value: model.sidebarCollapsed)
+      .toolbar {
+        ToolbarItem(placement: .navigation) {
+          Button {
+            model.sidebarCollapsed.toggle()
+          } label: {
+            Image(systemName: "sidebar.left")
+          }
+          .help(model.sidebarCollapsed ? "Show participants" : "Hide participants")
+          .keyboardShortcut("s", modifiers: [.command, .option])
+        }
+      }
     }
 
     private var sidebarRoster: some View {
@@ -156,10 +173,13 @@ struct NativeMeetingSurface: View {
         gridView(tiles: tiles)
       } else {
         #if os(macOS)
-          // The sources live in the navigation sidebar; the detail column is
-          // the stage alone.
-          tileView(for: Self.featuredTile(in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID))
-            .padding(6)
+          // The sources live in the floating sidebar; the stage is the whole
+          // window, borderless and edge to edge.
+          tileView(
+            for: Self.featuredTile(
+              in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID),
+            flat: true
+          )
         #else
           sidebarStageView(tiles: tiles)
         #endif
@@ -310,7 +330,10 @@ struct NativeMeetingSurface: View {
     .accessibilityLabel("Your camera")
   }
 
-  private func tileView(for tile: NativeMeetingModel.MeetingTile) -> some View {
+  private func tileView(
+    for tile: NativeMeetingModel.MeetingTile,
+    flat: Bool = false
+  ) -> some View {
     let participant = tile.endpointID.flatMap { id in
       model.participants.first { $0.id == id }
     }
@@ -318,7 +341,8 @@ struct NativeMeetingSurface: View {
       tile: tile,
       isDominantSpeaker: tile.endpointID != nil
         && tile.endpointID == model.dominantSpeakerID,
-      isPinned: tile.id == model.pinnedTileID
+      isPinned: tile.id == model.pinnedTileID,
+      flat: flat
     )
     .onTapGesture {
       model.pinnedTileID = model.pinnedTileID == tile.id ? nil : tile.id
@@ -364,6 +388,21 @@ struct NativeMeetingSurface: View {
 }
 
 #if os(macOS)
+  /// The floating sidebar's ground: a dark translucent material that lets the
+  /// stage video read through it, independent of the system appearance.
+  private struct SidebarBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+      let view = NSVisualEffectView()
+      view.material = .hudWindow
+      view.blendingMode = .withinWindow
+      view.state = .active
+      view.appearance = NSAppearance(named: .vibrantDark)
+      return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+  }
+
   /// A participant's name line in the sidebar, with their live state beside
   /// it: a speaking indicator while they are the dominant speaker, a raised
   /// hand, and their microphone state.
@@ -570,6 +609,9 @@ private struct MeetingTileView: View {
   let tile: NativeMeetingModel.MeetingTile
   let isDominantSpeaker: Bool
   let isPinned: Bool
+  /// A stage tile fills the window edge to edge: no rounding, and a border
+  /// only while its owner is the dominant speaker.
+  var flat = false
 
   var body: some View {
     ZStack {
@@ -584,12 +626,12 @@ private struct MeetingTileView: View {
           .background(.white.opacity(0.12), in: .circle)
       }
     }
-    .clipShape(.rect(cornerRadius: 10))
+    .clipShape(.rect(cornerRadius: flat ? 0 : 10))
     .overlay {
-      RoundedRectangle(cornerRadius: 10)
+      RoundedRectangle(cornerRadius: flat ? 0 : 10)
         .strokeBorder(
-          isDominantSpeaker ? Color.accentColor : .white.opacity(0.12),
-          lineWidth: isDominantSpeaker ? 2.5 : 1
+          isDominantSpeaker ? Color.accentColor : .white.opacity(flat ? 0 : 0.12),
+          lineWidth: isDominantSpeaker ? 2.5 : (flat ? 0 : 1)
         )
     }
     .overlay(alignment: .topLeading) {

@@ -1206,6 +1206,9 @@ public actor NativeJingleCoordinator {
     default: trackID = nil
     }
     guard let trackID else { return }
+    emit(
+      .diagnostic(
+        message: "sender \(sourceName): \(maxHeight > 0 ? "resume" : "pause") encodings"))
     await peerConnection.setVideoSenderActive(trackID: trackID, active: maxHeight > 0)
   }
 
