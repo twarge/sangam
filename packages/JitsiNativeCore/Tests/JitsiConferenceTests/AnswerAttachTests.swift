@@ -95,5 +95,20 @@ func attachesLocalTracksToAnOfferWithMediaLevelMsid() async throws {
   let videoAnswer = try #require(sections.first { $0.hasPrefix("m=video") })
   #expect(videoAnswer.contains("a=sendrecv"), "camera did not bind to the first video line")
   #expect(videoAnswer.contains("a=ssrc:"), "answer carries no local video source")
+  // The installed answer is simulcast-munged: three layers in a SIM group,
+  // each with an msid — and WebRTC accepted the munged description, since
+  // this SDP is returned only after setLocalDescription succeeds.
+  let simLine = try #require(
+    videoAnswer.components(separatedBy: "\r\n").first { $0.hasPrefix("a=ssrc-group:SIM ") },
+    "the sending video line was not munged for simulcast"
+  )
+  let layers = simLine.dropFirst("a=ssrc-group:SIM ".count).split(separator: " ")
+  #expect(layers.count == 3)
+  for layer in layers {
+    #expect(
+      videoAnswer.contains("a=ssrc:\(layer) msid:"),
+      "simulcast layer \(layer) has no msid; Jicofo would reject the accept"
+    )
+  }
   await negotiator.close()
 }

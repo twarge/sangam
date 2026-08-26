@@ -48,6 +48,12 @@ public struct LocalSourceNegotiation: Equatable, Sendable {
 public actor PeerConnectionNegotiator {
   private let connection: RTCPeerConnection
   private let queue = SerialTaskQueue()
+  /// Munges local answers so outgoing video is sent as three simulcast
+  /// layers, exactly as the web client does. `SANGAM_NO_SIMULCAST=1` turns
+  /// the munging off for bring-up comparisons.
+  private var simulcast = LocalSimulcastMunger()
+  private let simulcastEnabled =
+    ProcessInfo.processInfo.environment["SANGAM_NO_SIMULCAST"] != "1"
 
   public init(connection: RTCPeerConnection) {
     self.connection = connection
@@ -78,9 +84,7 @@ public actor PeerConnectionNegotiator {
       for videoTrack in localVideoTracks {
         try await self.addLocalTrackIfNeeded(videoTrack.track, streamID: streamID)
       }
-      let answer = try await self.createDescription(type: .answer)
-      try await self.setLocalDescription(answer, operation: "set local answer")
-      return answer.sdp
+      return try await self.createAndInstallAnswer()
     }
   }
 
@@ -257,9 +261,20 @@ public actor PeerConnectionNegotiator {
       RTCSessionDescription(type: .offer, sdp: remoteOfferSDP),
       operation: "set remote offer"
     )
+    return try await createAndInstallAnswer()
+  }
+
+  /// Creates the local answer, munges simulcast into its sending video
+  /// sections, installs it, and returns the installed SDP — the munged form
+  /// is also what Jingle serialization must advertise.
+  private func createAndInstallAnswer() async throws -> String {
     let answer = try await createDescription(type: .answer)
-    try await setLocalDescription(answer, operation: "set local answer")
-    return answer.sdp
+    let sdp = simulcastEnabled ? simulcast.munge(answer.sdp) : answer.sdp
+    try await setLocalDescription(
+      RTCSessionDescription(type: .answer, sdp: sdp),
+      operation: "set local answer"
+    )
+    return sdp
   }
 
   private func performAddRemoteCandidate(

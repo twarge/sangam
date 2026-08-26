@@ -127,9 +127,11 @@ struct CoordinatorNegotiationTests {
     #expect(stanza.contains("name=\"video\""))
     #expect(stanza.contains("name=\"native-v1\""))
 
-    let sharing = await harness.events.contains {
-      if case .screenSharingChanged(true) = $0 { return true }
-      return false
+    let sharing = await eventually {
+      await harness.events.contains {
+        if case .screenSharingChanged(true) = $0 { return true }
+        return false
+      }
     }
     #expect(sharing)
   }
