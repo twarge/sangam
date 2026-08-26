@@ -6,6 +6,12 @@ struct JoinView: View {
   @Binding var displayName: String
   var join: () -> Void
 
+  private enum Field {
+    case room
+  }
+
+  @FocusState private var focusedField: Field?
+
   var body: some View {
     VStack(spacing: 24) {
       Spacer()
@@ -24,6 +30,7 @@ struct JoinView: View {
       VStack(spacing: 12) {
         TextField("Room name", text: $room)
           .textFieldStyle(.roundedBorder)
+          .focused($focusedField, equals: .room)
           .onSubmit(join)
         TextField("Display name", text: $displayName)
           .textFieldStyle(.roundedBorder)
@@ -49,5 +56,7 @@ struct JoinView: View {
       Spacer()
     }
     .padding(32)
+    .defaultFocus($focusedField, .room)
+    .onAppear { focusedField = .room }
   }
 }

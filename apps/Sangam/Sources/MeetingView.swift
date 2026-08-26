@@ -206,6 +206,15 @@ private struct MeetingAccessCard: View {
     .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
     .padding(24)
     .animation(.snappy, value: isWaiting)
+    .defaultFocus($focusedField, .username)
+    .onAppear {
+      // The card is also re-presented after a refused password, when it must
+      // reclaim focus itself; `defaultFocus` only covers the first time.
+      if !isWaiting { focusedField = .username }
+    }
+    .onChange(of: isWaiting) { _, waiting in
+      if !waiting { focusedField = .username }
+    }
   }
 
   private func submitCredentials() {
