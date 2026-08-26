@@ -1413,7 +1413,13 @@ public actor NativeJingleCoordinator {
   /// track routing recorded alongside is what an SSRC-rewriting bridge's
   /// source maps consult, and the audio SSRC set keeps those maps from
   /// re-adding sources the description already has.
-  private func registerRemoteVideoSources(from session: JingleSessionDescription) {
+  /// Returns the track ids of video sources a source-remove retired, so the
+  /// caller can announce their tracks as gone. WebRTC does not reliably fire
+  /// a receiver-removed callback when the rejected media line tears down, and
+  /// a share that ended would otherwise linger as a frozen tile.
+  @discardableResult
+  private func registerRemoteVideoSources(from session: JingleSessionDescription) -> [String] {
+    var removedTrackIDs: [String] = []
     for content in session.contents {
       let media = content.description?.media
       guard media == "video" || media == "audio" else { continue }
@@ -1432,6 +1438,7 @@ public actor NativeJingleCoordinator {
         if session.action == .sourceRemove {
           videoSourceByTrackID.removeValue(forKey: trackID)
           trackIDByVideoSSRC.removeValue(forKey: source.ssrc)
+          if !removedTrackIDs.contains(trackID) { removedTrackIDs.append(trackID) }
           continue
         }
         let owner =
@@ -1446,6 +1453,7 @@ public actor NativeJingleCoordinator {
         )
       }
     }
+    return removedTrackIDs
   }
 
   /// "abcd1234-v0" → "abcd1234"; the naming convention shared with the
@@ -1518,7 +1526,13 @@ public actor NativeJingleCoordinator {
     _ = try await peerConnection.answerRenegotiation(remoteOfferSDP: updated)
     // A newly published remote source needs the bridge to be re-told we want it.
     noteRemoteVideoSources(from: session)
-    registerRemoteVideoSources(from: session)
+    let removedTrackIDs = registerRemoteVideoSources(from: session)
+    // Announce removed sources' tracks ourselves: an ended share (or a
+    // participant's retired camera) must leave the roster even when WebRTC
+    // stays silent about the torn-down receiver.
+    for trackID in removedTrackIDs {
+      emit(.remoteVideoTrackRemoved(id: trackID))
+    }
     await sendReceiverVideoConstraints()
   }
 

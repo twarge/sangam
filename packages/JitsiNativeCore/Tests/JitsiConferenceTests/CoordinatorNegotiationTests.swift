@@ -466,6 +466,47 @@ struct CoordinatorNegotiationTests {
     #expect(accepts.contains { $0.contains("sid=\"sid-2\"") })
   }
 
+  /// An ended remote share (or retired camera) must leave the roster even
+  /// when WebRTC never announces the torn-down receiver: the coordinator
+  /// itself reports the removed source's track.
+  @Test
+  func announcesRemovedRemoteSourcesAsRemovedTracks() async throws {
+    let harness = try await NegotiationHarness()
+    defer { harness.tearDown() }
+
+    await harness.socket.push(
+      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", body: bundledOffer)
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .connected = $0 { return true }
+        return false
+      }
+    }
+    await harness.socket.push(
+      TestConference.jingleIQ(
+        id: "add-1", action: "source-add", body: Self.sourceAddContent(mid: "7", ssrc: 9_701))
+    )
+    _ = await eventually {
+      await harness.socket.stanzasAfterBootstrap()
+        .contains { $0.contains("id=\"add-1\"") && $0.contains("type=\"result\"") }
+    }
+
+    await harness.socket.push(
+      TestConference.jingleIQ(
+        id: "remove-1", action: "source-remove", body: Self.sourceAddContent(mid: "7", ssrc: 9_701))
+    )
+    #expect(
+      await eventually {
+        await harness.events.contains {
+          if case .remoteVideoTrackRemoved(let id) = $0 { return id == "remote-track-9701" }
+          return false
+        }
+      },
+      "the removed source's track was never announced as removed"
+    )
+  }
+
   /// Mirrors Jicofo: a source-add's content is named by media type — which
   /// media line the source lands on is the client's decision, and each newly
   /// published source gets its own new one.
