@@ -46,10 +46,38 @@ func addsTwoSimulcastLayersToTheSendingVideoSection() throws {
     #expect(videoSection.contains("a=ssrc:\(layer) msid:stream track"))
     #expect(videoSection.contains("a=ssrc:\(layer) cname:video-cname"))
   }
+  // WebRTC validates RTX all-or-nothing across simulcast layers: since the
+  // primary negotiated RTX, every layer must carry its own FID pair.
+  let fidLines = videoSection.components(separatedBy: "\r\n").filter {
+    $0.hasPrefix("a=ssrc-group:FID ")
+  }
+  #expect(fidLines.count == 3)
+  for layer in layers {
+    #expect(fidLines.contains { $0.hasPrefix("a=ssrc-group:FID \(layer) ") })
+  }
 
   // Audio and receive-only sections are untouched.
   #expect(!munged.components(separatedBy: "\r\nm=")[1].contains("SIM"))
   #expect(munged.contains("a=mid:2\r\na=recvonly"))
+}
+
+@Test
+func staysRTXFreeWhenNoneWasNegotiated() throws {
+  let noRTX = [
+    "v=0",
+    "o=- 1 2 IN IP4 127.0.0.1",
+    "s=-",
+    "t=0 0",
+    "m=video 9 UDP/TLS/RTP/SAVPF 96",
+    "a=mid:1",
+    "a=sendrecv",
+    "a=msid:stream track",
+    "a=ssrc:100 cname:video-cname",
+  ].joined(separator: "\r\n")
+  var munger = LocalSimulcastMunger()
+  let munged = munger.munge(noRTX)
+  #expect(munged.contains("a=ssrc-group:SIM 100 "))
+  #expect(!munged.contains("a=ssrc-group:FID"))
 }
 
 @Test

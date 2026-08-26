@@ -11,7 +11,18 @@ import Foundation
 /// layers, so a cache hit rewrites the media section to exactly the cached
 /// SIM set, as the reference does.
 struct LocalSimulcastMunger {
-  private var ssrcCache: [String: [UInt32]] = [:]
+  /// One simulcast layer: the encoding SSRC and, when RTX was negotiated,
+  /// its retransmission partner. WebRTC validates RTX all-or-nothing across
+  /// layers — `SIM(a,b,c)` with a single `FID(a,r)` is rejected outright
+  /// ("Failed to add send stream ssrc"), which is why the reference client
+  /// follows its simulcast munging with RtxModifier: every layer gets a FID
+  /// pair, or none does.
+  private struct Layer {
+    var ssrc: UInt32
+    var rtx: UInt32?
+  }
+
+  private var ssrcCache: [String: [Layer]] = [:]
 
   /// Munges every *sending* video section of a local description. Sections
   /// that are receive-only or inactive, carry no sources, or already signal
@@ -63,37 +74,53 @@ struct LocalSimulcastMunger {
     guard let msid else { return section }
     let cname = Self.ssrcAttribute(primary, "cname", in: lines)
 
+    let layers: [Layer]
     if let cached = ssrcCache[mid] {
-      // A renegotiation must re-signal the very same layers: replace the
-      // fresh source lines with the cached SIM set.
-      lines.removeAll { $0.hasPrefix("a=ssrc:") || $0.hasPrefix("a=ssrc-group:") }
-      for ssrc in cached {
-        lines.append("a=ssrc:\(ssrc) msid:\(msid)")
-        if let cname { lines.append("a=ssrc:\(ssrc) cname:\(cname)") }
-      }
-      lines.append("a=ssrc-group:SIM \(cached.map(String.init).joined(separator: " "))")
+      layers = cached
     } else {
-      // Make the msid explicit on the existing ssrc lines, generate the two
-      // higher layers, and join them with the primary in a SIM group. The
-      // primary's FID (RTX) group is left as negotiated.
-      for ssrc in ssrcOrder where Self.ssrcAttribute(ssrc, "msid", in: lines) == nil {
-        lines.append("a=ssrc:\(ssrc) msid:\(msid)")
-      }
-      var layers = [primary]
+      // The primary keeps its negotiated RTX partner; the generated layers
+      // each get one exactly when the primary has one.
+      let primaryRTX = Self.fidGroupMembers(in: lines).flatMap { $0.count > 1 ? $0[1] : nil }
+      var used = Set(ssrcOrder)
+      var generated: [Layer] = [Layer(ssrc: primary, rtx: primaryRTX)]
       for _ in 0..<2 {
-        var ssrc = UInt32.random(in: 1...0xFFFF_FFFE)
-        while layers.contains(ssrc) || ssrcOrder.contains(ssrc) {
-          ssrc = UInt32.random(in: 1...0xFFFF_FFFE)
-        }
-        layers.append(ssrc)
+        let ssrc = Self.uniqueSSRC(excluding: &used)
+        let rtx = primaryRTX == nil ? nil : Self.uniqueSSRC(excluding: &used)
+        generated.append(Layer(ssrc: ssrc, rtx: rtx))
+      }
+      layers = generated
+      ssrcCache[mid] = generated
+    }
+
+    // Rewrite the section's source lines as the complete layered set: every
+    // SSRC (layers and their RTX partners) shares the msid and cname, each
+    // layer pairs with its RTX in a FID group, and the layers form the SIM
+    // group. A renegotiation re-signals the identical set from the cache.
+    lines.removeAll { $0.hasPrefix("a=ssrc:") || $0.hasPrefix("a=ssrc-group:") }
+    for layer in layers {
+      for ssrc in [layer.ssrc, layer.rtx].compactMap({ $0 }) {
         lines.append("a=ssrc:\(ssrc) msid:\(msid)")
         if let cname { lines.append("a=ssrc:\(ssrc) cname:\(cname)") }
       }
-      lines.append("a=ssrc-group:SIM \(layers.map(String.init).joined(separator: " "))")
-      ssrcCache[mid] = layers
     }
+    for layer in layers {
+      if let rtx = layer.rtx {
+        lines.append("a=ssrc-group:FID \(layer.ssrc) \(rtx)")
+      }
+    }
+    lines.append(
+      "a=ssrc-group:SIM \(layers.map { String($0.ssrc) }.joined(separator: " "))")
     if endsWithNewline { lines.append("") }
     return lines.joined(separator: newline)
+  }
+
+  private static func uniqueSSRC(excluding used: inout Set<UInt32>) -> UInt32 {
+    var ssrc = UInt32.random(in: 1...0xFFFF_FFFE)
+    while used.contains(ssrc) {
+      ssrc = UInt32.random(in: 1...0xFFFF_FFFE)
+    }
+    used.insert(ssrc)
+    return ssrc
   }
 
   /// Splits an SDP into the session part followed by one string per media
