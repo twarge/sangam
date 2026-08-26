@@ -23,6 +23,8 @@ struct RootView: View {
       }
     }
     .frame(minWidth: 360, minHeight: 520)
+    // The window is named after the meeting while one is active.
+    .navigationTitle(activeMeeting?.normalizedRoom ?? "Sangam")
   }
 
   private func join() {
