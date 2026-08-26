@@ -6,26 +6,32 @@ public struct XMPPClientCapabilities: Equatable, Sendable {
 
   /// Features implemented by the native Jingle/WebRTC stack. Keep this list honest:
   /// Jicofo uses it to decide whether and how to offer a bridge session.
-  public static let jitsiNative = XMPPClientCapabilities(features: [
-    "http://jabber.org/protocol/caps",
-    "http://jitsi.org/json-encoded-sources",
-    "http://jitsi.org/receive-multiple-video-streams",
-    "http://jitsi.org/remb",
-    "http://jitsi.org/source-name",
-    // Lets the bridge forward a fixed small set of SSRCs and remap which
-    // conference source each carries (VideoSourcesMap/AudioSourcesMap on the
-    // bridge channel). Only honest because the coordinator applies those
-    // remaps; advertised without that, every remap would freeze a tile.
-    "http://jitsi.org/ssrc-rewriting-1",
-    "http://jitsi.org/tcc",
-    "urn:ietf:rfc:4588",
-    "urn:xmpp:jingle:1",
-    "urn:xmpp:jingle:apps:dtls:0",
-    "urn:xmpp:jingle:apps:rtp:1",
-    "urn:xmpp:jingle:apps:rtp:audio",
-    "urn:xmpp:jingle:apps:rtp:video",
-    "urn:xmpp:jingle:transports:ice-udp:1",
-  ])
+  public static let jitsiNative: XMPPClientCapabilities = {
+    var features = [
+      "http://jabber.org/protocol/caps",
+      "http://jitsi.org/json-encoded-sources",
+      "http://jitsi.org/receive-multiple-video-streams",
+      "http://jitsi.org/remb",
+      "http://jitsi.org/source-name",
+      "http://jitsi.org/tcc",
+      "urn:ietf:rfc:4588",
+      "urn:xmpp:jingle:1",
+      "urn:xmpp:jingle:apps:dtls:0",
+      "urn:xmpp:jingle:apps:rtp:1",
+      "urn:xmpp:jingle:apps:rtp:audio",
+      "urn:xmpp:jingle:apps:rtp:video",
+      "urn:xmpp:jingle:transports:ice-udp:1",
+    ]
+    // SSRC rewriting (the bridge forwards a fixed small SSRC set and remaps
+    // which conference source each carries) is implemented but not yet proven
+    // against a live deployment — receive regressions appeared the moment it
+    // was first advertised. Opt in explicitly while it is being verified;
+    // without the flag the bridge uses classic per-source forwarding.
+    if ProcessInfo.processInfo.environment["SANGAM_SSRC_REWRITING"] == "1" {
+      features.append("http://jitsi.org/ssrc-rewriting-1")
+    }
+    return XMPPClientCapabilities(features: features)
+  }()
 
   public var features: [String]
 

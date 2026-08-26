@@ -43,7 +43,7 @@ targets:
         product: JitsiConference
     settings:
       base:
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Sangam/SangamMac.entitlements
         INFOPLIST_FILE: Sangam/Info-macOS.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
@@ -73,6 +73,7 @@ targets:
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
         CODE_SIGN_ENTITLEMENTS: Sangam/SangamIOS.entitlements
         ENABLE_BITCODE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: Sangam/Info-iOS.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
         PRODUCT_NAME: Sangam

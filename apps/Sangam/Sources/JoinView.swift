@@ -57,6 +57,16 @@ struct JoinView: View {
     }
     .padding(32)
     .defaultFocus($focusedField, .room)
-    .onAppear { focusedField = .room }
+    .onAppear(perform: focusRoomField)
+  }
+
+  /// macOS applies focus only once the window is key, and `onAppear` usually
+  /// fires before that — so set it, then check again shortly after.
+  private func focusRoomField() {
+    focusedField = .room
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(200))
+      if focusedField == nil { focusedField = .room }
+    }
   }
 }

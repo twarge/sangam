@@ -90,6 +90,13 @@ struct NativeMeetingSurface: View {
             }
             .accessibilityLabel("Your camera")
           }
+          // A live preview of the outgoing share, straight from capture.
+          if controller.isScreenSharing, let localScreenTrack = model.localScreenTrack {
+            SidebarThumbnail(isPinned: false, videoType: "desktop") {
+              LocalVideoSurface(track: localScreenTrack)
+            }
+            .accessibilityLabel("Your screen share")
+          }
         } header: {
           RosterHeader(
             name: "You",
@@ -715,6 +722,11 @@ final class NativeMeetingModel: ObservableObject {
   @Published private(set) var floatingReactions: [FloatingReaction] = []
   @Published var sidebarCollapsed = false
   @Published private(set) var localCameraTrack: LocalVideoTrack?
+  /// The outgoing screen-share track, previewed in the sidebar while sharing.
+  /// It renders straight from the capture pipeline, so a black preview means
+  /// capture is broken while a good preview clears everything up to the
+  /// encoder.
+  @Published private(set) var localScreenTrack: LocalVideoTrack?
 
   /// A reaction emoji currently floating over the meeting.
   struct FloatingReaction: Identifiable, Equatable {
@@ -883,6 +895,7 @@ final class NativeMeetingModel: ObservableObject {
           "join: entered MUC as \(handle.occupantJID); focus ready=\(handle.focus.ready)")
         self.handle = handle
         self.localCameraTrack = handle.coordinator.cameraVideoTrack
+        self.localScreenTrack = handle.coordinator.screenVideoTrack
         self.observe(handle: handle, controller: controller)
         self.startStatsLogging(handle: handle)
         // MUC membership is the user-visible definition of "joined". Jicofo's
@@ -923,6 +936,7 @@ final class NativeMeetingModel: ObservableObject {
     chatMessages = []
     pinnedTileID = nil
     localCameraTrack = nil
+    localScreenTrack = nil
     configuration = nil
     stopScreenCapture()
     if let handle {

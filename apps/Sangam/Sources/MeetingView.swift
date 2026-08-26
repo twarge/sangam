@@ -210,10 +210,20 @@ private struct MeetingAccessCard: View {
     .onAppear {
       // The card is also re-presented after a refused password, when it must
       // reclaim focus itself; `defaultFocus` only covers the first time.
-      if !isWaiting { focusedField = .username }
+      if !isWaiting { focusUsernameField() }
     }
     .onChange(of: isWaiting) { _, waiting in
-      if !waiting { focusedField = .username }
+      if !waiting { focusUsernameField() }
+    }
+  }
+
+  /// macOS applies focus only once the window is key, and `onAppear` usually
+  /// fires before that — so set it, then check again shortly after.
+  private func focusUsernameField() {
+    focusedField = .username
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(200))
+      if focusedField == nil { focusedField = .username }
     }
   }
 
