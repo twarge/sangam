@@ -518,6 +518,80 @@ struct CoordinatorNegotiationTests {
     )
   }
 
+  /// A participant's departure must drop their tracks the moment their
+  /// unavailable presence arrives — the reference client does this on
+  /// USER_LEFT; waiting for Jicofo's source-remove leaves a frozen tile
+  /// behind for seconds.
+  @Test
+  func removesALeaversTracksOnTheirUnavailablePresence() async throws {
+    let harness = try await NegotiationHarness()
+    defer { harness.tearDown() }
+
+    await harness.socket.push(
+      TestConference.jingleIQ(id: "offer-1", action: "session-initiate", body: bundledOffer)
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .connected = $0 { return true }
+        return false
+      }
+    }
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/remote" to="\(TestConference.responderJID)">
+        <nick xmlns="http://jabber.org/protocol/nick">Remote</nick>
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="participant" affiliation="member"/></x>
+      </presence>
+      """
+    )
+    await harness.socket.push(
+      TestConference.jingleIQ(
+        id: "add-1", action: "source-add", body: Self.sourceAddContent(mid: "7", ssrc: 9_701))
+    )
+    let added = await eventuallyValue {
+      await harness.events.compactMap { event -> RemoteVideoStream? in
+        if case .remoteVideoTrackAdded(let stream) = event,
+          stream.sourceName == "remote-v7"
+        {
+          return stream
+        }
+        return nil
+      }.first
+    }
+    let stream = try #require(added, "the added source's track was never attributed")
+
+    // The occupant leaves; no source-remove is sent.
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/remote" \
+      to="\(TestConference.responderJID)" type="unavailable">
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="none" affiliation="member"/></x>
+      </presence>
+      """
+    )
+    #expect(
+      await eventually {
+        await harness.events.contains {
+          if case .remoteVideoTrackRemoved(let id) = $0 { return id == stream.id }
+          return false
+        }
+      },
+      "the leaver's track was not dropped on their unavailable presence"
+    )
+    #expect(
+      await eventually {
+        await harness.events.contains {
+          if case .participantsChanged(let participants) = $0 {
+            return !participants.contains { $0.id == "remote" }
+          }
+          return false
+        }
+      }
+    )
+  }
+
   /// Mirrors Jicofo: a source-add's content is named by media type — which
   /// media line the source lands on is the client's decision, and each newly
   /// published source gets its own new one.

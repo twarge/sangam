@@ -1288,12 +1288,45 @@ public actor NativeJingleCoordinator {
         realJID: presence.realJID ?? participants[presence.endpointID]?.realJID
       )
     } else {
+      // Keep the departed speaker's floor time and name, and stop their
+      // clock if they left mid-sentence.
+      if let departed = participants[presence.endpointID] {
+        speakerSnapshotNames[presence.endpointID] = departed.displayName
+      }
+      if speakingEndpointID == presence.endpointID {
+        if let since = speakingSince {
+          speakerTotals[presence.endpointID, default: 0] += Date().timeIntervalSince(since)
+        }
+        speakingEndpointID = nil
+        speakingSince = nil
+      }
       participants.removeValue(forKey: presence.endpointID)
       participantOrder.removeAll { $0 == presence.endpointID }
+      removeRemoteSources(ownedBy: presence.endpointID)
     }
     if participants != before {
       emit(.participantsChanged(participantOrder.compactMap { participants[$0] }))
     }
+  }
+
+  /// Drops every registered video source a departed occupant owned and
+  /// announces the removals right away. The reference client removes a
+  /// leaver's tracks on their unavailable presence; waiting for Jicofo's
+  /// source-remove (which still arrives and is then a no-op) trails by
+  /// seconds and leaves a frozen tile behind.
+  private func removeRemoteSources(ownedBy endpointID: String) {
+    let owned = videoSourceByTrackID.filter { $0.value.owner == endpointID }
+    guard !owned.isEmpty else { return }
+    var announced: Set<String> = []
+    for (trackID, info) in owned {
+      videoSourceByTrackID.removeValue(forKey: trackID)
+      remoteVideoTracks.removeValue(forKey: trackID)
+      let announcedID = info.rtcTrackID ?? trackID
+      if announced.insert(announcedID).inserted {
+        emit(.remoteVideoTrackRemoved(id: announcedID))
+      }
+    }
+    trackIDByVideoSSRC = trackIDByVideoSSRC.filter { videoSourceByTrackID[$0.value] != nil }
   }
 
   private func handleMessage(_ element: XMPPElement) {
