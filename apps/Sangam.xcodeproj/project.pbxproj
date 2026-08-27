@@ -10,6 +10,7 @@
 		049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */; };
 		0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; productRef = D1C05CC97547E3D084834834 /* JitsiMedia */; };
 		11FABCE32120FA88F62D0B66 /* SampleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF4ABBA402C90522AE89350 /* SampleUploader.swift */; };
+		2097FAD13E0FF954E0D1A9FF /* PollsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD0E97233746E8E30D1B33D /* PollsPanel.swift */; };
 		2A4AB97D81B6F1DDCEEF2FE8 /* JoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */; };
 		2CA2D21263D4944E831AEC05 /* MeetingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5498238E43B4CDE66DC56656 /* MeetingConfiguration.swift */; };
 		2CF021767085A0FEF44C2393 /* DarwinNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710F14230F532246B2D7BEAA /* DarwinNotificationCenter.swift */; };
@@ -62,6 +63,7 @@
 		19074360D5D558EF60955DBD /* MeetingControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingControlBar.swift; sourceTree = "<group>"; };
 		193A237959FDD9FC7F773DFC /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformMeetingSurface.swift; sourceTree = "<group>"; };
+		3CD0E97233746E8E30D1B33D /* PollsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollsPanel.swift; sourceTree = "<group>"; };
 		5498238E43B4CDE66DC56656 /* MeetingConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingConfiguration.swift; sourceTree = "<group>"; };
 		54B8FE7F270AED4C563B90C0 /* SangamBroadcastExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SangamBroadcastExtension.entitlements; sourceTree = "<group>"; };
 		570BA7976AA9D8EC8251C514 /* MeetingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingController.swift; sourceTree = "<group>"; };
@@ -113,6 +115,7 @@
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
 				D92020D258073CA69E8B28E7 /* PictureInPicture.swift */,
 				3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */,
+				3CD0E97233746E8E30D1B33D /* PollsPanel.swift */,
 				60B69BC7F196A3DCB70124DC /* ReplayKitFrameReceiver.swift */,
 				B0C991D47AFD16CAABED8B8D /* RootView.swift */,
 				9281FDC1DCBFB690D23631E7 /* SangamApp.swift */,
@@ -293,6 +296,7 @@
 				65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */,
 				634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */,
 				5BA33D29762719668331175D /* PlatformMeetingSurface.swift in Sources */,
+				2097FAD13E0FF954E0D1A9FF /* PollsPanel.swift in Sources */,
 				FBE603DE784F084E0EF8204A /* ReplayKitFrameReceiver.swift in Sources */,
 				D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */,
 				9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */,

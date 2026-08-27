@@ -147,6 +147,11 @@ public enum NativeJingleEvent: Sendable {
   /// The deployment's breakout-room roster changed (rooms created, removed,
   /// renamed, or their occupancy moved).
   case breakoutRoomsUpdated([BreakoutRoom])
+  /// The room gained or lost a password (moderators learn this from the
+  /// room's configuration).
+  case roomPasswordProtectedChanged(Bool)
+  /// The meeting's polls changed: one was created, or votes moved.
+  case pollsUpdated([MeetingPoll])
   /// A moderator sent this client to another room; the app must leave the
   /// current conference and join `roomJID`.
   case movedToBreakoutRoom(roomJID: String)
@@ -171,6 +176,31 @@ public struct BreakoutRoom: Identifiable, Equatable, Sendable {
     self.name = name
     self.isMainRoom = isMainRoom
     self.participantCount = participantCount
+  }
+}
+
+/// One poll in the meeting, with live vote state.
+public struct MeetingPoll: Identifiable, Equatable, Sendable {
+  public struct Answer: Equatable, Sendable {
+    public var name: String
+    public var voterIDs: [String]
+
+    public init(name: String, voterIDs: [String] = []) {
+      self.name = name
+      self.voterIDs = voterIDs
+    }
+  }
+
+  public var id: String
+  public var senderID: String
+  public var question: String
+  public var answers: [Answer]
+
+  public init(id: String, senderID: String, question: String, answers: [Answer]) {
+    self.id = id
+    self.senderID = senderID
+    self.question = question
+    self.answers = answers
   }
 }
 
@@ -238,6 +268,14 @@ public actor NativeJingleCoordinator {
   private var avModerationComponent: String?
   /// The deployment's breakout-rooms component, discovered the same way.
   private var breakoutRoomsComponent: String?
+  /// The deployment's polls component, discovered the same way.
+  private var pollsComponent: String?
+  /// The meeting's polls by id, in arrival order.
+  private var polls: [String: MeetingPoll] = [:]
+  private var pollOrder: [String] = []
+  /// Whether the room currently requires a password, from its configuration
+  /// (moderators refresh it on every room-config change).
+  private var roomPasswordProtected = false
   /// Room-wide AV moderation state per media type ("audio"/"video").
   private var avModerationEnabled: [String: Bool] = [:]
   /// This client's per-media approval to unmute while moderation is on.
@@ -548,6 +586,175 @@ public actor NativeJingleCoordinator {
     )
   }
 
+  /// Switches the meeting's waiting room (lobby) on or off: a members-only
+  /// room configuration change, submitted exactly as the reference client
+  /// does. When enabling, everyone already in the room is granted
+  /// membership first so they are not thrown into the lobby they now guard.
+  public func setLobbyEnabled(_ enabled: Bool) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    if enabled {
+      let memberJIDs = participants.values.compactMap { $0.realJID.map { XMPPJID.bare($0) } }
+      if !memberJIDs.isEmpty {
+        let id = nextID(prefix: "affiliations")
+        _ = try? await request(
+          XMPPElement(
+            name: "iq",
+            attributes: ["id": id, "to": configuration.roomJID, "type": "set"],
+            children: [
+              XMPPElement(
+                name: "query",
+                namespace: "http://jabber.org/protocol/muc#admin",
+                children: memberJIDs.map {
+                  XMPPElement(name: "item", attributes: ["affiliation": "member", "jid": $0])
+                }
+              )
+            ]
+          ),
+          id: id
+        )
+      }
+    }
+    var fields: [(name: String, value: String)] = [
+      ("muc#roomconfig_membersonly", enabled ? "true" : "false")
+    ]
+    if roomPasswordProtected {
+      fields.append(("muc#roomconfig_passwordprotectedroom", "1"))
+    }
+    try await submitRoomConfiguration(
+      fields: fields, requiredField: "muc#roomconfig_membersonly")
+    scheduleRoomInfoRefresh()
+  }
+
+  /// Sets or removes the meeting password (nil or empty removes it).
+  public func setRoomPassword(_ password: String?) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    let key = password ?? ""
+    var fields: [(name: String, value: String)] = [
+      ("muc#roomconfig_roomsecret", key),
+      ("muc#roomconfig_passwordprotectedroom", key.isEmpty ? "0" : "1"),
+      // The reference client always pins this; prosody once reset it on
+      // partial submits (prosody issue 373).
+      ("muc#roomconfig_whois", "anyone"),
+    ]
+    if lobbyRoomJID != nil {
+      fields.append(("muc#roomconfig_membersonly", "true"))
+    }
+    try await submitRoomConfiguration(
+      fields: fields, requiredField: "muc#roomconfig_roomsecret")
+    if roomPasswordProtected != !key.isEmpty {
+      roomPasswordProtected = !key.isEmpty
+      emit(.roomPasswordProtectedChanged(roomPasswordProtected))
+    }
+  }
+
+  /// XEP-0045 room reconfiguration: fetch the owner form to confirm the
+  /// service offers `requiredField`, then submit just the changed fields.
+  private func submitRoomConfiguration(
+    fields: [(name: String, value: String)],
+    requiredField: String
+  ) async throws {
+    let ownerNamespace = "http://jabber.org/protocol/muc#owner"
+    let getID = nextID(prefix: "roomconfig")
+    let form = try await request(
+      XMPPElement(
+        name: "iq",
+        attributes: ["id": getID, "to": configuration.roomJID, "type": "get"],
+        children: [XMPPElement(name: "query", namespace: ownerNamespace)]
+      ),
+      id: getID
+    )
+    let offered = form.child(named: "query")?.child(named: "x")?.children.contains {
+      $0.name == "field" && $0[attribute: "var"] == requiredField
+    }
+    guard offered == true else {
+      throw NativeJingleCoordinatorError.roomConfigurationUnsupported
+    }
+    var formFields = [
+      XMPPElement(
+        name: "field",
+        attributes: ["var": "FORM_TYPE"],
+        children: [
+          XMPPElement(name: "value", text: "http://jabber.org/protocol/muc#roomconfig")
+        ]
+      )
+    ]
+    formFields += fields.map { field in
+      XMPPElement(
+        name: "field",
+        attributes: ["var": field.name],
+        children: [XMPPElement(name: "value", text: field.value)]
+      )
+    }
+    let setID = nextID(prefix: "roomconfig")
+    _ = try await request(
+      XMPPElement(
+        name: "iq",
+        attributes: ["id": setID, "to": configuration.roomJID, "type": "set"],
+        children: [
+          XMPPElement(
+            name: "query",
+            namespace: ownerNamespace,
+            children: [
+              XMPPElement(
+                name: "x",
+                namespace: "jabber:x:data",
+                attributes: ["type": "submit"],
+                children: formFields
+              )
+            ]
+          )
+        ]
+      ),
+      id: setID
+    )
+  }
+
+  /// Creates a poll; the polls component broadcasts it to the room (this
+  /// client included, which is when it appears locally).
+  public func createPoll(question: String, answers: [String]) async throws {
+    try await sendPollsCommand([
+      "type": "polls",
+      "command": "new-poll",
+      "pollId": String(UUID().uuidString.prefix(12)).lowercased(),
+      "question": question,
+      "answers": answers.map { ["name": $0] },
+    ])
+  }
+
+  /// Casts (or changes) this client's votes on a poll — one flag per
+  /// answer, exactly as the reference client sends it.
+  public func answerPoll(id: String, votes: [Bool]) async throws {
+    try await sendPollsCommand([
+      "type": "polls",
+      "command": "answer-poll",
+      "pollId": id,
+      "answers": votes,
+    ])
+  }
+
+  private func sendPollsCommand(_ payload: [String: Any]) async throws {
+    guard let component = pollsComponent else {
+      throw NativeJingleCoordinatorError.pollsUnavailable
+    }
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    guard let json = String(data: data, encoding: .utf8) else {
+      throw NativeJingleCoordinatorError.pollsUnavailable
+    }
+    try await connection.send(
+      XMPPElement(
+        name: "message",
+        attributes: ["to": component, "type": "chat", "id": nextID(prefix: "polls")],
+        children: [
+          XMPPElement(
+            name: "json-message",
+            namespace: "http://jitsi.org/jitmeet",
+            text: json
+          )
+        ]
+      )
+    )
+  }
+
   /// Creates a breakout room with the given name. Moderators only, and
   /// only where the deployment runs the component.
   public func createBreakoutRoom(subject: String) async throws {
@@ -769,6 +976,10 @@ public actor NativeJingleCoordinator {
     avModerationEnabled = [:]
     avModerationSelfApproved = [:]
     breakoutRoomsComponent = nil
+    pollsComponent = nil
+    polls = [:]
+    pollOrder = []
+    roomPasswordProtected = false
     pendingLocalCandidates.removeAll()
     clearRemoteSourceState()
     participants.removeAll()
@@ -1094,13 +1305,15 @@ public actor NativeJingleCoordinator {
         switch identity[attribute: "type"] {
         case "av_moderation": avModerationComponent = identity[attribute: "name"]
         case "breakout_rooms": breakoutRoomsComponent = identity[attribute: "name"]
+        case "polls": pollsComponent = identity[attribute: "name"]
         default: break
         }
       }
       emit(
         .diagnostic(
           message: "components: av-moderation=\(avModerationComponent ?? "none")"
-            + " breakout-rooms=\(breakoutRoomsComponent ?? "none")"))
+            + " breakout-rooms=\(breakoutRoomsComponent ?? "none")"
+            + " polls=\(pollsComponent ?? "none")"))
     } catch {
       emit(.diagnostic(message: "components: discovery failed (\(error.localizedDescription))"))
     }
@@ -1131,7 +1344,67 @@ public actor NativeJingleCoordinator {
       handleBreakoutRoomsMessage(object)
       return true
     }
+    if type == "polls", let component = pollsComponent, XMPPJID.matches(sender, component) {
+      handlePollsMessage(object)
+      return true
+    }
     return false
+  }
+
+  private func handlePollsMessage(_ object: [String: Any]) {
+    switch object["command"] as? String {
+    case "new-poll":
+      applyPoll(object)
+    case "old-polls":
+      // The component replays existing polls to a late joiner.
+      for poll in object["polls"] as? [[String: Any]] ?? [] {
+        applyPoll(poll)
+      }
+    case "answer-poll":
+      guard
+        let id = object["pollId"] as? String,
+        var poll = polls[id],
+        let sender = object["senderId"] as? String,
+        let votes = object["answers"] as? [Any]
+      else { return }
+      for (index, vote) in votes.prefix(poll.answers.count).enumerated() {
+        let selected = (vote as? Bool) ?? (vote as? NSNumber)?.boolValue ?? false
+        poll.answers[index].voterIDs.removeAll { $0 == sender }
+        if selected { poll.answers[index].voterIDs.append(sender) }
+      }
+      polls[id] = poll
+      emitPolls()
+    default:
+      break
+    }
+  }
+
+  private func applyPoll(_ object: [String: Any]) {
+    guard
+      let id = object["pollId"] as? String,
+      let question = object["question"] as? String
+    else { return }
+    let answers = (object["answers"] as? [[String: Any]] ?? []).map { answer in
+      // Voters arrive as an array of endpoint ids, or as an id-to-name map
+      // from older component versions.
+      let voters =
+        answer["voters"] as? [String]
+        ?? (answer["voters"] as? [String: Any]).map { Array($0.keys) }
+        ?? []
+      return MeetingPoll.Answer(name: answer["name"] as? String ?? "", voterIDs: voters)
+    }
+    if polls[id] == nil { pollOrder.append(id) }
+    polls[id] = MeetingPoll(
+      id: id,
+      senderID: object["senderId"] as? String ?? "",
+      question: question,
+      answers: answers
+    )
+    emitPolls()
+  }
+
+  private func emitPolls() {
+    emit(.pollsUpdated(pollOrder.compactMap { polls[$0] }))
   }
 
   private func handleAVModerationMessage(_ object: [String: Any]) {
@@ -1229,6 +1502,10 @@ public actor NativeJingleCoordinator {
   }
 
   private func apply(roomInfo: MUCRoomInfo) async throws {
+    if roomInfo.isPasswordProtected != roomPasswordProtected {
+      roomPasswordProtected = roomInfo.isPasswordProtected
+      emit(.roomPasswordProtectedChanged(roomPasswordProtected))
+    }
     let lobby = roomInfo.activeLobbyRoomJID
     if let current = lobbyRoomJID, lobby.map({ XMPPJID.matches($0, current) }) != true {
       if lobbyJoined {
@@ -2094,6 +2371,10 @@ public enum NativeJingleCoordinatorError: Error, Equatable, Sendable {
   case avModerationUnavailable
   /// The deployment announces no breakout-rooms component.
   case breakoutRoomsUnavailable
+  /// The deployment announces no polls component.
+  case pollsUnavailable
+  /// The room's service does not offer the requested configuration field.
+  case roomConfigurationUnsupported
 }
 
 extension NativeJingleCoordinatorError: LocalizedError {
@@ -2113,6 +2394,10 @@ extension NativeJingleCoordinatorError: LocalizedError {
       return "This meeting server does not offer moderation controls."
     case .breakoutRoomsUnavailable:
       return "This meeting server does not offer breakout rooms."
+    case .pollsUnavailable:
+      return "This meeting server does not offer polls."
+    case .roomConfigurationUnsupported:
+      return "This meeting server does not offer that room setting."
     }
   }
 }

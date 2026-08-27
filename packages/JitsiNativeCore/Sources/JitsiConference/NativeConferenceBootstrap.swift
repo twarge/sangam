@@ -13,6 +13,8 @@ public struct NativeConferenceJoinOptions: Equatable, Sendable {
   public var waitForHost: Bool
   public var startCamera: Bool
   public var startMicrophoneMuted: Bool
+  /// The meeting's own password (XEP-0045 room secret), when it has one.
+  public var meetingPassword: String?
 
   public init(
     serverURL: URL,
@@ -23,7 +25,8 @@ public struct NativeConferenceJoinOptions: Equatable, Sendable {
     password: String? = nil,
     waitForHost: Bool = false,
     startCamera: Bool = true,
-    startMicrophoneMuted: Bool = false
+    startMicrophoneMuted: Bool = false,
+    meetingPassword: String? = nil
   ) {
     self.serverURL = serverURL
     self.room = room
@@ -34,6 +37,7 @@ public struct NativeConferenceJoinOptions: Equatable, Sendable {
     self.waitForHost = waitForHost
     self.startCamera = startCamera
     self.startMicrophoneMuted = startMicrophoneMuted
+    self.meetingPassword = meetingPassword
   }
 }
 
@@ -80,6 +84,9 @@ public enum NativeConferenceBootstrapError: Error, Equatable, Sendable {
   case membersOnly
   /// The meeting ended while the client was waiting in its lobby.
   case meetingEnded
+  /// The room requires a meeting password (and none, or a wrong one, was
+  /// given).
+  case passwordRequired
 }
 
 extension NativeConferenceBootstrapError: LocalizedError {
@@ -98,6 +105,8 @@ extension NativeConferenceBootstrapError: LocalizedError {
       return "This meeting only admits invited participants."
     case .meetingEnded:
       return "The meeting ended before you were admitted."
+    case .passwordRequired:
+      return "This meeting requires a password."
     }
   }
 }
@@ -211,6 +220,7 @@ public struct NativeConferenceBootstrap: Sendable {
           roomJID: roomJID,
           nickname: endpointID,
           displayName: options.displayName,
+          password: options.meetingPassword,
           audioMuted: options.startMicrophoneMuted,
           videoMuted: !options.startCamera,
           sources: [
@@ -263,6 +273,8 @@ public struct NativeConferenceBootstrap: Sendable {
   ) async throws -> MUCParticipantPresence {
     do {
       return try await connection.joinMUC(presence)
+    } catch MUCJoinError.passwordRequired {
+      throw NativeConferenceBootstrapError.passwordRequired
     } catch MUCJoinError.membersOnly(let lobbyRoomJID, let waitingForHost) {
       guard let lobbyRoomJID else { throw NativeConferenceBootstrapError.membersOnly }
       progress(.waitingInLobby(waitingForHost: waitingForHost))

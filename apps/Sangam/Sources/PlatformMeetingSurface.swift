@@ -122,7 +122,8 @@
           .kickParticipant, .grantModerator, .muteParticipant, .setReceiveQuality,
           .setAudioModeration, .allowToSpeak, .setBackgroundBlur, .togglePictureInPicture,
           .createBreakoutRoom, .removeBreakoutRoom, .joinBreakoutRoom,
-          .sendParticipantToBreakoutRoom:
+          .sendParticipantToBreakoutRoom, .joinWithMeetingPassword, .setLobbyEnabled,
+          .setRoomPassword, .createPoll, .answerPoll:
           break
         case .hangUp:
           view.hangUp()

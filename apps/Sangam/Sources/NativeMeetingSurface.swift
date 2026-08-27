@@ -1102,7 +1102,8 @@ final class NativeMeetingModel: ObservableObject {
     username: String? = nil,
     password: String? = nil,
     waitForHost: Bool = false,
-    roomOverride: String? = nil
+    roomOverride: String? = nil,
+    meetingPassword: String? = nil
   ) async {
     guard joinTask == nil, handle == nil else { return }
     SangamLog.event(
@@ -1120,7 +1121,8 @@ final class NativeMeetingModel: ObservableObject {
             username: username,
             password: password,
             waitForHost: waitForHost,
-            startCamera: true
+            startCamera: true,
+            meetingPassword: meetingPassword
           ),
           progress: { [weak controller] progress in
             Task { @MainActor in
@@ -1151,6 +1153,9 @@ final class NativeMeetingModel: ObservableObject {
       } catch NativeConferenceBootstrapError.invalidCredentials {
         SangamLog.event("join: invalidCredentials")
         controller.requireAccess(message: "That username or password wasn’t accepted.")
+      } catch NativeConferenceBootstrapError.passwordRequired {
+        SangamLog.event("join: passwordRequired")
+        controller.requireMeetingPassword()
       } catch is CancellationError {
         SangamLog.event("join: cancelled")
         return
@@ -1371,8 +1376,35 @@ final class NativeMeetingModel: ObservableObject {
             guard let self, let controller else { return }
             await self.switchRoom(to: roomJID, controller: controller)
           }
+        case .roomPasswordProtectedChanged(let protected):
+          SangamLog.event("event: roomPasswordProtected=\(protected)")
+          controller.didChangeRoomPasswordProtected(protected)
+        case .pollsUpdated(let polls):
+          SangamLog.event("event: pollsUpdated count=\(polls.count)")
+          let selfID = handle.occupantJID.split(separator: "/").last.map(String.init) ?? ""
+          controller.didChangePolls(
+            polls.map { poll in
+              MeetingController.PollDisplay(
+                id: poll.id,
+                question: poll.question,
+                senderName: poll.senderID == selfID
+                  ? "You"
+                  : self.participants.first { $0.id == poll.senderID }?.displayName
+                    ?? poll.senderID,
+                answers: poll.answers.enumerated().map { index, answer in
+                  MeetingController.PollDisplay.Answer(
+                    id: index,
+                    name: answer.name,
+                    votes: answer.voterIDs.count,
+                    mine: answer.voterIDs.contains(selfID)
+                  )
+                }
+              )
+            }
+          )
         case .lobbyEnabledChanged(let enabled):
           SangamLog.event("event: lobbyEnabledChanged=\(enabled)")
+          controller.didChangeLobbyEnabled(enabled)
         case .lobbyKnockersChanged(let knockers):
           SangamLog.event("event: lobbyKnockersChanged count=\(knockers.count)")
           controller.didChangeLobbyRequests(
@@ -1484,6 +1516,37 @@ final class NativeMeetingModel: ObservableObject {
     case .sendParticipantToBreakoutRoom(let id, let roomJID):
       do {
         try await coordinator.sendParticipantToBreakoutRoom(id: id, roomJID: roomJID)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .joinWithMeetingPassword(let password):
+      guard let configuration else { return }
+      joinTask?.cancel()
+      joinTask = nil
+      await startJoin(
+        configuration: configuration, controller: controller, meetingPassword: password)
+    case .setLobbyEnabled(let enabled):
+      do {
+        try await coordinator.setLobbyEnabled(enabled)
+      } catch {
+        controller.didChangeLobbyEnabled(!enabled)
+        controller.report(error: error.localizedDescription)
+      }
+    case .setRoomPassword(let password):
+      do {
+        try await coordinator.setRoomPassword(password)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .createPoll(let question, let answers):
+      do {
+        try await coordinator.createPoll(question: question, answers: answers)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .answerPoll(let id, let votes):
+      do {
+        try await coordinator.answerPoll(id: id, votes: votes)
       } catch {
         controller.report(error: error.localizedDescription)
       }

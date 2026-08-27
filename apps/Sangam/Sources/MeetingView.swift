@@ -12,6 +12,7 @@ struct MeetingView: View {
   @State private var toolbarVisible = true
   @State private var toolbarHideTask: Task<Void, Never>?
   @State private var windowWidth: CGFloat = 0
+  @State private var roomPasswordDraft = ""
 
   var body: some View {
     ZStack(alignment: .bottom) {
@@ -58,7 +59,17 @@ struct MeetingView: View {
       if controller.connectionState == .waitingInLobby {
         LobbyWaitingCard(
           waitsForHost: controller.lobbyWaitsForHost,
-          authenticate: controller.authenticate
+          authenticate: controller.authenticate,
+          joinWithPassword: controller.joinWithMeetingPassword
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+      }
+
+      if controller.connectionState == .passwordRequired {
+        MeetingPasswordCard(
+          message: controller.accessMessage,
+          join: controller.joinWithMeetingPassword
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -77,7 +88,9 @@ struct MeetingView: View {
     }
     .overlay(alignment: .topLeading) {
       // Leaving the waiting room is navigation, not an action on the card.
-      if controller.connectionState == .waitingInLobby {
+      if controller.connectionState == .waitingInLobby
+        || controller.connectionState == .passwordRequired
+      {
         Button(action: dismiss) {
           Label("Back", systemImage: "chevron.backward")
             .font(.body.weight(.medium))
@@ -124,6 +137,20 @@ struct MeetingView: View {
       if state == .ended {
         dismiss()
       }
+    }
+    .sheet(isPresented: $controller.showsPollsPane) {
+      PollsPanel(controller: controller)
+    }
+    .alert("Set Meeting Password", isPresented: $controller.showsRoomPasswordPrompt) {
+      TextField("Password", text: $roomPasswordDraft)
+      Button("Set") {
+        let password = roomPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !password.isEmpty { controller.setRoomPassword(password) }
+        roomPasswordDraft = ""
+      }
+      Button("Cancel", role: .cancel) { roomPasswordDraft = "" }
+    } message: {
+      Text("New participants will need this password to join.")
     }
     #if os(iOS)
       .sheet(isPresented: $controller.showsSettingsPane) {
@@ -353,22 +380,99 @@ private struct MeetingAccessCard: View {
   }
 }
 
+/// Asks for the meeting's password after the room refused a join without
+/// one. Leaving is the Back button in the window's corner.
+private struct MeetingPasswordCard: View {
+  let message: String?
+  let join: (String) -> Void
+
+  @State private var password = ""
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(spacing: 22) {
+      Image(systemName: "key.fill")
+        .font(.system(size: 35, weight: .semibold))
+        .foregroundStyle(.tint)
+        .frame(width: 68, height: 68)
+        .background(.tint.opacity(0.14), in: .circle)
+
+      VStack(spacing: 7) {
+        Text("This meeting has a password")
+          .font(.title2.bold())
+        Text("Ask the host for the meeting password to join.")
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      SecureField("Meeting password", text: $password)
+        .textFieldStyle(.roundedBorder)
+        .focused($focused)
+        .onSubmit(submit)
+
+      if let message {
+        Label(message, systemImage: "exclamationmark.circle.fill")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
+      Button("Join Meeting", action: submit)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(password.isEmpty)
+        .frame(maxWidth: .infinity)
+    }
+    .padding(30)
+    .frame(maxWidth: 430)
+    .background(.regularMaterial, in: .rect(cornerRadius: 24))
+    .overlay {
+      RoundedRectangle(cornerRadius: 24)
+        .strokeBorder(.white.opacity(0.12))
+    }
+    .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
+    .padding(24)
+    .onAppear {
+      focused = true
+      Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(200))
+        if !focused { focused = true }
+      }
+    }
+  }
+
+  private func submit() {
+    guard !password.isEmpty else { return }
+    join(password)
+  }
+}
+
 /// Shown while the meeting's lobby holds us. Admission arrives on its own;
-/// an administrator can instead sign in and join as a host, bypassing the
-/// wait. Leaving is the Back button in the window's corner, not a card
-/// action.
+/// an administrator can instead sign in as a host, and anyone who knows the
+/// meeting password can join with it directly. Leaving is the Back button
+/// in the window's corner, not a card action.
 private struct LobbyWaitingCard: View {
   let waitsForHost: Bool
   let authenticate: (String, String) -> Void
+  let joinWithPassword: (String) -> Void
 
-  @State private var showsLogin = false
+  @State private var expanded: Expansion = .none
   @State private var username = ""
   @State private var password = ""
+  @State private var meetingPassword = ""
   @FocusState private var focusedField: Field?
+
+  private enum Expansion {
+    case none
+    case login
+    case meetingPassword
+  }
 
   private enum Field {
     case username
     case password
+    case meetingPassword
   }
 
   var body: some View {
@@ -396,7 +500,8 @@ private struct LobbyWaitingCard: View {
         .controlSize(.large)
         .padding(.vertical, 4)
 
-      if showsLogin {
+      switch expanded {
+      case .login:
         VStack(spacing: 12) {
           TextField("Username", text: $username)
             .textContentType(.username)
@@ -417,11 +522,30 @@ private struct LobbyWaitingCard: View {
         }
         .textFieldStyle(.roundedBorder)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
-      } else {
-        Button("Administrator login") {
-          showsLogin = true
+      case .meetingPassword:
+        VStack(spacing: 12) {
+          SecureField("Meeting password", text: $meetingPassword)
+            .textFieldStyle(.roundedBorder)
+            .focused($focusedField, equals: .meetingPassword)
+            .onSubmit(submitMeetingPassword)
+          Button("Join with password", action: submitMeetingPassword)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(meetingPassword.isEmpty)
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bordered)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+      case .none:
+        HStack(spacing: 10) {
+          Button("Enter meeting password") {
+            expanded = .meetingPassword
+          }
+          .buttonStyle(.bordered)
+          Button("Administrator login") {
+            expanded = .login
+          }
+          .buttonStyle(.bordered)
+        }
       }
     }
     .padding(30)
@@ -433,19 +557,23 @@ private struct LobbyWaitingCard: View {
     }
     .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
     .padding(24)
-    .animation(.snappy, value: showsLogin)
-    .onChange(of: showsLogin) { _, shown in
-      if shown { focusUsernameField() }
+    .animation(.snappy, value: expanded)
+    .onChange(of: expanded) { _, expansion in
+      switch expansion {
+      case .login: focus(.username)
+      case .meetingPassword: focus(.meetingPassword)
+      case .none: break
+      }
     }
   }
 
   /// macOS applies focus only once the window is key; set it, then check
   /// again shortly after.
-  private func focusUsernameField() {
-    focusedField = .username
+  private func focus(_ field: Field) {
+    focusedField = field
     Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(200))
-      if focusedField == nil { focusedField = .username }
+      if focusedField == nil { focusedField = field }
     }
   }
 
@@ -453,6 +581,11 @@ private struct LobbyWaitingCard: View {
     let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedUsername.isEmpty, !password.isEmpty else { return }
     authenticate(normalizedUsername, password)
+  }
+
+  private func submitMeetingPassword() {
+    guard !meetingPassword.isEmpty else { return }
+    joinWithPassword(meetingPassword)
   }
 }
 

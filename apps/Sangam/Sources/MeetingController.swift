@@ -22,6 +22,11 @@ final class MeetingController: ObservableObject {
     case removeBreakoutRoom(jid: String)
     case joinBreakoutRoom(jid: String)
     case sendParticipantToBreakoutRoom(id: String, roomJID: String)
+    case joinWithMeetingPassword(password: String)
+    case setLobbyEnabled(enabled: Bool)
+    case setRoomPassword(password: String?)
+    case createPoll(question: String, answers: [String])
+    case answerPoll(id: String, votes: [Bool])
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -38,8 +43,25 @@ final class MeetingController: ObservableObject {
     case waitingForHost
     /// The meeting has a lobby; a host has to let us in.
     case waitingInLobby
+    /// The meeting is password-protected; the user must type it to join.
+    case passwordRequired
     case failed
     case ended
+  }
+
+  /// One poll shown in the polls panel, with this client's votes marked.
+  struct PollDisplay: Identifiable, Equatable {
+    struct Answer: Identifiable, Equatable {
+      let id: Int
+      let name: String
+      let votes: Int
+      let mine: Bool
+    }
+
+    let id: String
+    let question: String
+    let senderName: String
+    let answers: [Answer]
   }
 
   /// Someone waiting in the meeting's lobby, shown to hosts with admit and
@@ -110,6 +132,18 @@ final class MeetingController: ObservableObject {
   /// The deployment's breakout-room roster; empty when none exist (or the
   /// server runs no component).
   @Published private(set) var breakoutRooms: [BreakoutRoomOption] = []
+  /// Whether the meeting's waiting room (lobby) is on.
+  @Published private(set) var lobbyOn = false
+  /// Whether the room currently requires a meeting password.
+  @Published private(set) var roomHasPassword = false
+  /// Drives the moderator's set-password prompt.
+  @Published var showsRoomPasswordPrompt = false
+  /// The meeting's polls, and the panel that shows them.
+  @Published private(set) var polls: [PollDisplay] = []
+  @Published var showsPollsPane = false
+  /// Whether a meeting password was already tried this join, so the retry
+  /// card can say it was wrong.
+  private var meetingPasswordAttempted = false
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -272,6 +306,54 @@ final class MeetingController: ObservableObject {
     errorMessage = nil
   }
 
+  func requireMeetingPassword() {
+    connectionState = .passwordRequired
+    accessMessage = meetingPasswordAttempted ? "That password wasn’t accepted." : nil
+    errorMessage = nil
+  }
+
+  func joinWithMeetingPassword(_ password: String) {
+    meetingPasswordAttempted = true
+    connectionState = .connecting
+    accessMessage = nil
+    send(.joinWithMeetingPassword(password: password))
+  }
+
+  func setLobbyEnabled(_ enabled: Bool) {
+    lobbyOn = enabled
+    send(.setLobbyEnabled(enabled: enabled))
+  }
+
+  func didChangeLobbyEnabled(_ enabled: Bool) {
+    lobbyOn = enabled
+  }
+
+  func setRoomPassword(_ password: String?) {
+    send(.setRoomPassword(password: password))
+  }
+
+  func didChangeRoomPasswordProtected(_ protected: Bool) {
+    roomHasPassword = protected
+  }
+
+  func createPoll(question: String, answers: [String]) {
+    send(.createPoll(question: question, answers: answers))
+  }
+
+  /// Toggles this client's vote on one answer and submits the full vote
+  /// vector, which is how the reference client changes votes.
+  func votePoll(id: String, answerIndex: Int) {
+    guard let poll = polls.first(where: { $0.id == id }) else { return }
+    var votes = poll.answers.map(\.mine)
+    guard answerIndex < votes.count else { return }
+    votes[answerIndex].toggle()
+    send(.answerPoll(id: id, votes: votes))
+  }
+
+  func didChangePolls(_ polls: [PollDisplay]) {
+    self.polls = polls
+  }
+
   func hangUp() {
     send(.hangUp)
   }
@@ -279,6 +361,7 @@ final class MeetingController: ObservableObject {
   func didJoin() {
     connectionState = .joined
     errorMessage = nil
+    meetingPasswordAttempted = false
     // Bring the fresh conference in line with the stored preferences.
     if settings.receiveQuality != 720 {
       send(.setReceiveQuality(maxHeight: settings.receiveQuality))
@@ -375,7 +458,8 @@ final class MeetingController: ObservableObject {
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
       .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur,
       .togglePictureInPicture, .createBreakoutRoom, .removeBreakoutRoom, .joinBreakoutRoom,
-      .sendParticipantToBreakoutRoom, .switchCamera, .authenticate, .waitForHost,
+      .sendParticipantToBreakoutRoom, .joinWithMeetingPassword, .setLobbyEnabled,
+      .setRoomPassword, .createPoll, .answerPoll, .switchCamera, .authenticate, .waitForHost,
       .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
       break
     }

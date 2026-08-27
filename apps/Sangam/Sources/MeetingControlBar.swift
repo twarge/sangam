@@ -231,6 +231,13 @@ private struct MoreMenu: View {
             systemImage: "pip")
         }
       }
+      Button {
+        controller.showsPollsPane = true
+      } label: {
+        Label(
+          controller.polls.isEmpty ? "Polls…" : "Polls (\(controller.polls.count))…",
+          systemImage: "chart.bar.xaxis")
+      }
       if !controller.breakoutRooms.isEmpty || controller.isModerator {
         Divider()
         Menu {
@@ -275,13 +282,27 @@ private struct MoreMenu: View {
       #endif
       if controller.isModerator {
         Divider()
-        Toggle(
-          "Require permission to speak",
-          isOn: Binding(
-            get: { controller.audioModerationOn },
-            set: { controller.setAudioModeration($0) }
+        Section("Security") {
+          Toggle(
+            "Waiting Room",
+            isOn: Binding(
+              get: { controller.lobbyOn },
+              set: { controller.setLobbyEnabled($0) }
+            )
           )
-        )
+          if controller.roomHasPassword {
+            Button("Remove Meeting Password") { controller.setRoomPassword(nil) }
+          } else {
+            Button("Set Meeting Password…") { controller.showsRoomPasswordPrompt = true }
+          }
+          Toggle(
+            "Require permission to speak",
+            isOn: Binding(
+              get: { controller.audioModerationOn },
+              set: { controller.setAudioModeration($0) }
+            )
+          )
+        }
       }
     } label: {
       Image(systemName: "ellipsis")

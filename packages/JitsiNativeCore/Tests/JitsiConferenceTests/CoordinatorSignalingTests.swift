@@ -885,6 +885,214 @@ struct CoordinatorSignalingTests {
     #expect(moved, "the move instruction never surfaced")
   }
 
+  /// Room security: locking submits the XEP-0045 owner form the reference
+  /// client sends (roomsecret + passwordprotectedroom + the prosody whois
+  /// pin), and enabling the waiting room grants existing occupants
+  /// membership before flipping members-only.
+  @Test
+  func submitsRoomSecurityConfiguration() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/native" to="\(TestConference.responderJID)">
+        <x xmlns="http://jabber.org/protocol/muc#user">
+          <item role="moderator" affiliation="owner"/>
+          <status code="110"/>
+        </x>
+      </presence>
+      """
+    )
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/72dcd87f" to="\(TestConference.responderJID)">
+        <nick xmlns="http://jabber.org/protocol/nick">Ada</nick>
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="participant" affiliation="none" jid="ada@example.test/abc"/></x>
+      </presence>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .moderatorStatusChanged(true) = $0 { return true }
+        return false
+      }
+    }
+
+    // Locking: answer the owner-form fetch, then verify the submit.
+    let locking = Task { try await harness.coordinator.setRoomPassword("s3cret") }
+    let formGet = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("muc#owner") && $0.contains("type=\"get\"")
+      }
+    }
+    let getIQ = try #require(formGet, "no owner form was fetched")
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: getIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/muc#owner">\
+      <x xmlns="jabber:x:data" type="form">\
+      <field var="muc#roomconfig_roomsecret" type="text-private"/>\
+      <field var="muc#roomconfig_membersonly" type="boolean"/>\
+      </x></query></iq>
+      """
+    )
+    let submit = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("muc#roomconfig_roomsecret") && $0.contains("type=\"submit\"")
+      }
+    }
+    let submitIQ = try #require(submit, "the room secret was never submitted")
+    #expect(submitIQ.contains("s3cret"))
+    #expect(submitIQ.contains("muc#roomconfig_passwordprotectedroom"))
+    #expect(submitIQ.contains("muc#roomconfig_whois"))
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: submitIQ))" type="result"/>
+      """
+    )
+    try await locking.value
+
+    // Enabling the waiting room grants Ada membership first, then flips
+    // members-only.
+    let enabling = Task { try await harness.coordinator.setLobbyEnabled(true) }
+    let affiliation = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("muc#admin") && $0.contains("affiliation=\"member\"")
+          && $0.contains("jid=\"ada@example.test\"")
+      }
+    }
+    let affiliationIQ = try #require(affiliation, "occupants were not granted membership")
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: affiliationIQ))" type="result"/>
+      """
+    )
+    let membersGet = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().filter {
+        $0.contains("muc#owner") && $0.contains("type=\"get\"")
+      }.dropFirst().first
+    }
+    let membersGetIQ = try #require(membersGet, "no second owner form was fetched")
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: membersGetIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/muc#owner">\
+      <x xmlns="jabber:x:data" type="form">\
+      <field var="muc#roomconfig_membersonly" type="boolean"/>\
+      </x></query></iq>
+      """
+    )
+    let membersSubmit = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("muc#roomconfig_membersonly") && $0.contains("type=\"submit\"")
+      }
+    }
+    let membersSubmitIQ = try #require(membersSubmit, "members-only was never submitted")
+    #expect(membersSubmitIQ.contains("true"))
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: membersSubmitIQ))" type="result"/>
+      """
+    )
+    try await enabling.value
+  }
+
+  /// Polls end to end: the component is discovered, a broadcast poll and a
+  /// vote parse into state, and creating and answering send the reference
+  /// client's json-message commands.
+  @Test
+  func speaksThePollsProtocol() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    let disco = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("sangam-components-") && $0.contains("to=\"example.test\"")
+      }
+    }
+    let discoIQ = try #require(disco, "no components discovery was sent")
+    await harness.socket.push(
+      """
+      <iq from="example.test" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: discoIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/disco#info">\
+      <identity category="component" type="polls" name="polls.example.test"/>\
+      </query></iq>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .diagnostic(let message) = $0 {
+          return message.contains("polls=polls.example.test")
+        }
+        return false
+      }
+    }
+
+    // A poll broadcast by the component, then a vote on it.
+    await harness.socket.push(
+      """
+      <message from="polls.example.test" to="\(TestConference.responderJID)" type="chat">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"polls","command":"new-poll","pollId":"p1","senderId":"72dcd87f",\
+      "question":"Lunch?","answers":[{"name":"Pizza"},{"name":"Sushi"}]}\
+      </json-message></message>
+      """
+    )
+    let created = await eventuallyValue {
+      await harness.events.compactMap { event -> [MeetingPoll]? in
+        if case .pollsUpdated(let polls) = event { return polls }
+        return nil
+      }.last
+    }
+    let polls = try #require(created, "the poll never surfaced")
+    #expect(polls.first?.question == "Lunch?")
+    #expect(polls.first?.answers.map(\.name) == ["Pizza", "Sushi"])
+
+    await harness.socket.push(
+      """
+      <message from="polls.example.test" to="\(TestConference.responderJID)" type="chat">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"polls","command":"answer-poll","pollId":"p1","senderId":"72dcd87f",\
+      "answers":[true,false]}\
+      </json-message></message>
+      """
+    )
+    let voted = await eventually {
+      await harness.events.contains {
+        if case .pollsUpdated(let polls) = $0 {
+          return polls.first?.answers.first?.voterIDs == ["72dcd87f"]
+        }
+        return false
+      }
+    }
+    #expect(voted, "the vote never applied")
+
+    // Sending goes to the component as json-message commands.
+    try await harness.coordinator.createPoll(question: "Snacks?", answers: ["Yes", "No"])
+    let create = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("new-poll") && $0.contains("Snacks?")
+          && $0.contains("to=\"polls.example.test\"")
+      }
+    }
+    #expect(create != nil, "the create command was not sent")
+    try await harness.coordinator.answerPoll(id: "p1", votes: [false, true])
+    let answer = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("answer-poll") && $0.contains("\"pollId\":\"p1\"")
+      }
+    }
+    #expect(answer != nil, "the answer command was not sent")
+  }
+
   /// The bridge's sender constraints: 0 pauses (nobody is watching), any
   /// positive height caps, and -1 means UNCONSTRAINED — the value the web
   /// client sets for the source it features on stage. Pausing on -1 froze
