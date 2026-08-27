@@ -848,6 +848,7 @@ final class NativeMeetingModel: ObservableObject {
   func join(configuration: MeetingConfiguration, controller: MeetingController) async {
     guard joinTask == nil, handle == nil else { return }
     self.configuration = configuration
+    controller.didSetMeetingLink(configuration.meetingLink)
     controller.attach { [weak self, weak controller] command in
       guard let self, let controller else { return }
       Task { @MainActor in await self.execute(command, controller: controller) }
@@ -1019,6 +1020,15 @@ final class NativeMeetingModel: ObservableObject {
           SangamLog.event(
             "event: participantsChanged count=\(updated.count) "
               + "[\(updated.map(\.id).joined(separator: ", "))]")
+          let previous = Set(participants.map(\.id))
+          let current = Set(updated.map(\.id))
+          // No sound for the roster that was already there when we joined.
+          if !previous.isEmpty, !current.subtracting(previous).isEmpty {
+            MeetingSounds.participantJoined()
+          }
+          if !previous.subtracting(current).isEmpty {
+            MeetingSounds.participantLeft()
+          }
           participants = updated
         case .dominantSpeakerChanged(let endpointID):
           dominantSpeakerID = endpointID
@@ -1032,6 +1042,7 @@ final class NativeMeetingModel: ObservableObject {
         case .reactionsReceived(let endpointID, let reactions):
           SangamLog.event(
             "event: reactions from=\(endpointID ?? "self") [\(reactions.joined(separator: ", "))]")
+          MeetingSounds.reaction()
           for name in reactions {
             let emoji = Self.reactionEmoji.first { $0.name == name }?.emoji ?? "✨"
             let reaction = FloatingReaction(emoji: emoji)

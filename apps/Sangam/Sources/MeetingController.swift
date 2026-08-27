@@ -73,6 +73,8 @@ final class MeetingController: ObservableObject {
   @Published private(set) var cameras: [CameraOption] = []
   /// The camera currently capturing; nil when none is (every camera gone).
   @Published private(set) var currentCameraID: String?
+  /// The address other people join with, for the invite button.
+  @Published private(set) var meetingLink: URL?
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -150,6 +152,10 @@ final class MeetingController: ObservableObject {
   func didChangeCameras(_ cameras: [CameraOption], currentID: String?) {
     self.cameras = cameras
     currentCameraID = currentID
+  }
+
+  func didSetMeetingLink(_ link: URL) {
+    meetingLink = link
   }
 
   func hangUp() {

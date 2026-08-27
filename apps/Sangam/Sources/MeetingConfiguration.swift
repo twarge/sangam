@@ -10,4 +10,9 @@ struct MeetingConfiguration: Equatable, Sendable {
   var normalizedRoom: String {
     room.trimmingCharacters(in: .whitespacesAndNewlines)
   }
+
+  /// The address other people join with — the same URL the web client uses.
+  var meetingLink: URL {
+    serverURL.appending(path: normalizedRoom)
+  }
 }

@@ -33,6 +33,7 @@
 		8B9AA23129F1D0CFE7578A4F /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; productRef = 5B052DAAEE17377AAF453710 /* JitsiMedia */; };
 		8C8CF53B2D6C7808EB7B89A6 /* NativeMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */; };
 		95F72EFDDFDCA2061253DC23 /* MeetingControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19074360D5D558EF60955DBD /* MeetingControlBar.swift */; };
+		964A3BC3B986979BBEB34A81 /* MeetingSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = E010A4D7D521AEE84209E08C /* MeetingSounds.swift */; };
 		96C8694C042F882D54669422 /* JitsiConference in Frameworks */ = {isa = PBXBuildFile; productRef = 21C5E0533ED04EE50DE9384C /* JitsiConference */; };
 		AC1FCA3C35E9C968076B18CA /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C991D47AFD16CAABED8B8D /* RootView.swift */; };
 		B3CD6F3E3AB76EA422AC8EFB /* JoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */; };
@@ -41,6 +42,7 @@
 		D4CCB037F3B7611F99690A68 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; productRef = F316FA81A5A3D05154F8D038 /* JitsiMedia */; };
 		DAFB9C10A80E810EEFCE7C3A /* JitsiMeetSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 7C7C1E50FA6ADFCB519D52FF /* JitsiMeetSDK */; };
 		E6779DC6272165C61410723A /* MacScreenShareController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C87E2777CF1ACC3EA7731E2 /* MacScreenShareController.swift */; };
+		E8296F7CE490C7A1691DCC2E /* MeetingSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = E010A4D7D521AEE84209E08C /* MeetingSounds.swift */; };
 		E8AA804C52E2CD45BF63C563 /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8781C36A5DED9919CB53A627 /* SampleHandler.swift */; };
 		F07C5185C036A7AE9F474552 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -90,6 +92,7 @@
 		98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConnection.swift; sourceTree = "<group>"; };
 		B0C991D47AFD16CAABED8B8D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		BF78365EE885739D5A157B96 /* Sangam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sangam.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E010A4D7D521AEE84209E08C /* MeetingSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSounds.swift; sourceTree = "<group>"; };
 		E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinView.swift; sourceTree = "<group>"; };
 		E6EABEC3E58B670AB3011ECA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -127,6 +130,7 @@
 				5498238E43B4CDE66DC56656 /* MeetingConfiguration.swift */,
 				19074360D5D558EF60955DBD /* MeetingControlBar.swift */,
 				570BA7976AA9D8EC8251C514 /* MeetingController.swift */,
+				E010A4D7D521AEE84209E08C /* MeetingSounds.swift */,
 				97B74C1C95D53382ACA4E38A /* MeetingView.swift */,
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
 				3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */,
@@ -328,6 +332,7 @@
 				3C2F814B6E05F54F1ED57DB3 /* MeetingConfiguration.swift in Sources */,
 				95F72EFDDFDCA2061253DC23 /* MeetingControlBar.swift in Sources */,
 				3F5402FFD6CBC6B563DC5E45 /* MeetingController.swift in Sources */,
+				964A3BC3B986979BBEB34A81 /* MeetingSounds.swift in Sources */,
 				14D14FC9D8F3DC71BA5E3018 /* MeetingView.swift in Sources */,
 				8C8CF53B2D6C7808EB7B89A6 /* NativeMeetingSurface.swift in Sources */,
 				1B4C0BE3F59AE41A9DF83A11 /* PlatformMeetingSurface.swift in Sources */,
@@ -346,6 +351,7 @@
 				14AD8FAF4CDE4B9CEAFF07C5 /* MeetingConfiguration.swift in Sources */,
 				06E795C51080B2105F8D0302 /* MeetingControlBar.swift in Sources */,
 				6B6B9D522446F3AFC43747E5 /* MeetingController.swift in Sources */,
+				E8296F7CE490C7A1691DCC2E /* MeetingSounds.swift in Sources */,
 				631851E2583BEE05DFCD2336 /* MeetingView.swift in Sources */,
 				7F62428DCDB9AFD986F1B56C /* NativeMeetingSurface.swift in Sources */,
 				4841FB4669764B6E4973B61E /* PlatformMeetingSurface.swift in Sources */,

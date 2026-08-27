@@ -1,7 +1,19 @@
 import SwiftUI
 
+#if os(macOS)
+  import AppKit
+#else
+  import UIKit
+#endif
+
 struct MeetingControlBar: View {
   @ObservedObject var controller: MeetingController
+
+  /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
+  /// chat panel is open so typing a message never toggles the microphone.
+  private func shortcut(_ key: Character) -> KeyboardShortcut? {
+    controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
+  }
 
   var body: some View {
     HStack(spacing: 10) {
@@ -11,6 +23,7 @@ struct MeetingControlBar: View {
         isActive: controller.isAudioMuted,
         action: controller.toggleAudio
       )
+      .keyboardShortcut(shortcut("m"))
 
       ControlButton(
         title: controller.isVideoMuted ? "Start Video" : "Stop Video",
@@ -18,6 +31,7 @@ struct MeetingControlBar: View {
         isActive: controller.isVideoMuted,
         action: controller.toggleVideo
       )
+      .keyboardShortcut(shortcut("v"))
       // Right-click (macOS) or long-press (iOS) picks the camera.
       .contextMenu {
         if controller.cameras.isEmpty {
@@ -51,6 +65,7 @@ struct MeetingControlBar: View {
         isActive: controller.isScreenSharing,
         action: controller.toggleScreenSharing
       )
+      .keyboardShortcut(shortcut("d"))
 
       ControlButton(
         title: controller.isHandRaised ? "Lower Hand" : "Raise Hand",
@@ -58,6 +73,7 @@ struct MeetingControlBar: View {
         isActive: controller.isHandRaised,
         action: controller.toggleHandRaised
       )
+      .keyboardShortcut(shortcut("r"))
 
       ReactionsButton(send: controller.sendReaction)
 
@@ -68,6 +84,7 @@ struct MeetingControlBar: View {
         badge: controller.unreadChatCount,
         action: controller.toggleChat
       )
+      .keyboardShortcut(shortcut("c"))
 
       ControlButton(
         title: controller.usesTileGrid ? "Speaker View" : "Grid View",
@@ -75,6 +92,9 @@ struct MeetingControlBar: View {
           ? "person.crop.rectangle.fill" : "square.grid.2x2.fill",
         action: controller.toggleLayout
       )
+      .keyboardShortcut(shortcut("w"))
+
+      InviteButton(link: controller.meetingLink)
 
       ControlButton(
         title: "Leave",
@@ -89,6 +109,55 @@ struct MeetingControlBar: View {
       Capsule().strokeBorder(.white.opacity(0.12))
     }
     .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+  }
+}
+
+/// Shares the meeting's join link — the same URL web participants use.
+private struct InviteButton: View {
+  let link: URL?
+
+  @State private var showsPopover = false
+  @State private var copied = false
+
+  var body: some View {
+    ControlButton(title: "Invite", symbol: "person.badge.plus", isActive: showsPopover) {
+      showsPopover.toggle()
+    }
+    .popover(isPresented: $showsPopover, arrowEdge: .top) {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Share this link to invite people")
+          .font(.headline)
+        if let link {
+          Text(link.absoluteString)
+            .font(.callout.monospaced())
+            .textSelection(.enabled)
+          HStack(spacing: 10) {
+            Button(copied ? "Copied" : "Copy Link") {
+              copy(link)
+            }
+            ShareLink(item: link) {
+              Label("Share…", systemImage: "square.and.arrow.up")
+            }
+          }
+        }
+      }
+      .padding(14)
+      .frame(minWidth: 300, alignment: .leading)
+    }
+  }
+
+  private func copy(_ link: URL) {
+    #if os(macOS)
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(link.absoluteString, forType: .string)
+    #else
+      UIPasteboard.general.url = link
+    #endif
+    copied = true
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      copied = false
+    }
   }
 }
 
