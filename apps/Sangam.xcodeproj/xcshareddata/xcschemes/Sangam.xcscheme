@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "09CB30AD657CF7EAE02AE17E"
+               BlueprintIdentifier = "A764E58F0B46676E3DCF34DB"
                BuildableName = "Sangam.app"
-               BlueprintName = "Sangam-macOS"
+               BlueprintName = "Sangam"
                ReferencedContainer = "container:Sangam.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -32,9 +32,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "09CB30AD657CF7EAE02AE17E"
+            BlueprintIdentifier = "A764E58F0B46676E3DCF34DB"
             BuildableName = "Sangam.app"
-            BlueprintName = "Sangam-macOS"
+            BlueprintName = "Sangam"
             ReferencedContainer = "container:Sangam.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -57,9 +57,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "09CB30AD657CF7EAE02AE17E"
+            BlueprintIdentifier = "A764E58F0B46676E3DCF34DB"
             BuildableName = "Sangam.app"
-            BlueprintName = "Sangam-macOS"
+            BlueprintName = "Sangam"
             ReferencedContainer = "container:Sangam.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -76,9 +76,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "09CB30AD657CF7EAE02AE17E"
+            BlueprintIdentifier = "A764E58F0B46676E3DCF34DB"
             BuildableName = "Sangam.app"
-            BlueprintName = "Sangam-macOS"
+            BlueprintName = "Sangam"
             ReferencedContainer = "container:Sangam.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

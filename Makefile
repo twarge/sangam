@@ -40,23 +40,22 @@ media:
 	swift build --package-path packages/JitsiNativeCore --target JitsiConference
 
 mac:
-	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-macOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
 	  -destination "platform=macOS" -derivedDataPath build/DerivedData \
 	  -allowProvisioningUpdates -quiet build
 	@echo "==> Built Sangam for macOS"
 
 ios:
-	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
 	  -destination "generic/platform=iOS Simulator" \
 	  -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build
 	@echo "==> Built Sangam for iOS Simulator"
 
 ios-device:
-	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS \
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
 	  -destination "generic/platform=iOS" -derivedDataPath build/DerivedData \
 	  -allowProvisioningUpdates -quiet build
 	@echo "==> Built Sangam for iOS device"
 
 clean:
-	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-macOS clean
-	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam-iOS clean
+	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam clean
