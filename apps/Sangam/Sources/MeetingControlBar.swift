@@ -18,12 +18,30 @@ struct MeetingControlBar: View {
         isActive: controller.isVideoMuted,
         action: controller.toggleVideo
       )
+      // Right-click (macOS) or long-press (iOS) picks the camera.
+      .contextMenu {
+        if controller.cameras.isEmpty {
+          Text("No camera detected")
+        } else {
+          ForEach(controller.cameras) { camera in
+            Button {
+              controller.selectCamera(id: camera.id)
+            } label: {
+              if camera.id == controller.currentCameraID {
+                Label(camera.name, systemImage: "checkmark")
+              } else {
+                Text(camera.name)
+              }
+            }
+          }
+        }
+      }
 
       #if os(iOS)
         ControlButton(
           title: "Flip",
           symbol: "arrow.triangle.2.circlepath.camera.fill",
-          action: controller.switchCamera
+          action: controller.flipCamera
         )
       #endif
 

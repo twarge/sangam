@@ -12,7 +12,7 @@ final class MeetingController: ObservableObject {
     case sendReaction(String)
     case kickParticipant(id: String)
     case grantModerator(id: String)
-    case switchCamera
+    case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
     case cancelWaiting
@@ -37,6 +37,12 @@ final class MeetingController: ObservableObject {
   struct LobbyRequest: Identifiable, Equatable, Sendable {
     let id: String
     let displayName: String
+  }
+
+  /// A camera the user can pick from the video button's context menu.
+  struct CameraOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
   }
 
   @Published private(set) var connectionState: ConnectionState = .connecting {
@@ -64,6 +70,9 @@ final class MeetingController: ObservableObject {
   /// decides; changes the wording of the waiting card.
   @Published private(set) var lobbyWaitsForHost = false
   @Published private(set) var lobbyRequests: [LobbyRequest] = []
+  @Published private(set) var cameras: [CameraOption] = []
+  /// The camera currently capturing; nil when none is (every camera gone).
+  @Published private(set) var currentCameraID: String?
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -126,8 +135,21 @@ final class MeetingController: ObservableObject {
     unreadChatCount += 1
   }
 
-  func switchCamera() {
-    send(.switchCamera)
+  func selectCamera(id: String) {
+    guard id != currentCameraID else { return }
+    send(.switchCamera(deviceID: id))
+  }
+
+  /// Cycles to the next attached camera — the iOS toolbar's front/back flip.
+  func flipCamera() {
+    guard cameras.count > 1 else { return }
+    let index = cameras.firstIndex { $0.id == currentCameraID } ?? 0
+    send(.switchCamera(deviceID: cameras[(index + 1) % cameras.count].id))
+  }
+
+  func didChangeCameras(_ cameras: [CameraOption], currentID: String?) {
+    self.cameras = cameras
+    currentCameraID = currentID
   }
 
   func hangUp() {
@@ -224,8 +246,8 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .switchCamera,
-      .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant,
-      .hangUp:
+      .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
+      .denyLobbyParticipant, .hangUp:
       break
     }
 

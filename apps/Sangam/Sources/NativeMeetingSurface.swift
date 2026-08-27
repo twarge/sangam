@@ -1049,6 +1049,14 @@ final class NativeMeetingModel: ObservableObject {
             updated.videoType = videoType
             return updated
           }
+        case .camerasChanged(let available, let currentDeviceID):
+          SangamLog.event(
+            "event: camerasChanged count=\(available.count)"
+              + " current=\(currentDeviceID ?? "none")")
+          controller.didChangeCameras(
+            available.map { MeetingController.CameraOption(id: $0.id, name: $0.name) },
+            currentID: currentDeviceID
+          )
         case .lobbyEnabledChanged(let enabled):
           SangamLog.event("event: lobbyEnabledChanged=\(enabled)")
         case .lobbyKnockersChanged(let knockers):
@@ -1126,8 +1134,12 @@ final class NativeMeetingModel: ObservableObject {
         await coordinator.stopScreen()
         controller.didChangeScreenSharing(false)
       }
-    case .switchCamera:
-      controller.report(error: "Native camera switching is not connected yet.")
+    case .switchCamera(let deviceID):
+      do {
+        try await coordinator.switchCamera(toDeviceID: deviceID)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
     case .admitLobbyParticipant(let id):
       do {
         try await coordinator.admitLobbyParticipant(id: id)

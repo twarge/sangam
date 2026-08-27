@@ -122,6 +122,10 @@ public enum NativeJingleEvent: Sendable {
   /// `SANGAM_LOG` is set.
   case diagnostic(message: String)
   case failed(message: String)
+  /// The attached cameras changed, or capture moved to another device — a
+  /// picked switch or automatic failover after the active camera vanished.
+  /// `currentDeviceID` is nil while no camera is capturing.
+  case camerasChanged(available: [CameraDevice], currentDeviceID: String?)
   /// The meeting's lobby was switched on or off. Only reported to moderators,
   /// who are the only ones the room tells.
   case lobbyEnabledChanged(Bool)
@@ -169,6 +173,7 @@ public actor NativeJingleCoordinator {
   private let continuation: AsyncStream<NativeJingleEvent>.Continuation
   private var receiveTask: Task<Void, Never>?
   private var mediaTask: Task<Void, Never>?
+  private var cameraTask: Task<Void, Never>?
   private var activeOffer: IncomingJingleIQ?
   private var localICECredentials: ICECredentials?
   /// The id of the session-accept awaiting Jicofo's answer. Jicofo rejecting
@@ -296,6 +301,7 @@ public actor NativeJingleCoordinator {
     guard receiveTask == nil, mediaTask == nil else { return }
     receiveTask = Task { [weak self] in await self?.runReceiveLoop() }
     mediaTask = Task { [weak self] in await self?.runMediaLoop() }
+    cameraTask = Task { [weak self] in await self?.runCameraLoop() }
   }
 
   public func startCamera(
@@ -318,6 +324,17 @@ public actor NativeJingleCoordinator {
     microphoneMuted = muted
     audioTrack.isMuted = muted
     await sendSourcePresence()
+  }
+
+  /// The cameras attached right now, for device pickers.
+  public nonisolated static func availableCameras() -> [CameraDevice] {
+    LocalCameraTrack.availableCameras()
+  }
+
+  /// Moves capture to another camera mid-call; the published track and its
+  /// negotiated sources are untouched.
+  public func switchCamera(toDeviceID deviceID: String) async throws {
+    try await cameraTrack.switchCamera(toDeviceID: deviceID)
   }
 
   public func setCameraEnabled(_ enabled: Bool) async {
@@ -545,9 +562,11 @@ public actor NativeJingleCoordinator {
   public func stop() async {
     receiveTask?.cancel()
     mediaTask?.cancel()
+    cameraTask?.cancel()
     roomInfoRefresh?.cancel()
     receiveTask = nil
     mediaTask = nil
+    cameraTask = nil
     roomInfoRefresh = nil
     failPendingRequests(with: CancellationError())
     if cameraStarted {
@@ -1565,6 +1584,23 @@ public actor NativeJingleCoordinator {
       emit(.remoteVideoTrackRemoved(id: trackID))
     }
     await sendReceiverVideoConstraints()
+  }
+
+  /// Relays the camera track's device changes — attach/detach and failover
+  /// after the active camera vanishes (a closed laptop lid, an unplugged
+  /// dock) — so the app can refresh pickers and self-view state.
+  private func runCameraLoop() async {
+    for await event in cameraTrack.cameraEvents {
+      guard !Task.isCancelled else { return }
+      switch event {
+      case .camerasChanged(let available, let currentDeviceID):
+        emit(
+          .diagnostic(
+            message: "cameras: \(available.count) attached,"
+              + " capturing=\(currentDeviceID ?? "none")"))
+        emit(.camerasChanged(available: available, currentDeviceID: currentDeviceID))
+      }
+    }
   }
 
   private func runMediaLoop() async {
