@@ -21,6 +21,10 @@ public struct XMPPClientCapabilities: Equatable, Sendable {
       "urn:xmpp:jingle:apps:rtp:audio",
       "urn:xmpp:jingle:apps:rtp:video",
       "urn:xmpp:jingle:transports:ice-udp:1",
+      // XEP-0343 — makes Jicofo include a "data" content in its offer, the
+      // bridge channel as a WebRTC data channel on deployments without
+      // colibri websockets (meet.jit.si).
+      "urn:xmpp:jingle:transports:dtls-sctp:1",
     ]
     // SSRC rewriting (the bridge forwards a fixed small SSRC set and remaps
     // which conference source each carries) is implemented but not yet proven

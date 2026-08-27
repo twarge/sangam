@@ -170,19 +170,25 @@ public struct ICETransport: Equatable, Sendable {
   /// session-initiate transport. The client connects to it and sends receiver
   /// video constraints; without that the bridge forwards no remote video.
   public var bridgeWebSocketURL: String?
+  /// XEP-0343: the SCTP port when this content carries WebRTC data channels
+  /// — how deployments without colibri websockets (meet.jit.si) run the
+  /// bridge channel.
+  public var sctpPort: Int?
 
   public init(
     usernameFragment: String? = nil,
     password: String? = nil,
     candidates: [ICECandidate] = [],
     fingerprint: DTLSFingerprint? = nil,
-    bridgeWebSocketURL: String? = nil
+    bridgeWebSocketURL: String? = nil,
+    sctpPort: Int? = nil
   ) {
     self.usernameFragment = usernameFragment
     self.password = password
     self.candidates = candidates
     self.fingerprint = fingerprint
     self.bridgeWebSocketURL = bridgeWebSocketURL
+    self.sctpPort = sctpPort
   }
 }
 

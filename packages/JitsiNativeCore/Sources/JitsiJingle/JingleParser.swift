@@ -21,6 +21,8 @@ public struct JingleParser: Sendable {
   public static let feedbackNamespace = "urn:xmpp:jingle:apps:rtp:rtcp-fb:0"
   public static let groupingNamespace = "urn:xmpp:jingle:apps:grouping:0"
   public static let colibriNamespace = "http://jitsi.org/protocol/colibri"
+  /// XEP-0343 — WebRTC data channels over DTLS/SCTP.
+  public static let sctpNamespace = "urn:xmpp:jingle:transports:dtls-sctp:1"
   public static let jitsiMeetNamespace = "http://jitsi.org/jitmeet"
 
   public init() {}
@@ -378,7 +380,10 @@ public struct JingleParser: Sendable {
       candidates: candidates,
       fingerprint: fingerprint,
       bridgeWebSocketURL: element.child(
-        named: "web-socket", namespace: Self.colibriNamespace)?[attribute: "url"]
+        named: "web-socket", namespace: Self.colibriNamespace)?[attribute: "url"],
+      sctpPort: element.child(
+        named: "sctpmap", namespace: Self.sctpNamespace)?[attribute: "number"]
+        .flatMap(Int.init)
     )
   }
 

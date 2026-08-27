@@ -179,6 +179,23 @@ public actor PeerConnectionNegotiator {
     try? await queue.run { self.connection.restartIce() }
   }
 
+  /// Opens the bridge channel as a WebRTC data channel, with the label and
+  /// protocol the videobridge expects (BridgeChannel.ts). Only meaningful
+  /// once the remote description carries the SCTP "data" m-line; returns nil
+  /// if WebRTC refuses to create the channel.
+  public func makeBridgeDataChannel() async -> BridgeDataChannel? {
+    (try? await queue.run { () -> BridgeDataChannel? in
+      let configuration = RTCDataChannelConfiguration()
+      configuration.isOrdered = true
+      configuration.`protocol` = "http://jitsi.org/protocols/colibri"
+      guard
+        let channel = self.connection.dataChannel(
+          forLabel: "JVB bridge channel", configuration: configuration)
+      else { return nil }
+      return BridgeDataChannel(channel: channel)
+    }) ?? nil
+  }
+
   /// Activates or deactivates the encodings of the sender carrying `trackID`.
   /// Capture continues (a self-preview keeps rendering); only the outgoing
   /// RTP stops — what the bridge asks for when no receiver wants the source
@@ -261,6 +278,14 @@ public actor PeerConnectionNegotiator {
         func field(_ values: [String: NSObject], _ key: String) -> String {
           values[key].map { "\($0)" } ?? "?"
         }
+        // Codec entries resolve inbound codecIds to names, which is the
+        // first thing to know when a stream arrives but never decodes.
+        var codecNames: [String: String] = [:]
+        for statistics in report.statistics.values where statistics.type == "codec" {
+          if let mimeType = statistics.values["mimeType"] as? String {
+            codecNames[statistics.id] = mimeType
+          }
+        }
         var parts = ["ice=\(iceState)"]
         for statistics in report.statistics.values {
           let values = statistics.values
@@ -274,9 +299,13 @@ public actor PeerConnectionNegotiator {
           case "outbound-rtp" where values["kind"] as? String == "audio":
             parts.append("asend bytes=\(field(values, "bytesSent"))")
           case "inbound-rtp" where values["kind"] as? String == "video":
+            let codec = (values["codecId"] as? String).flatMap { codecNames[$0] } ?? "?"
             parts.append(
-              "vrecv \(field(values, "frameWidth"))x\(field(values, "frameHeight"))"
-                + " dec=\(field(values, "framesDecoded"))")
+              "vrecv ssrc=\(field(values, "ssrc"))"
+                + " codec=\(codec)"
+                + " \(field(values, "frameWidth"))x\(field(values, "frameHeight"))"
+                + " dec=\(field(values, "framesDecoded"))"
+                + " bytes=\(field(values, "bytesReceived"))")
           case "inbound-rtp" where values["kind"] as? String == "audio":
             parts.append("arecv bytes=\(field(values, "bytesReceived"))")
           default:

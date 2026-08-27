@@ -36,6 +36,30 @@ public struct JingleSDPTranslator: Sendable {
     var mediaSections: [[String]] = []
 
     for content in session.contents {
+      // XEP-0343: a content whose transport carries an sctpmap is the
+      // bridge channel as a WebRTC data channel (how deployments without
+      // colibri websockets run it); it has no RTP description.
+      if let transport = content.transport, let sctpPort = transport.sctpPort {
+        guard
+          let ufrag = transport.usernameFragment,
+          let password = transport.password,
+          let fingerprint = transport.fingerprint
+        else {
+          throw JingleSDPError.incompleteTransport(content: content.name)
+        }
+        mediaSections.append([
+          "m=application 9 UDP/DTLS/SCTP webrtc-datachannel",
+          "c=IN IP4 0.0.0.0",
+          "a=ice-ufrag:\(ufrag)",
+          "a=ice-pwd:\(password)",
+          "a=ice-options:trickle",
+          "a=fingerprint:\(fingerprint.hash) \(fingerprint.value)",
+          "a=setup:\(fingerprint.setup ?? "actpass")",
+          "a=sctp-port:\(sctpPort)",
+          "a=max-message-size:262144",
+        ])
+        continue
+      }
       guard let description = content.description else {
         throw JingleSDPError.missingDescription(content: content.name)
       }
@@ -152,8 +176,11 @@ public struct JingleSDPTranslator: Sendable {
     for index in mediaSections.indices {
       let mid = String(index)
       mids.append(mid)
-      // The direction line directly follows the fixed 8-line head.
-      mediaSections[index].insert("a=mid:\(mid)", at: 8)
+      // Right after the DTLS setup line — the one line every section
+      // (RTP or SCTP) has in the same relative place.
+      let insertAt =
+        mediaSections[index].firstIndex { $0.hasPrefix("a=setup:") }.map { $0 + 1 } ?? 8
+      mediaSections[index].insert("a=mid:\(mid)", at: insertAt)
     }
     let lines =
       [
@@ -217,7 +244,11 @@ public struct JingleAnswerBuilder: Sendable {
       sectionsByKind[media.kind, default: []].append(media)
     }
     let contents = try kinds.map { kind in
-      try contentElement(
+      // Jicofo expects the application media type signaled as "data".
+      if kind == "application" {
+        return try dataContentElement(sections: sectionsByKind[kind] ?? [])
+      }
+      return try contentElement(
         kind: kind,
         sections: sectionsByKind[kind] ?? [],
         metadata: sourceMetadataByMediaType[kind]
@@ -227,7 +258,12 @@ public struct JingleAnswerBuilder: Sendable {
       name: "group",
       namespace: JingleParser.groupingNamespace,
       attributes: ["semantics": "BUNDLE"],
-      children: kinds.map { XMPPElement(name: "content", attributes: ["name": $0]) }
+      children: kinds.map { kind in
+        XMPPElement(
+          name: "content",
+          attributes: ["name": kind == "application" ? "data" : kind]
+        )
+      }
     )
     return XMPPElement(
       name: "jingle",
@@ -238,6 +274,31 @@ public struct JingleAnswerBuilder: Sendable {
         "sid": sessionID,
       ],
       children: contents + [group]
+    )
+  }
+
+  /// The data-channel content of the accept: no RTP description, just the
+  /// ICE transport with its XEP-0343 sctpmap, under the name Jicofo
+  /// expects.
+  private func dataContentElement(sections: [SDPMediaSection]) throws -> XMPPElement {
+    guard let media = sections.first else { throw JingleSDPError.malformedSDP }
+    var transport = try transportElement(media)
+    let port = media.value(after: "a=sctp-port:") ?? "5000"
+    transport.children.append(
+      XMPPElement(
+        name: "sctpmap",
+        namespace: JingleParser.sctpNamespace,
+        attributes: [
+          "number": port,
+          "protocol": "webrtc-datachannel",
+          "streams": "0",
+        ]
+      )
+    )
+    return XMPPElement(
+      name: "content",
+      attributes: ["creator": "initiator", "name": "data", "senders": "both"],
+      children: [transport]
     )
   }
 

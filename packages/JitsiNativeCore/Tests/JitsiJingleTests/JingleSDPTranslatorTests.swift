@@ -253,6 +253,85 @@ func buildsRoundTrippableSessionAcceptFromWebRTCAnswer() throws {
   #expect(answer.contents[1].transport?.candidates[0].tcpType == "passive")
 }
 
+/// XEP-0343: a "data" content whose transport carries an sctpmap is the
+/// bridge channel as a WebRTC data channel (meet.jit.si has no colibri
+/// websocket). It becomes an SCTP application media line, bundled like the
+/// others.
+@Test
+func translatesSCTPDataContentIntoApplicationMediaLine() throws {
+  let offer = """
+    <jingle xmlns="urn:xmpp:jingle:1" action="session-initiate" \
+    initiator="focus@example.test/focus" sid="sctp-1">
+      <content creator="initiator" name="audio" senders="both">
+        <description xmlns="urn:xmpp:jingle:apps:rtp:1" media="audio">
+          <payload-type id="111" name="opus" clockrate="48000" channels="2"/>
+          <rtcp-mux/>
+        </description>
+        <transport xmlns="urn:xmpp:jingle:transports:ice-udp:1" ufrag="u" pwd="p">
+          <fingerprint xmlns="urn:xmpp:jingle:apps:dtls:0" hash="sha-256" \
+    setup="actpass">AA:BB</fingerprint>
+        </transport>
+      </content>
+      <content creator="initiator" name="data" senders="both">
+        <transport xmlns="urn:xmpp:jingle:transports:ice-udp:1" ufrag="u" pwd="p">
+          <fingerprint xmlns="urn:xmpp:jingle:apps:dtls:0" hash="sha-256" \
+    setup="actpass">AA:BB</fingerprint>
+          <sctpmap xmlns="urn:xmpp:jingle:transports:dtls-sctp:1" number="5000" \
+    protocol="webrtc-datachannel"/>
+        </transport>
+      </content>
+    </jingle>
+    """
+  let jingle = try JingleParser().parse(XMPPParser().parse(offer))
+  let sdp = try JingleSDPTranslator().offerSDP(from: jingle)
+
+  #expect(sdp.contains("a=group:BUNDLE 0 1\r\n"))
+  #expect(sdp.contains("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"))
+  #expect(sdp.contains("a=sctp-port:5000\r\n"))
+  #expect(sdp.contains("a=max-message-size:262144\r\n"))
+  let dataSection = try #require(
+    sdp.components(separatedBy: "\r\nm=").map { "m=" + $0 }
+      .first { $0.hasPrefix("m=application") })
+  #expect(dataSection.contains("a=mid:1\r\n"))
+  #expect(dataSection.contains("a=ice-ufrag:u\r\n"))
+  #expect(dataSection.contains("a=fingerprint:sha-256 AA:BB\r\n"))
+  // A data channel has no RTP.
+  #expect(!dataSection.contains("a=rtcp"))
+  #expect(!dataSection.contains("a=rtpmap"))
+}
+
+/// The accept mirrors it back as a content named "data" — the name Jicofo
+/// expects — carrying the transport with its sctpmap, and in the BUNDLE
+/// group under that name.
+@Test
+func buildsDataContentInSessionAcceptFromSCTPAnswer() throws {
+  let answerWithData = nativeAnswer + """
+
+    m=application 9 UDP/DTLS/SCTP webrtc-datachannel
+    c=IN IP4 0.0.0.0
+    a=mid:3
+    a=sctp-port:5000
+    a=max-message-size:262144
+    a=ice-ufrag:local-v
+    a=ice-pwd:local-v-password
+    a=fingerprint:sha-256 EE:FF:00:11
+    a=setup:active
+    """
+  let element = try JingleAnswerBuilder().element(
+    from: answerWithData,
+    sessionID: "sctp-1",
+    responder: "room@example.test/native-user"
+  )
+  let serialized = XMPPWriter.serialize(element)
+  let answer = try JingleParser().parse(XMPPParser().parse(serialized))
+
+  #expect(answer.bundle == ["audio", "video", "data"])
+  let data = try #require(answer.contents.first { $0.name == "data" })
+  #expect(data.description == nil)
+  #expect(data.transport?.usernameFragment == "local-v")
+  #expect(data.transport?.sctpPort == 5000)
+}
+
 @Test
 func rejectsOversizedWebRTCAnswer() {
   let oversized = "v=0\n" + String(repeating: "x", count: 1_048_576)

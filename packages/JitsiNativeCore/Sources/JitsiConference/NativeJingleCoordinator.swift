@@ -325,6 +325,10 @@ public actor NativeJingleCoordinator {
   /// Colibri bridge channel for the current session; the videobridge only
   /// forwards remote video after we send it receiver constraints over this.
   private var bridgeChannel: BridgeChannel?
+  /// The same channel over the session's SCTP data channel instead, for
+  /// deployments without colibri websockets (meet.jit.si). At most one of
+  /// the two is live.
+  private var bridgeDataChannel: BridgeDataChannel?
   /// The remote video source names the bridge knows (e.g. "abcd-v0"). The
   /// videobridge forwards a video source only once we ask for it by name in
   /// receiver constraints, so these are named there.
@@ -570,13 +574,11 @@ public actor NativeJingleCoordinator {
   /// message over the bridge channel. Best effort: without a bridge channel
   /// there is nobody to see it anyway.
   public func sendReaction(_ name: String) async {
-    if let bridgeChannel,
-      let data = try? ReactionEndpointMessage(
-        reactions: [name],
-        timestampMilliseconds: Int(Date().timeIntervalSince1970 * 1000)
-      ).encoded()
-    {
-      try? await bridgeChannel.send(raw: data)
+    if let data = try? ReactionEndpointMessage(
+      reactions: [name],
+      timestampMilliseconds: Int(Date().timeIntervalSince1970 * 1000)
+    ).encoded() {
+      await sendOverBridgeChannel(raw: data)
     }
     emit(.reactionsReceived(endpointID: nil, reactions: [name]))
   }
@@ -1830,6 +1832,8 @@ public actor NativeJingleCoordinator {
     bridgeChannelEventsTask = nil
     await bridgeChannel?.close()
     bridgeChannel = nil
+    bridgeDataChannel?.close()
+    bridgeDataChannel = nil
   }
 
   /// Whether a Jingle stanza came from Jicofo, the only initiator whose
@@ -1915,7 +1919,11 @@ public actor NativeJingleCoordinator {
       let urlString = session.contents.compactMap({ $0.transport?.bridgeWebSocketURL }).first,
       let url = URL(string: urlString)
     else {
-      emit(.diagnostic(message: "bridge-channel: no colibri ws url in session-initiate"))
+      if session.contents.contains(where: { $0.transport?.sctpPort != nil }) {
+        await openBridgeDataChannel()
+      } else {
+        emit(.diagnostic(message: "bridge-channel: no colibri ws url or sctp in session-initiate"))
+      }
       return
     }
     // Events flow through one stream and one consumer so they apply in the
@@ -1935,6 +1943,39 @@ public actor NativeJingleCoordinator {
     bridgeChannel = channel
     await channel.open()
     emit(.diagnostic(message: "bridge-channel: opened \(url.host ?? urlString)"))
+    await sendReceiverVideoConstraints()
+  }
+
+  /// Opens the bridge channel over the session's SCTP data channel instead —
+  /// the negotiated "data" content. The channel only becomes usable once
+  /// DTLS/SCTP establish, so constraints are sent from the `.opened` event,
+  /// not here.
+  private func openBridgeDataChannel() async {
+    guard let channel = await peerConnection.makeBridgeDataChannel() else {
+      emit(.diagnostic(message: "bridge-channel: WebRTC refused the sctp data channel"))
+      return
+    }
+    emit(.diagnostic(message: "bridge-channel: sctp data channel created, awaiting open"))
+    let parser = ColibriParser()
+    bridgeChannelEventsTask = Task { [weak self] in
+      for await event in channel.events {
+        guard !Task.isCancelled else { return }
+        switch event {
+        case .opened:
+          await self?.bridgeDataChannelOpened()
+        case .message(let data):
+          guard let parsed = try? parser.parse(data) else { continue }
+          await self?.handleBridgeChannelEvent(.message(parsed))
+        case .closed:
+          await self?.handleBridgeChannelEvent(.closed(reason: "sctp data channel closed"))
+        }
+      }
+    }
+    bridgeDataChannel = channel
+  }
+
+  private func bridgeDataChannelOpened() async {
+    emit(.diagnostic(message: "bridge-channel: sctp data channel open"))
     await sendReceiverVideoConstraints()
   }
 
@@ -2297,7 +2338,7 @@ public actor NativeJingleCoordinator {
   /// dependence on enumerating remote source names, which we could not do
   /// reliably before a participant's real source was signalled.
   private func sendReceiverVideoConstraints() async {
-    guard let bridgeChannel else {
+    guard bridgeChannel != nil || bridgeDataChannel != nil else {
       emit(.diagnostic(message: "recv-constraints: no bridge channel, skipped"))
       return
     }
@@ -2309,7 +2350,19 @@ public actor NativeJingleCoordinator {
     emit(
       .diagnostic(
         message: "recv-constraints: lastN=-1 defaultMaxHeight=\(preferredReceiveMaxHeight)"))
-    try? await bridgeChannel.send(constraints)
+    if let data = try? constraints.encoded() {
+      await sendOverBridgeChannel(raw: data)
+    }
+  }
+
+  /// Sends one colibri message over whichever bridge-channel transport this
+  /// session negotiated — the colibri WebSocket, or the SCTP data channel.
+  private func sendOverBridgeChannel(raw data: Data) async {
+    if let bridgeChannel {
+      try? await bridgeChannel.send(raw: data)
+    } else if let bridgeDataChannel {
+      bridgeDataChannel.send(raw: data)
+    }
   }
 
   /// The user's receive-quality preference (the web's performance slider):
