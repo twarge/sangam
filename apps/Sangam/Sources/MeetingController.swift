@@ -18,6 +18,10 @@ final class MeetingController: ObservableObject {
     case allowToSpeak(id: String)
     case setBackgroundBlur(enabled: Bool)
     case togglePictureInPicture
+    case createBreakoutRoom(subject: String)
+    case removeBreakoutRoom(jid: String)
+    case joinBreakoutRoom(jid: String)
+    case sendParticipantToBreakoutRoom(id: String, roomJID: String)
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -49,6 +53,15 @@ final class MeetingController: ObservableObject {
   struct CameraOption: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
+  }
+
+  /// One room in the breakout roster (including the main room), for the
+  /// Breakout Rooms menu.
+  struct BreakoutRoomOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let isMainRoom: Bool
+    let participantCount: Int
   }
 
   @Published private(set) var connectionState: ConnectionState = .connecting {
@@ -97,6 +110,9 @@ final class MeetingController: ObservableObject {
   /// System Picture in Picture: availability and whether it is up.
   @Published private(set) var pipAvailable = false
   @Published private(set) var isPiPActive = false
+  /// The deployment's breakout-room roster; empty when none exist (or the
+  /// server runs no component).
+  @Published private(set) var breakoutRooms: [BreakoutRoomOption] = []
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -225,6 +241,34 @@ final class MeetingController: ObservableObject {
     isPiPActive = active
   }
 
+  func createBreakoutRoom() {
+    let count = breakoutRooms.filter { !$0.isMainRoom }.count
+    send(.createBreakoutRoom(subject: "Room \(count + 1)"))
+  }
+
+  func removeBreakoutRoom(_ jid: String) {
+    send(.removeBreakoutRoom(jid: jid))
+  }
+
+  func joinBreakoutRoom(_ jid: String) {
+    send(.joinBreakoutRoom(jid: jid))
+  }
+
+  func sendParticipantToBreakoutRoom(_ id: String, roomJID: String) {
+    send(.sendParticipantToBreakoutRoom(id: id, roomJID: roomJID))
+  }
+
+  func didChangeBreakoutRooms(_ rooms: [BreakoutRoomOption]) {
+    breakoutRooms = rooms
+  }
+
+  /// A breakout-room move rejoins from scratch; the meeting view shows the
+  /// connecting state until the new room is up.
+  func didStartSwitchingRooms() {
+    connectionState = .connecting
+    errorMessage = nil
+  }
+
   func hangUp() {
     send(.hangUp)
   }
@@ -320,8 +364,9 @@ final class MeetingController: ObservableObject {
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
       .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur,
-      .togglePictureInPicture, .switchCamera, .authenticate, .waitForHost, .cancelWaiting,
-      .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
+      .togglePictureInPicture, .createBreakoutRoom, .removeBreakoutRoom, .joinBreakoutRoom,
+      .sendParticipantToBreakoutRoom, .switchCamera, .authenticate, .waitForHost,
+      .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
       break
     }
 

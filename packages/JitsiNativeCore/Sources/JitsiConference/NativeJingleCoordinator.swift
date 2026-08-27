@@ -144,11 +144,34 @@ public enum NativeJingleEvent: Sendable {
   /// An unmute was refused locally because AV moderation is on and this
   /// client is not approved; the media stays muted.
   case unmuteBlocked(media: String)
+  /// The deployment's breakout-room roster changed (rooms created, removed,
+  /// renamed, or their occupancy moved).
+  case breakoutRoomsUpdated([BreakoutRoom])
+  /// A moderator sent this client to another room; the app must leave the
+  /// current conference and join `roomJID`.
+  case movedToBreakoutRoom(roomJID: String)
   /// The meeting's lobby was switched on or off. Only reported to moderators,
   /// who are the only ones the room tells.
   case lobbyEnabledChanged(Bool)
   /// Who is waiting in the lobby right now, for a moderator to admit or deny.
   case lobbyKnockersChanged([LobbyKnocker])
+}
+
+/// One room in the deployment's breakout-room roster, including the main
+/// room itself.
+public struct BreakoutRoom: Identifiable, Equatable, Sendable {
+  /// The room's full MUC address — what a client joins to move there.
+  public var id: String
+  public var name: String
+  public var isMainRoom: Bool
+  public var participantCount: Int
+
+  public init(id: String, name: String, isMainRoom: Bool, participantCount: Int) {
+    self.id = id
+    self.name = name
+    self.isMainRoom = isMainRoom
+    self.participantCount = participantCount
+  }
 }
 
 /// Someone waiting in the meeting's lobby to be let in.
@@ -213,6 +236,8 @@ public actor NativeJingleCoordinator {
   /// The deployment's AV moderation component, from the domain's disco
   /// identities; nil when the server runs none.
   private var avModerationComponent: String?
+  /// The deployment's breakout-rooms component, discovered the same way.
+  private var breakoutRoomsComponent: String?
   /// Room-wide AV moderation state per media type ("audio"/"video").
   private var avModerationEnabled: [String: Bool] = [:]
   /// This client's per-media approval to unmute while moderation is on.
@@ -523,6 +548,48 @@ public actor NativeJingleCoordinator {
     )
   }
 
+  /// Creates a breakout room with the given name. Moderators only, and
+  /// only where the deployment runs the component.
+  public func createBreakoutRoom(subject: String) async throws {
+    try await sendBreakoutRoomsCommand([
+      "subject": subject, "type": "features/breakout-rooms/add",
+    ])
+  }
+
+  /// Removes a breakout room by its full MUC address.
+  public func removeBreakoutRoom(jid: String) async throws {
+    try await sendBreakoutRoomsCommand([
+      "breakoutRoomJid": jid, "type": "features/breakout-rooms/remove",
+    ])
+  }
+
+  /// Sends a participant to another room; the component instructs their
+  /// client to move.
+  public func sendParticipantToBreakoutRoom(id: String, roomJID: String) async throws {
+    guard participants[id] != nil else {
+      throw NativeJingleCoordinatorError.unknownParticipant
+    }
+    try await sendBreakoutRoomsCommand([
+      "participantJid": "\(configuration.roomJID)/\(id)",
+      "roomJid": roomJID,
+      "type": "features/breakout-rooms/move-to-room",
+    ])
+  }
+
+  private func sendBreakoutRoomsCommand(_ attributes: [String: String]) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let component = breakoutRoomsComponent else {
+      throw NativeJingleCoordinatorError.breakoutRoomsUnavailable
+    }
+    try await connection.send(
+      XMPPElement(
+        name: "message",
+        attributes: ["to": component, "id": nextID(prefix: "breakout")],
+        children: [XMPPElement(name: "breakout_rooms", attributes: attributes)]
+      )
+    )
+  }
+
   /// Makes a participant a moderator (room owner, as the web app grants it).
   /// The affiliation change addresses the occupant's real JID, which the room
   /// only discloses to moderators.
@@ -701,6 +768,7 @@ public actor NativeJingleCoordinator {
     avModerationComponent = nil
     avModerationEnabled = [:]
     avModerationSelfApproved = [:]
+    breakoutRoomsComponent = nil
     pendingLocalCandidates.removeAll()
     clearRemoteSourceState()
     participants.removeAll()
@@ -1022,37 +1090,56 @@ public actor NativeJingleCoordinator {
         id: id
       )
       let identities = response.child(named: "query")?.children.filter { $0.name == "identity" }
-      for identity in identities ?? [] where identity[attribute: "type"] == "av_moderation" {
-        avModerationComponent = identity[attribute: "name"]
+      for identity in identities ?? [] {
+        switch identity[attribute: "type"] {
+        case "av_moderation": avModerationComponent = identity[attribute: "name"]
+        case "breakout_rooms": breakoutRoomsComponent = identity[attribute: "name"]
+        default: break
+        }
       }
       emit(
         .diagnostic(
-          message: "components: av-moderation=\(avModerationComponent ?? "none")"))
+          message: "components: av-moderation=\(avModerationComponent ?? "none")"
+            + " breakout-rooms=\(breakoutRoomsComponent ?? "none")"))
     } catch {
       emit(.diagnostic(message: "components: discovery failed (\(error.localizedDescription))"))
     }
   }
 
   /// Handles a service component's `json-message` payload — AV moderation
-  /// state from the avmoderation component, exactly as the reference parses
-  /// it. Returns whether the message was one.
+  /// or breakout-room state, exactly as the reference parses them. Returns
+  /// whether the message was one.
   private func handleComponentMessage(_ element: XMPPElement) -> Bool {
     guard
-      let component = avModerationComponent,
       let from = element[attribute: "from"],
-      XMPPJID.matches(XMPPJID.bare(from), component),
       let json = element.child(named: "json-message", namespace: "http://jitsi.org/jitmeet")?
         .text,
       let data = json.data(using: .utf8),
       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      object["type"] as? String == "av_moderation"
+      let type = object["type"] as? String
     else { return false }
+    let sender = XMPPJID.bare(from)
+    if type == "av_moderation", let component = avModerationComponent,
+      XMPPJID.matches(sender, component)
+    {
+      handleAVModerationMessage(object)
+      return true
+    }
+    if type == "breakout_rooms", let component = breakoutRoomsComponent,
+      XMPPJID.matches(sender, component)
+    {
+      handleBreakoutRoomsMessage(object)
+      return true
+    }
+    return false
+  }
 
+  private func handleAVModerationMessage(_ object: [String: Any]) {
     let media = object["mediaType"] as? String ?? "audio"
     if object["whitelists"] != nil {
       // Moderators receive the full whitelist; this client only needs its
       // own approval state, which arrives separately.
-      return true
+      return
     }
     if let enabled = object["enabled"] as? Bool {
       if avModerationEnabled[media] != enabled {
@@ -1062,19 +1149,42 @@ public actor NativeJingleCoordinator {
           .avModerationChanged(media: media, enabled: enabled, actor: object["actor"] as? String)
         )
       }
-      return true
+      return
     }
     if object["removed"] as? Bool == true {
       avModerationSelfApproved[media] = false
       emit(.avModerationApprovalChanged(media: media, approved: false))
-      return true
+      return
     }
     if object["approved"] as? Bool == true {
       avModerationSelfApproved[media] = true
       emit(.avModerationApprovalChanged(media: media, approved: true))
-      return true
     }
-    return true
+  }
+
+  private func handleBreakoutRoomsMessage(_ object: [String: Any]) {
+    switch object["event"] as? String {
+    case "features/breakout-rooms/update":
+      guard let rooms = object["rooms"] as? [String: [String: Any]] else { return }
+      let parsed = rooms.map { key, value in
+        BreakoutRoom(
+          id: value["jid"] as? String ?? key,
+          name: value["name"] as? String ?? key,
+          isMainRoom: value["isMainRoom"] as? Bool ?? false,
+          participantCount: (value["participants"] as? [String: Any])?.count ?? 0
+        )
+      }.sorted { lhs, rhs in
+        // Main room first, then by name for a stable menu.
+        if lhs.isMainRoom != rhs.isMainRoom { return lhs.isMainRoom }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+      }
+      emit(.breakoutRoomsUpdated(parsed))
+    case "features/breakout-rooms/move-to-room":
+      guard let roomJID = object["roomJid"] as? String else { return }
+      emit(.movedToBreakoutRoom(roomJID: roomJID))
+    default:
+      break
+    }
   }
 
   /// Whether an unmute of `media` must be refused: moderation is on and no
@@ -1982,6 +2092,8 @@ public enum NativeJingleCoordinatorError: Error, Equatable, Sendable {
   case participantAddressUnknown
   /// The deployment announces no AV moderation component.
   case avModerationUnavailable
+  /// The deployment announces no breakout-rooms component.
+  case breakoutRoomsUnavailable
 }
 
 extension NativeJingleCoordinatorError: LocalizedError {
@@ -1999,6 +2111,8 @@ extension NativeJingleCoordinatorError: LocalizedError {
       return "The meeting did not disclose that person's address, so they cannot be promoted."
     case .avModerationUnavailable:
       return "This meeting server does not offer moderation controls."
+    case .breakoutRoomsUnavailable:
+      return "This meeting server does not offer breakout rooms."
     }
   }
 }

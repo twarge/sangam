@@ -124,7 +124,6 @@ public struct NativeConferenceBootstrap: Sendable {
     guard
       !room.isEmpty,
       room.utf8.count <= 1_024,
-      !room.contains("@"),
       !room.contains("/")
     else { throw NativeConferenceBootstrapError.invalidRoom }
 
@@ -133,7 +132,9 @@ public struct NativeConferenceBootstrap: Sendable {
     // jitsi-meet webapps parse a source name's owner with split('-')[0], so a
     // dash inside the endpoint id breaks their screen-share tile binding.
     let endpointID = String(UUID().uuidString.prefix(8)).lowercased()
-    let roomJID = "\(room)@\(deployment.mucDomain)"
+    // A room with an @ is already a full MUC address — how breakout rooms
+    // are named, since they live on their own MUC service.
+    let roomJID = room.contains("@") ? room : "\(room)@\(deployment.mucDomain)"
     let username = options.username?.trimmingCharacters(in: .whitespacesAndNewlines)
     let hasCredentials = username?.isEmpty == false && options.password?.isEmpty == false
     let xmppConnectionDomain =

@@ -762,6 +762,129 @@ struct CoordinatorSignalingTests {
     #expect(approval != nil, "the approval was not sent to the component")
   }
 
+  /// Breakout rooms end to end: the component is discovered from disco
+  /// identities, roster updates parse into rooms, a moderator's create and
+  /// move commands go out as component messages, and a move instruction
+  /// surfaces for the app to rejoin elsewhere.
+  @Test
+  func speaksTheBreakoutRoomsProtocol() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    let disco = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("sangam-components-") && $0.contains("to=\"example.test\"")
+      }
+    }
+    let discoIQ = try #require(disco, "no components discovery was sent")
+    await harness.socket.push(
+      """
+      <iq from="example.test" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: discoIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/disco#info">\
+      <identity category="component" type="breakout_rooms" name="breakout.example.test"/>\
+      </query></iq>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .diagnostic(let message) = $0 {
+          return message.contains("breakout-rooms=breakout.example.test")
+        }
+        return false
+      }
+    }
+
+    // A roster update names the main room and one breakout room.
+    await harness.socket.push(
+      """
+      <message from="breakout.example.test" to="\(TestConference.responderJID)">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"breakout_rooms","event":"features/breakout-rooms/update","rooms":{\
+      "main":{"jid":"\(TestConference.roomJID)","name":"room","isMainRoom":true,\
+      "participants":{"a":{"jid":"x"},"b":{"jid":"y"}}},\
+      "one":{"jid":"room-one@breakout.example.test","name":"Room 1","participants":{}}}}\
+      </json-message></message>
+      """
+    )
+    let updated = await eventuallyValue {
+      await harness.events.compactMap { event -> [BreakoutRoom]? in
+        if case .breakoutRoomsUpdated(let rooms) = event { return rooms }
+        return nil
+      }.last
+    }
+    let rooms = try #require(updated, "no breakout roster surfaced")
+    #expect(rooms.count == 2)
+    #expect(rooms.first?.isMainRoom == true)
+    #expect(rooms.first?.participantCount == 2)
+    #expect(rooms.last?.id == "room-one@breakout.example.test")
+
+    // Moderator commands are messages to the component.
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/native" to="\(TestConference.responderJID)">
+        <x xmlns="http://jabber.org/protocol/muc#user">
+          <item role="moderator" affiliation="owner"/>
+          <status code="110"/>
+        </x>
+      </presence>
+      """
+    )
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/72dcd87f" to="\(TestConference.responderJID)">
+        <nick xmlns="http://jabber.org/protocol/nick">Ada</nick>
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="participant" affiliation="member"/></x>
+      </presence>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .moderatorStatusChanged(true) = $0 { return true }
+        return false
+      }
+    }
+    try await harness.coordinator.createBreakoutRoom(subject: "Design")
+    let create = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("features/breakout-rooms/add") && $0.contains("subject=\"Design\"")
+          && $0.contains("breakout.example.test")
+      }
+    }
+    #expect(create != nil, "the create command was not sent")
+    try await harness.coordinator.sendParticipantToBreakoutRoom(
+      id: "72dcd87f", roomJID: "room-one@breakout.example.test")
+    let move = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("features/breakout-rooms/move-to-room")
+          && $0.contains("participantJid=\"\(TestConference.roomJID)/72dcd87f\"")
+          && $0.contains("roomJid=\"room-one@breakout.example.test\"")
+      }
+    }
+    #expect(move != nil, "the move command was not sent")
+
+    // Being moved surfaces the target for the app to rejoin.
+    await harness.socket.push(
+      """
+      <message from="breakout.example.test" to="\(TestConference.responderJID)">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"breakout_rooms","event":"features/breakout-rooms/move-to-room",\
+      "roomJid":"room-one@breakout.example.test"}\
+      </json-message></message>
+      """
+    )
+    let moved = await eventually {
+      await harness.events.contains {
+        if case .movedToBreakoutRoom(let roomJID) = $0 {
+          return roomJID == "room-one@breakout.example.test"
+        }
+        return false
+      }
+    }
+    #expect(moved, "the move instruction never surfaced")
+  }
+
   /// The bridge's sender constraints: 0 pauses (nobody is watching), any
   /// positive height caps, and -1 means UNCONSTRAINED — the value the web
   /// client sets for the source it features on stage. Pausing on -1 froze

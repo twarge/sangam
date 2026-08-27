@@ -191,6 +191,15 @@ struct NativeMeetingSurface: View {
         if controller.audioModerationOn {
           Button("Allow to speak") { controller.allowToSpeak(participant.id) }
         }
+        if controller.breakoutRooms.count > 1 {
+          Menu("Send to") {
+            ForEach(controller.breakoutRooms) { room in
+              Button(room.name) {
+                controller.sendParticipantToBreakoutRoom(participant.id, roomJID: room.id)
+              }
+            }
+          }
+        }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
         }
@@ -413,6 +422,15 @@ struct NativeMeetingSurface: View {
         }
         if controller.audioModerationOn {
           Button("Allow to speak") { controller.allowToSpeak(participant.id) }
+        }
+        if controller.breakoutRooms.count > 1 {
+          Menu("Send to") {
+            ForEach(controller.breakoutRooms) { room in
+              Button(room.name) {
+                controller.sendParticipantToBreakoutRoom(participant.id, roomJID: room.id)
+              }
+            }
+          }
         }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
@@ -1027,16 +1045,46 @@ final class NativeMeetingModel: ObservableObject {
     await startJoin(configuration: configuration, controller: controller)
   }
 
+  /// Moves this client to another room in the same deployment — a breakout
+  /// room, or back to the main one — by tearing the conference down and
+  /// rejoining under the new address.
+  func switchRoom(to roomJID: String, controller: MeetingController) async {
+    guard let configuration else { return }
+    SangamLog.event("breakout: switching to \(roomJID)")
+    joinTask?.cancel()
+    joinTask = nil
+    eventTask?.cancel()
+    eventTask = nil
+    statsTask?.cancel()
+    statsTask = nil
+    stopScreenCapture()
+    controller.didChangeScreenSharing(false)
+    if let handle {
+      await handle.coordinator.stop()
+      self.handle = nil
+    }
+    streams = []
+    streamStats = [:]
+    participants = []
+    dominantSpeakerID = nil
+    pinnedTileID = nil
+    isModerator = false
+    controller.didStartSwitchingRooms()
+    await startJoin(configuration: configuration, controller: controller, roomOverride: roomJID)
+  }
+
   private func startJoin(
     configuration: MeetingConfiguration,
     controller: MeetingController,
     username: String? = nil,
     password: String? = nil,
-    waitForHost: Bool = false
+    waitForHost: Bool = false,
+    roomOverride: String? = nil
   ) async {
     guard joinTask == nil, handle == nil else { return }
     SangamLog.event(
-      "join begin room=\(configuration.normalizedRoom) server=\(configuration.serverURL.absoluteString) "
+      "join begin room=\(roomOverride ?? configuration.normalizedRoom) "
+        + "server=\(configuration.serverURL.absoluteString) "
         + "waitForHost=\(waitForHost) authenticated=\(username != nil)")
     let task = Task { @MainActor [weak self, weak controller] in
       guard let self, let controller else { return }
@@ -1044,7 +1092,7 @@ final class NativeMeetingModel: ObservableObject {
         let handle = try await NativeConferenceBootstrap().connect(
           NativeConferenceJoinOptions(
             serverURL: configuration.serverURL,
-            room: configuration.normalizedRoom,
+            room: roomOverride ?? configuration.normalizedRoom,
             displayName: configuration.displayName,
             username: username,
             password: password,
@@ -1283,6 +1331,23 @@ final class NativeMeetingModel: ObservableObject {
             available.map { MeetingController.CameraOption(id: $0.id, name: $0.name) },
             currentID: currentDeviceID
           )
+        case .breakoutRoomsUpdated(let rooms):
+          SangamLog.event("event: breakoutRoomsUpdated count=\(rooms.count)")
+          controller.didChangeBreakoutRooms(
+            rooms.map {
+              MeetingController.BreakoutRoomOption(
+                id: $0.id, name: $0.name, isMainRoom: $0.isMainRoom,
+                participantCount: $0.participantCount)
+            }
+          )
+        case .movedToBreakoutRoom(let roomJID):
+          SangamLog.event("event: movedToBreakoutRoom \(roomJID)")
+          // A moderator sent us to another room. Switching cancels this
+          // event loop, so it must run outside it.
+          Task { @MainActor [weak self, weak controller] in
+            guard let self, let controller else { return }
+            await self.switchRoom(to: roomJID, controller: controller)
+          }
         case .lobbyEnabledChanged(let enabled):
           SangamLog.event("event: lobbyEnabledChanged=\(enabled)")
         case .lobbyKnockersChanged(let knockers):
@@ -1379,6 +1444,26 @@ final class NativeMeetingModel: ObservableObject {
       }
     case .setBackgroundBlur(let enabled):
       await coordinator.setVirtualBackground(enabled ? .blur : .none)
+    case .createBreakoutRoom(let subject):
+      do {
+        try await coordinator.createBreakoutRoom(subject: subject)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .removeBreakoutRoom(let jid):
+      do {
+        try await coordinator.removeBreakoutRoom(jid: jid)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .joinBreakoutRoom(let jid):
+      await switchRoom(to: jid, controller: controller)
+    case .sendParticipantToBreakoutRoom(let id, let roomJID):
+      do {
+        try await coordinator.sendParticipantToBreakoutRoom(id: id, roomJID: roomJID)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
     case .togglePictureInPicture:
       pictureInPicture.onActiveChanged = { [weak controller, weak self] active in
         guard let self, let controller else { return }

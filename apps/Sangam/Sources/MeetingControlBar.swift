@@ -232,6 +232,31 @@ private struct MoreMenu: View {
             systemImage: "pip")
         }
       }
+      if !controller.breakoutRooms.isEmpty || controller.isModerator {
+        Divider()
+        Menu {
+          ForEach(controller.breakoutRooms) { room in
+            if controller.isModerator, !room.isMainRoom {
+              Menu("\(room.name) (\(room.participantCount))") {
+                Button("Join") { controller.joinBreakoutRoom(room.id) }
+                Button("Remove", role: .destructive) {
+                  controller.removeBreakoutRoom(room.id)
+                }
+              }
+            } else {
+              Button("\(room.name) (\(room.participantCount))") {
+                controller.joinBreakoutRoom(room.id)
+              }
+            }
+          }
+          if controller.isModerator {
+            if !controller.breakoutRooms.isEmpty { Divider() }
+            Button("Add Breakout Room") { controller.createBreakoutRoom() }
+          }
+        } label: {
+          Label("Breakout Rooms", systemImage: "square.split.2x1")
+        }
+      }
       Divider()
       // Apple's ML noise suppression (Voice Isolation) is a system
       // microphone mode: only the user can switch it, from the picker this
