@@ -1471,6 +1471,9 @@ final class NativeMeetingModel: ObservableObject {
           available: self.pictureInPicture.isSupported, active: active)
         if !active { self.pictureInPicture.bridge.detach() }
       }
+      pictureInPicture.onError = { [weak controller] message in
+        controller?.report(error: message)
+      }
       pictureInPicture.toggle(stream: featuredRemoteStream)
     case .setScreenSharing(let enabled):
       if enabled {

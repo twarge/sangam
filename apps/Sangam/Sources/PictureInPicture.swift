@@ -13,9 +13,12 @@ final class PictureInPictureManager: NSObject, ObservableObject {
   /// Fired on start/stop so a host that does not observe this object can
   /// still mirror the state into its UI.
   var onActiveChanged: (@MainActor (Bool) -> Void)?
+  /// Fired when a start attempt fails, with a user-facing explanation.
+  var onError: (@MainActor (String) -> Void)?
 
   let bridge = VideoSampleBufferBridge()
   private var controller: AVPictureInPictureController?
+  private var possibleObservation: NSKeyValueObservation?
 
   var isSupported: Bool {
     AVPictureInPictureController.isPictureInPictureSupported()
@@ -36,12 +39,56 @@ final class PictureInPictureManager: NSObject, ObservableObject {
 
   func toggle(stream: RemoteVideoStream?) {
     prepareIfNeeded()
-    guard let controller else { return }
+    guard let controller else {
+      SangamLog.event("pip: unsupported on this system")
+      onError?("Picture in Picture is not supported here.")
+      return
+    }
     if controller.isPictureInPictureActive {
+      SangamLog.event("pip: stop")
+      possibleObservation = nil
       controller.stopPictureInPicture()
-    } else if let stream {
-      bridge.attach(to: stream.track)
+      return
+    }
+    guard let stream else {
+      SangamLog.event("pip: no remote stream to float")
+      onError?("There’s no remote video to float yet.")
+      return
+    }
+    bridge.attach(to: stream.track)
+    startWhenPossible(controller)
+  }
+
+  /// AVKit honors `startPictureInPicture` only once it deems it possible —
+  /// the content layer must be in a window and have received video. The
+  /// first frame usually lands moments after attaching, so wait for the
+  /// possible flag instead of firing blind (which fails silently).
+  private func startWhenPossible(_ controller: AVPictureInPictureController) {
+    if controller.isPictureInPicturePossible {
+      SangamLog.event("pip: start (immediately possible)")
       controller.startPictureInPicture()
+      return
+    }
+    SangamLog.event("pip: waiting to become possible")
+    possibleObservation = controller.observe(
+      \.isPictureInPicturePossible, options: [.new]
+    ) { [weak self] _, change in
+      guard change.newValue == true else { return }
+      Task { @MainActor [weak self] in
+        guard let self, self.possibleObservation != nil, let controller = self.controller
+        else { return }
+        self.possibleObservation = nil
+        SangamLog.event("pip: start (became possible)")
+        controller.startPictureInPicture()
+      }
+    }
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(4))
+      guard let self, self.possibleObservation != nil else { return }
+      self.possibleObservation = nil
+      SangamLog.event("pip: never became possible")
+      self.onError?(
+        "Picture in Picture could not start — the video never reached the system player.")
     }
   }
 
@@ -58,10 +105,21 @@ final class PictureInPictureManager: NSObject, ObservableObject {
 }
 
 extension PictureInPictureManager: AVPictureInPictureControllerDelegate {
+  nonisolated func pictureInPictureController(
+    _ pictureInPictureController: AVPictureInPictureController,
+    failedToStartPictureInPictureWithError error: Error
+  ) {
+    Task { @MainActor in
+      SangamLog.event("pip: failed to start: \(error.localizedDescription)")
+      self.onError?("Picture in Picture could not start: \(error.localizedDescription)")
+    }
+  }
+
   nonisolated func pictureInPictureControllerDidStartPictureInPicture(
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     Task { @MainActor in
+      SangamLog.event("pip: started")
       self.isActive = true
       self.onActiveChanged?(true)
     }
