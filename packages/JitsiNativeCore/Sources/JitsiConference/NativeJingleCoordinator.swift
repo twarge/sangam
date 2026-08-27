@@ -442,6 +442,12 @@ public actor NativeJingleCoordinator {
     await peerConnection.videoStatsSummary()
   }
 
+  /// Per-stream receive statistics keyed by the announced track id, for the
+  /// tiles' connection indicators.
+  public func inboundVideoStatistics() async -> [InboundVideoStatistic] {
+    await peerConnection.inboundVideoStatistics()
+  }
+
   /// The number of remote ICE candidates WebRTC has accepted. Exposed for tests
   /// that verify the bridge's inline session-initiate candidates were ingested.
   public func remoteCandidateCount() async -> Int {

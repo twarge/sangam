@@ -27,6 +27,15 @@ extension PeerConnectionNegotiationError: LocalizedError {
   }
 }
 
+/// Receive-side health of one remote video stream, for per-tile connection
+/// indicators.
+public struct InboundVideoStatistic: Equatable, Sendable {
+  public var trackID: String
+  public var frameHeight: Int
+  public var framesPerSecond: Double
+  public var packetsLost: Int
+}
+
 public struct LocalSourceNegotiation: Equatable, Sendable {
   public var previousLocalSDP: String?
   public var localSDP: String
@@ -212,6 +221,33 @@ public actor PeerConnectionNegotiator {
           + " maxBitrate=\(encoding.maxBitrateBps?.intValue.description ?? "-")"
       }
     }) ?? []
+  }
+
+  /// Per-stream receive statistics, keyed for tile indicators by the
+  /// receiver's track id — the same id remote streams are announced under.
+  public func inboundVideoStatistics() async -> [InboundVideoStatistic] {
+    await withCheckedContinuation {
+      (continuation: CheckedContinuation<[InboundVideoStatistic], Never>) in
+      connection.statistics { report in
+        var stats: [InboundVideoStatistic] = []
+        for statistics in report.statistics.values where statistics.type == "inbound-rtp" {
+          let values = statistics.values
+          guard
+            values["kind"] as? String == "video",
+            let trackID = values["trackIdentifier"] as? String
+          else { continue }
+          stats.append(
+            InboundVideoStatistic(
+              trackID: trackID,
+              frameHeight: (values["frameHeight"] as? NSNumber)?.intValue ?? 0,
+              framesPerSecond: (values["framesPerSecond"] as? NSNumber)?.doubleValue ?? 0,
+              packetsLost: (values["packetsLost"] as? NSNumber)?.intValue ?? 0
+            )
+          )
+        }
+        continuation.resume(returning: stats)
+      }
+    }
   }
 
   /// A concise one-line summary of media flow, for the opt-in `SANGAM_LOG`

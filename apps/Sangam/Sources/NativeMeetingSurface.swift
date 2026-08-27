@@ -356,7 +356,8 @@ struct NativeMeetingSurface: View {
       isDominantSpeaker: tile.endpointID != nil
         && tile.endpointID == model.dominantSpeakerID,
       isPinned: tile.id == model.pinnedTileID,
-      flat: flat
+      flat: flat,
+      stat: tile.stream.flatMap { model.streamStats[$0.id] }
     )
     .onTapGesture {
       model.pinnedTileID = model.pinnedTileID == tile.id ? nil : tile.id
@@ -628,6 +629,8 @@ private struct MeetingTileView: View {
   /// A stage tile fills the window edge to edge: no rounding, and a border
   /// only while its owner is the dominant speaker.
   var flat = false
+  /// Receive health for the tile's stream, shown as a colored dot.
+  var stat: InboundVideoStatistic?
 
   var body: some View {
     ZStack {
@@ -690,7 +693,31 @@ private struct MeetingTileView: View {
       .background(.black.opacity(0.55), in: .capsule)
       .padding(8)
     }
+    .overlay(alignment: .topTrailing) {
+      if tile.stream != nil {
+        Circle()
+          .fill(qualityColor)
+          .frame(width: 8, height: 8)
+          .padding(10)
+          .help(qualityDescription)
+          .accessibilityLabel("Connection \(qualityDescription)")
+      }
+    }
     .accessibilityLabel(Text(tile.displayName))
+  }
+
+  /// Green for smooth video, orange when frames are limping in, red for a
+  /// stalled stream, gray before the first statistics arrive.
+  private var qualityColor: Color {
+    guard let stat, stat.frameHeight > 0 else { return .gray.opacity(0.6) }
+    if stat.framesPerSecond >= 15 { return .green }
+    if stat.framesPerSecond >= 5 { return .orange }
+    return .red
+  }
+
+  private var qualityDescription: String {
+    guard let stat, stat.frameHeight > 0 else { return "no data yet" }
+    return "\(stat.frameHeight)p @ \(Int(stat.framesPerSecond.rounded())) fps"
   }
 
   private var initials: String {
@@ -714,6 +741,9 @@ final class NativeMeetingModel: ObservableObject {
   }
 
   @Published private(set) var streams: [RemoteVideoStream] = []
+  /// Receive health per stream (keyed by track id), refreshed every few
+  /// seconds for the tiles' connection indicators.
+  @Published private(set) var streamStats: [String: InboundVideoStatistic] = [:]
   @Published private(set) var participants: [RemoteParticipant] = []
   @Published private(set) var dominantSpeakerID: String?
   @Published private(set) var isModerator = false
@@ -946,17 +976,20 @@ final class NativeMeetingModel: ObservableObject {
     }
   }
 
-  /// Periodically logs the video RTP flow while `SANGAM_LOG` is set, so what
-  /// the app actually sends and receives is visible during bring-up.
+  /// Refreshes the tiles' connection indicators every few seconds, and logs
+  /// the full RTP flow while `SANGAM_LOG` is set.
   private func startStatsLogging(handle: NativeConferenceHandle) {
-    guard SangamLog.isEnabled else { return }
     statsTask?.cancel()
     statsTask = Task { @MainActor [weak self] in
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3))
         guard let self, let handle = self.handle else { return }
-        let summary = await handle.coordinator.mediaStatsSummary()
-        SangamLog.event("stats: \(summary)")
+        let stats = await handle.coordinator.inboundVideoStatistics()
+        streamStats = Dictionary(uniqueKeysWithValues: stats.map { ($0.trackID, $0) })
+        if SangamLog.isEnabled {
+          let summary = await handle.coordinator.mediaStatsSummary()
+          SangamLog.event("stats: \(summary)")
+        }
       }
     }
   }
