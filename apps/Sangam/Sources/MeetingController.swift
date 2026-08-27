@@ -16,6 +16,7 @@ final class MeetingController: ObservableObject {
     case setReceiveQuality(maxHeight: Int)
     case setAudioModeration(enabled: Bool)
     case allowToSpeak(id: String)
+    case setBackgroundBlur(enabled: Bool)
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -90,6 +91,8 @@ final class MeetingController: ObservableObject {
   /// How much of the window's left edge the floating sidebar occupies, so
   /// the toolbar can center itself over the visible stage.
   @Published private(set) var sidebarInset: CGFloat = 0
+  /// Apple-native background blur on the outgoing camera.
+  @Published private(set) var backgroundBlurOn = false
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -204,6 +207,11 @@ final class MeetingController: ObservableObject {
     sidebarInset = inset
   }
 
+  func setBackgroundBlur(_ enabled: Bool) {
+    backgroundBlurOn = enabled
+    send(.setBackgroundBlur(enabled: enabled))
+  }
+
   func hangUp() {
     send(.hangUp)
   }
@@ -298,8 +306,9 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
-      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .switchCamera, .authenticate,
-      .waitForHost, .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
+      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur, .switchCamera,
+      .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant,
+      .hangUp:
       break
     }
 

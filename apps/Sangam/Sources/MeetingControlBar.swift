@@ -216,6 +216,14 @@ private struct MoreMenu: View {
         }
       }
       Divider()
+      Toggle(
+        "Blur My Background",
+        isOn: Binding(
+          get: { controller.backgroundBlurOn },
+          set: { controller.setBackgroundBlur($0) }
+        )
+      )
+      Divider()
       // Apple's ML noise suppression (Voice Isolation) is a system
       // microphone mode: only the user can switch it, from the picker this
       // opens. The label shows what is active right now.

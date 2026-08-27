@@ -1345,6 +1345,8 @@ final class NativeMeetingModel: ObservableObject {
       } catch {
         controller.report(error: error.localizedDescription)
       }
+    case .setBackgroundBlur(let enabled):
+      await coordinator.setVirtualBackground(enabled ? .blur : .none)
     case .setScreenSharing(let enabled):
       if enabled {
         startScreenCapture(coordinator: coordinator, controller: controller)

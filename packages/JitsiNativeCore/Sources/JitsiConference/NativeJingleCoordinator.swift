@@ -370,6 +370,11 @@ public actor NativeJingleCoordinator {
     try await cameraTrack.switchCamera(toDeviceID: deviceID)
   }
 
+  /// Switches the Apple-native virtual background on the outgoing camera.
+  public func setVirtualBackground(_ mode: VirtualBackgroundMode) {
+    cameraTrack.setVirtualBackground(mode)
+  }
+
   public func setCameraEnabled(_ enabled: Bool) async {
     if enabled, unmuteBlocked(media: "video") {
       emit(.unmuteBlocked(media: "video"))

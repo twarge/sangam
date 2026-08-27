@@ -125,12 +125,16 @@ public final class WebRTCMediaFactory: @unchecked Sendable {
 
   public func makeCameraTrack(id: String) -> LocalCameraTrack {
     let source = peerConnectionFactory.videoSource(forScreenCast: false)
-    let capturer = RTCCameraVideoCapturer(delegate: source)
+    // Frames route through an interceptor so virtual backgrounds can
+    // rewrite them before the encoder (and the self-preview) see them.
+    let router = CameraFrameRouter(source: source)
+    let capturer = RTCCameraVideoCapturer(delegate: router)
     let track = peerConnectionFactory.videoTrack(with: source, trackId: id)
     return LocalCameraTrack(
       videoTrack: LocalVideoTrack(
         source: source, track: track, capturer: capturer, isScreenCast: false),
-      capturer: capturer
+      capturer: capturer,
+      frameRouter: router
     )
   }
 }
@@ -242,6 +246,7 @@ public final class LocalCameraTrack: @unchecked Sendable {
   public let cameraEvents: AsyncStream<CameraCaptureEvent>
 
   private let capturer: RTCCameraVideoCapturer
+  private let frameRouter: CameraFrameRouter
   private let eventContinuation: AsyncStream<CameraCaptureEvent>.Continuation
   /// Serializes every capture mutation: a user switch, a failover triggered
   /// by a device notification, and start/stop from the coordinator would
@@ -259,9 +264,14 @@ public final class LocalCameraTrack: @unchecked Sendable {
   private var positionPreference = CameraPosition.front
   private var observers: [NSObjectProtocol] = []
 
-  fileprivate init(videoTrack: LocalVideoTrack, capturer: RTCCameraVideoCapturer) {
+  fileprivate init(
+    videoTrack: LocalVideoTrack,
+    capturer: RTCCameraVideoCapturer,
+    frameRouter: CameraFrameRouter
+  ) {
     self.videoTrack = videoTrack
     self.capturer = capturer
+    self.frameRouter = frameRouter
     let stream = AsyncStream<CameraCaptureEvent>.makeStream()
     cameraEvents = stream.stream
     eventContinuation = stream.continuation
@@ -339,6 +349,13 @@ public final class LocalCameraTrack: @unchecked Sendable {
 
   public func currentCameraID() async -> String? {
     (try? await operations.run { [self] in isRunning ? currentDeviceID : nil }) ?? nil
+  }
+
+  /// Switches the Apple-native virtual background (Vision person
+  /// segmentation + Core Image). Takes effect on the next captured frame;
+  /// the published track and self-preview both show the processed video.
+  public func setVirtualBackground(_ mode: VirtualBackgroundMode) {
+    frameRouter.setMode(mode)
   }
 
   public func stop() async {

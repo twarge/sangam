@@ -120,7 +120,7 @@
         case .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
           .denyLobbyParticipant, .setHandRaised, .sendChatMessage, .sendReaction,
           .kickParticipant, .grantModerator, .muteParticipant, .setReceiveQuality,
-          .setAudioModeration, .allowToSpeak:
+          .setAudioModeration, .allowToSpeak, .setBackgroundBlur:
           break
         case .hangUp:
           view.hangUp()
