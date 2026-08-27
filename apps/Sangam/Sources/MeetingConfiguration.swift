@@ -1,6 +1,6 @@
 import Foundation
 
-struct MeetingConfiguration: Equatable, Sendable {
+struct MeetingConfiguration: Equatable, Hashable, Sendable {
   var serverURL: URL
   var room: String
   var displayName: String

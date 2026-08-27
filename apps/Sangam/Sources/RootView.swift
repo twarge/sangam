@@ -6,6 +6,7 @@ struct RootView: View {
   @AppStorage("displayName") private var displayName = ""
   @State private var room = ""
   @State private var activeMeeting: MeetingConfiguration?
+  @ObservedObject private var hub = MeetingHub.shared
 
   var body: some View {
     Group {
@@ -13,6 +14,9 @@ struct RootView: View {
         MeetingView(configuration: activeMeeting) {
           self.activeMeeting = nil
         }
+        // A different meeting is a different view tree: joining a link
+        // while already in a room tears the old meeting down cleanly.
+        .id(activeMeeting)
       } else {
         JoinView(
           serverURL: $serverURL,
@@ -25,6 +29,24 @@ struct RootView: View {
     .frame(minWidth: 360, minHeight: 520)
     // The window is named after the meeting while one is active.
     .navigationTitle(activeMeeting?.normalizedRoom ?? "Sangam")
+    // Meeting links: the sangam scheme, universal links once a deployment
+    // registers its domain, and Handoff from another device.
+    .onOpenURL { url in
+      MeetingHub.shared.requestJoin(url: url)
+    }
+    .onContinueUserActivity(MeetingHub.meetingActivityType) { activity in
+      if let url = activity.webpageURL { MeetingHub.shared.requestJoin(url: url) }
+    }
+    .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+      if let url = activity.webpageURL { MeetingHub.shared.requestJoin(url: url) }
+    }
+    .onReceive(hub.$pendingJoin) { pending in
+      guard let pending else { return }
+      hub.pendingJoin = nil
+      activeMeeting = pending
+      room = pending.room
+      serverURL = pending.serverURL.absoluteString
+    }
   }
 
   private func join() {

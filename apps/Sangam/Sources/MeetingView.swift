@@ -138,6 +138,23 @@ struct MeetingView: View {
         dismiss()
       }
     }
+    // System surfaces (menu bar, Siri, CallKit) reach the meeting through
+    // the hub; Handoff advertises the meeting link so another device can
+    // pick the call up.
+    .onAppear {
+      MeetingHub.shared.noteMeetingStarted(configuration, controller: controller)
+    }
+    .onDisappear {
+      MeetingHub.shared.noteMeetingEnded()
+    }
+    .userActivity(
+      MeetingHub.meetingActivityType,
+      isActive: controller.connectionState == .joined
+    ) { activity in
+      activity.title = "Meeting: \(configuration.normalizedRoom)"
+      activity.webpageURL = configuration.meetingLink
+      activity.isEligibleForHandoff = true
+    }
     .sheet(isPresented: $controller.showsPollsPane) {
       PollsPanel(controller: controller)
     }

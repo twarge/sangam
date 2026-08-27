@@ -11,6 +11,7 @@
 		0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; productRef = D1C05CC97547E3D084834834 /* JitsiMedia */; };
 		11FABCE32120FA88F62D0B66 /* SampleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF4ABBA402C90522AE89350 /* SampleUploader.swift */; };
 		2097FAD13E0FF954E0D1A9FF /* PollsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD0E97233746E8E30D1B33D /* PollsPanel.swift */; };
+		252B380B1E0F6831D3FFB5B5 /* MeetingHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */; };
 		2A4AB97D81B6F1DDCEEF2FE8 /* JoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */; };
 		2CA2D21263D4944E831AEC05 /* MeetingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5498238E43B4CDE66DC56656 /* MeetingConfiguration.swift */; };
 		2CF021767085A0FEF44C2393 /* DarwinNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710F14230F532246B2D7BEAA /* DarwinNotificationCenter.swift */; };
@@ -80,6 +81,7 @@
 		97B74C1C95D53382ACA4E38A /* MeetingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingView.swift; sourceTree = "<group>"; };
 		98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConnection.swift; sourceTree = "<group>"; };
 		B0C991D47AFD16CAABED8B8D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingHub.swift; sourceTree = "<group>"; };
 		D92020D258073CA69E8B28E7 /* PictureInPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPicture.swift; sourceTree = "<group>"; };
 		E010A4D7D521AEE84209E08C /* MeetingSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSounds.swift; sourceTree = "<group>"; };
 		E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinView.swift; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 				5498238E43B4CDE66DC56656 /* MeetingConfiguration.swift */,
 				19074360D5D558EF60955DBD /* MeetingControlBar.swift */,
 				570BA7976AA9D8EC8251C514 /* MeetingController.swift */,
+				BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */,
 				E010A4D7D521AEE84209E08C /* MeetingSounds.swift */,
 				97B74C1C95D53382ACA4E38A /* MeetingView.swift */,
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
@@ -291,6 +294,7 @@
 				2CA2D21263D4944E831AEC05 /* MeetingConfiguration.swift in Sources */,
 				432E5BEC316DEF6417DA3781 /* MeetingControlBar.swift in Sources */,
 				3AC7F4262007860171A451F6 /* MeetingController.swift in Sources */,
+				252B380B1E0F6831D3FFB5B5 /* MeetingHub.swift in Sources */,
 				CCE6710DC4171CF48B6568ED /* MeetingSounds.swift in Sources */,
 				E041F8DB12FF01E298E96A9F /* MeetingView.swift in Sources */,
 				65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */,
