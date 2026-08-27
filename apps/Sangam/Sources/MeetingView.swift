@@ -5,6 +5,12 @@ struct MeetingView: View {
   let dismiss: () -> Void
 
   @StateObject private var controller = MeetingController()
+  // The control bar tucks away when the pointer is elsewhere (macOS). An
+  // open popover pins it so it never fades under its own palette.
+  @State private var toolbarHovered = false
+  @State private var toolbarPinned = false
+  @State private var toolbarVisible = true
+  @State private var toolbarHideTask: Task<Void, Never>?
 
   var body: some View {
     ZStack(alignment: .bottom) {
@@ -54,10 +60,22 @@ struct MeetingView: View {
           .transition(.opacity.combined(with: .scale(scale: 0.97)))
       }
 
+      #if os(macOS)
+        // The hover zone that summons the toolbar: the bottom strip of the
+        // window, sitting underneath the bar so its buttons stay clickable.
+        if controller.connectionState == .joined {
+          Color.clear
+            .frame(height: 120)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in
+              toolbarHovered = inside
+              updateToolbarVisibility()
+            }
+        }
+      #endif
       if controller.connectionState == .joined {
-        MeetingControlBar(controller: controller)
-          .padding(.horizontal, 16)
-          .padding(.bottom, 14)
+        meetingToolbar
       }
     }
     .overlay(alignment: .top) {
@@ -95,6 +113,37 @@ struct MeetingView: View {
       }
     }
   }
+
+  @ViewBuilder
+  private var meetingToolbar: some View {
+    let bar = MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
+      .padding(.horizontal, 16)
+      .padding(.bottom, 14)
+    #if os(macOS)
+      bar
+        .opacity(toolbarVisible ? 1 : 0)
+        .allowsHitTesting(toolbarVisible)
+        .animation(.easeOut(duration: 0.15), value: toolbarVisible)
+        .onChange(of: toolbarPinned) { _, _ in updateToolbarVisibility() }
+        .onAppear { updateToolbarVisibility() }
+    #else
+      // iOS has no pointer to hover with; the bar stays put.
+      bar
+    #endif
+  }
+
+  #if os(macOS)
+    private func updateToolbarVisibility() {
+      toolbarHideTask?.cancel()
+      toolbarVisible = true
+      guard !toolbarHovered, !toolbarPinned else { return }
+      toolbarHideTask = Task { @MainActor in
+        try? await Task.sleep(for: .seconds(1.2))
+        guard !Task.isCancelled, !toolbarHovered, !toolbarPinned else { return }
+        toolbarVisible = false
+      }
+    }
+  #endif
 
   @ViewBuilder
   private var meetingSurface: some View {

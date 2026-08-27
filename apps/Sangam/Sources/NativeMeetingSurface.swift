@@ -85,7 +85,12 @@ struct NativeMeetingSurface: View {
       List(selection: $model.pinnedTileID) {
         Section {
           if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
-            SidebarThumbnail(isPinned: false, videoType: nil) {
+            SidebarThumbnail(
+              isPinned: false,
+              videoType: nil,
+              handRaised: controller.isHandRaised,
+              reaction: model.tileReactions["self"]?.emoji
+            ) {
               LocalVideoSurface(track: localCameraTrack)
             }
             .accessibilityLabel("Your camera")
@@ -111,7 +116,9 @@ struct NativeMeetingSurface: View {
             ForEach(entry.streams) { stream in
               SidebarThumbnail(
                 isPinned: model.pinnedTileID == stream.id,
-                videoType: stream.videoType
+                videoType: stream.videoType,
+                handRaised: entry.handRaised,
+                reaction: entry.endpointID.flatMap { model.tileReactions[$0]?.emoji }
               ) {
                 NativeVideoSurface(track: stream.track)
               }
@@ -216,6 +223,13 @@ struct NativeMeetingSurface: View {
           .overlay {
             RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.22))
           }
+          .overlay(alignment: .bottomTrailing) {
+            TileBadges(
+              handRaised: controller.isHandRaised,
+              reaction: model.tileReactions["self"]?.emoji,
+              size: 22
+            )
+          }
           .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
           .padding(16)
           .accessibilityLabel("Your camera")
@@ -228,24 +242,6 @@ struct NativeMeetingSurface: View {
           .padding(12)
           .transition(.move(edge: .trailing).combined(with: .opacity))
       }
-    }
-    .overlay(alignment: .bottomLeading) {
-      HStack(spacing: 8) {
-        ForEach(model.floatingReactions) { reaction in
-          Text(reaction.emoji)
-            .font(.system(size: 44))
-            .transition(
-              .asymmetric(
-                insertion: .move(edge: .bottom).combined(with: .opacity),
-                removal: .opacity.combined(with: .scale(scale: 1.4))
-              )
-            )
-        }
-      }
-      .padding(.leading, 24)
-      .padding(.bottom, 96)
-      .allowsHitTesting(false)
-      .animation(.snappy, value: model.floatingReactions)
     }
     .animation(.snappy, value: controller.isChatOpen)
   }
@@ -360,7 +356,8 @@ struct NativeMeetingSurface: View {
         && tile.endpointID == model.dominantSpeakerID,
       isPinned: tile.id == model.pinnedTileID,
       flat: flat,
-      stat: tile.stream.flatMap { model.streamStats[$0.id] }
+      stat: tile.stream.flatMap { model.streamStats[$0.id] },
+      reaction: tile.endpointID.flatMap { model.tileReactions[$0]?.emoji }
     )
     .onTapGesture {
       model.pinnedTileID = model.pinnedTileID == tile.id ? nil : tile.id
@@ -462,6 +459,8 @@ struct NativeMeetingSurface: View {
   private struct SidebarThumbnail<Surface: View>: View {
     let isPinned: Bool
     let videoType: String?
+    var handRaised = false
+    var reaction: String?
     @ViewBuilder var surface: Surface
 
     var body: some View {
@@ -475,6 +474,11 @@ struct NativeMeetingSurface: View {
               isPinned ? Color.accentColor : .white.opacity(0.1),
               lineWidth: isPinned ? 2 : 1
             )
+        }
+        .overlay(alignment: .bottomTrailing) {
+          // Deliberately large for the thumbnail's 92-point height, so the
+          // state reads at sidebar size.
+          TileBadges(handRaised: handRaised, reaction: reaction, size: 30)
         }
         .overlay(alignment: .topTrailing) {
           HStack(spacing: 4) {
@@ -628,6 +632,37 @@ private struct ChatAvatar: View {
 
 /// One participant's spot in the grid: their video when it flows, their name
 /// and state either way.
+/// The raised hand and the sender's latest reaction, anchored to a tile's
+/// lower-right corner. `size` scales the whole cluster, so small sidebar
+/// thumbnails can show it proportionally larger than the stage does.
+struct TileBadges: View {
+  let handRaised: Bool
+  let reaction: String?
+  var size: CGFloat = 24
+
+  var body: some View {
+    HStack(spacing: size * 0.2) {
+      if handRaised {
+        Image(systemName: "hand.raised.fill")
+          .font(.system(size: size * 0.66))
+          .foregroundStyle(.yellow)
+          .padding(size * 0.2)
+          .background(.black.opacity(0.55), in: .circle)
+      }
+      if let reaction {
+        Text(reaction)
+          .font(.system(size: size))
+          .shadow(color: .black.opacity(0.6), radius: 2)
+          .transition(.scale.combined(with: .opacity))
+      }
+    }
+    .padding(6)
+    .allowsHitTesting(false)
+    .animation(.snappy, value: reaction)
+    .animation(.snappy, value: handRaised)
+  }
+}
+
 private struct MeetingTileView: View {
   let tile: NativeMeetingModel.MeetingTile
   let isDominantSpeaker: Bool
@@ -637,6 +672,8 @@ private struct MeetingTileView: View {
   var flat = false
   /// Receive health for the tile's stream, shown as a colored dot.
   var stat: InboundVideoStatistic?
+  /// The owner's latest reaction, shown next to their raised hand.
+  var reaction: String?
 
   var body: some View {
     ZStack {
@@ -660,24 +697,21 @@ private struct MeetingTileView: View {
         )
     }
     .overlay(alignment: .topLeading) {
-      HStack(spacing: 5) {
-        if tile.handRaised {
-          Image(systemName: "hand.raised.fill")
-            .font(.caption)
-            .foregroundStyle(.yellow)
-        }
-        if isPinned {
-          Image(systemName: "pin.fill")
-            .font(.caption2)
-            .foregroundStyle(.white)
-        }
+      if isPinned {
+        Image(systemName: "pin.fill")
+          .font(.caption2)
+          .foregroundStyle(.white)
+          .padding(6)
+          .background(.black.opacity(0.55), in: .capsule)
+          .padding(8)
       }
-      .padding(6)
-      .background(
-        tile.handRaised || isPinned ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear),
-        in: .capsule
+    }
+    .overlay(alignment: .bottomTrailing) {
+      TileBadges(
+        handRaised: tile.handRaised,
+        reaction: reaction,
+        size: flat ? 34 : 24
       )
-      .padding(8)
     }
     .overlay(alignment: .bottomLeading) {
       HStack(spacing: 5) {
@@ -755,7 +789,9 @@ final class NativeMeetingModel: ObservableObject {
   @Published private(set) var isModerator = false
   @Published private(set) var chatMessages: [ChatMessage] = []
   @Published var pinnedTileID: String?
-  @Published private(set) var floatingReactions: [FloatingReaction] = []
+  /// The most recent reaction per participant (keyed by endpoint id, "self"
+  /// for our own), shown on that participant's tiles for a few seconds.
+  @Published private(set) var tileReactions: [String: TileReaction] = [:]
   @Published var sidebarCollapsed = false
   @Published private(set) var localCameraTrack: LocalVideoTrack?
   /// The outgoing screen-share track, previewed in the sidebar while sharing.
@@ -764,9 +800,10 @@ final class NativeMeetingModel: ObservableObject {
   /// encoder.
   @Published private(set) var localScreenTrack: LocalVideoTrack?
 
-  /// A reaction emoji currently floating over the meeting.
-  struct FloatingReaction: Identifiable, Equatable {
-    let id = UUID()
+  /// A reaction shown on a participant's tiles; the token distinguishes a
+  /// repeat of the same emoji so its expiry timer restarts.
+  struct TileReaction: Equatable {
+    let token: UUID
     let emoji: String
   }
 
@@ -1082,13 +1119,19 @@ final class NativeMeetingModel: ObservableObject {
           SangamLog.event(
             "event: reactions from=\(endpointID ?? "self") [\(reactions.joined(separator: ", "))]")
           MeetingSounds.reaction()
-          for name in reactions {
-            let emoji = Self.reactionEmoji.first { $0.name == name }?.emoji ?? "✨"
-            let reaction = FloatingReaction(emoji: emoji)
-            floatingReactions.append(reaction)
-            Task { @MainActor [weak self] in
-              try? await Task.sleep(for: .seconds(3))
-              self?.floatingReactions.removeAll { $0.id == reaction.id }
+          // The newest reaction owns the sender's tile badge; a token per
+          // arrival restarts the expiry so repeats keep it alive.
+          let key = endpointID ?? "self"
+          let emoji =
+            reactions.compactMap({ name in
+              Self.reactionEmoji.first { $0.name == name }?.emoji
+            }).last ?? "✨"
+          let reaction = TileReaction(token: UUID(), emoji: emoji)
+          tileReactions[key] = reaction
+          Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if self?.tileReactions[key]?.token == reaction.token {
+              self?.tileReactions[key] = nil
             }
           }
         case .remoteSourceVideoTypeChanged(let sourceName, let videoType):

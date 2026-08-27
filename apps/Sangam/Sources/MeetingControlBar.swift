@@ -8,6 +8,9 @@ import SwiftUI
 
 struct MeetingControlBar: View {
   @ObservedObject var controller: MeetingController
+  /// True while one of the bar's popovers is open, so an auto-hiding host
+  /// can keep the bar on screen underneath it.
+  @Binding var popoverPinned: Bool
 
   /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
   /// chat panel is open so typing a message never toggles the microphone.
@@ -75,7 +78,7 @@ struct MeetingControlBar: View {
       )
       .keyboardShortcut(shortcut("r"))
 
-      ReactionsButton(send: controller.sendReaction)
+      ReactionsButton(send: controller.sendReaction, pinned: $popoverPinned)
 
       ControlButton(
         title: controller.isChatOpen ? "Hide Chat" : "Chat",
@@ -94,7 +97,7 @@ struct MeetingControlBar: View {
       )
       .keyboardShortcut(shortcut("w"))
 
-      InviteButton(link: controller.meetingLink)
+      InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
 
       MoreMenu(controller: controller)
 
@@ -157,6 +160,7 @@ private struct MoreMenu: View {
 /// Shares the meeting's join link — the same URL web participants use.
 private struct InviteButton: View {
   let link: URL?
+  @Binding var pinned: Bool
 
   @State private var showsPopover = false
   @State private var copied = false
@@ -165,6 +169,7 @@ private struct InviteButton: View {
     ControlButton(title: "Invite", symbol: "person.badge.plus", isActive: showsPopover) {
       showsPopover.toggle()
     }
+    .onChange(of: showsPopover) { _, open in pinned = open }
     .popover(isPresented: $showsPopover, arrowEdge: .top) {
       VStack(alignment: .leading, spacing: 10) {
         Text("Share this link to invite people")
@@ -207,6 +212,7 @@ private struct InviteButton: View {
 /// land on web participants exactly as their own do.
 private struct ReactionsButton: View {
   let send: (String) -> Void
+  @Binding var pinned: Bool
 
   @State private var showsPalette = false
 
@@ -219,6 +225,7 @@ private struct ReactionsButton: View {
     ControlButton(title: "React", symbol: "face.smiling", isActive: showsPalette) {
       showsPalette.toggle()
     }
+    .onChange(of: showsPalette) { _, open in pinned = open }
     .popover(isPresented: $showsPalette, arrowEdge: .top) {
       HStack(spacing: 6) {
         ForEach(Self.reactions, id: \.name) { reaction in

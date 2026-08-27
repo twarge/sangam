@@ -115,9 +115,11 @@
         case .setScreenSharing(let enabled):
           view.toggleScreenShare(enabled)
         case .switchCamera:
+          // The SDK path only flips between its own cameras.
           view.toggleCamera()
         case .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
-          .denyLobbyParticipant:
+          .denyLobbyParticipant, .setHandRaised, .sendChatMessage, .sendReaction,
+          .kickParticipant, .grantModerator, .muteParticipant, .setReceiveQuality:
           break
         case .hangUp:
           view.hangUp()
