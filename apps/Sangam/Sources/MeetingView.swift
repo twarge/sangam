@@ -60,20 +60,6 @@ struct MeetingView: View {
           .transition(.opacity.combined(with: .scale(scale: 0.97)))
       }
 
-      #if os(macOS)
-        // The hover zone that summons the toolbar: the bottom strip of the
-        // window, sitting underneath the bar so its buttons stay clickable.
-        if controller.connectionState == .joined {
-          Color.clear
-            .frame(height: 120)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            .onHover { inside in
-              toolbarHovered = inside
-              updateToolbarVisibility()
-            }
-        }
-      #endif
       if controller.connectionState == .joined {
         meetingToolbar
       }
@@ -116,29 +102,52 @@ struct MeetingView: View {
 
   @ViewBuilder
   private var meetingToolbar: some View {
-    let bar = MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
+    #if os(macOS)
+      // Only the bar's own footprint is hover-sensitive: the outer wrapper
+      // keeps the exact bounds hit-testable (and so hoverable) even while
+      // the bar inside is invisible and ignoring clicks.
+      ZStack {
+        MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
+          .opacity(toolbarVisible ? 1 : 0)
+          .allowsHitTesting(toolbarVisible)
+          .animation(.easeOut(duration: 0.15), value: toolbarVisible)
+      }
+      .contentShape(Rectangle())
+      .onHover { inside in
+        toolbarHovered = inside
+        updateToolbarVisibility()
+      }
       .padding(.horizontal, 16)
       .padding(.bottom, 14)
-    #if os(macOS)
-      bar
-        .opacity(toolbarVisible ? 1 : 0)
-        .allowsHitTesting(toolbarVisible)
-        .animation(.easeOut(duration: 0.15), value: toolbarVisible)
-        .onChange(of: toolbarPinned) { _, _ in updateToolbarVisibility() }
-        .onAppear { updateToolbarVisibility() }
+      .onChange(of: toolbarPinned) { _, _ in updateToolbarVisibility() }
+      .onChange(of: controller.isChatOpen) { _, open in
+        // The bar sits right over the chat's input; get out of the way at
+        // once instead of waiting for the grace period.
+        if open {
+          toolbarHideTask?.cancel()
+          toolbarVisible = false
+        }
+      }
+      .onAppear { updateToolbarVisibility() }
     #else
       // iOS has no pointer to hover with; the bar stays put.
-      bar
+      MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
     #endif
   }
 
   #if os(macOS)
     private func updateToolbarVisibility() {
       toolbarHideTask?.cancel()
-      toolbarVisible = true
-      guard !toolbarHovered, !toolbarPinned else { return }
+      if toolbarHovered || toolbarPinned {
+        toolbarVisible = true
+        return
+      }
+      // A short grace so a slip off the edge doesn't flicker the bar away;
+      // on appear this doubles as a brief "here are the controls" showing.
       toolbarHideTask = Task { @MainActor in
-        try? await Task.sleep(for: .seconds(1.2))
+        try? await Task.sleep(for: .seconds(0.6))
         guard !Task.isCancelled, !toolbarHovered, !toolbarPinned else { return }
         toolbarVisible = false
       }

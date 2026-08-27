@@ -513,6 +513,7 @@ private struct ChatPanel: View {
   let send: (String) -> Void
 
   @State private var draft = ""
+  @FocusState private var inputFocused: Bool
 
   private struct MessageGroup: Identifiable {
     let id: String
@@ -579,6 +580,7 @@ private struct ChatPanel: View {
       HStack(spacing: 8) {
         TextField("Message everyone", text: $draft)
           .textFieldStyle(.plain)
+          .focused($inputFocused)
           .onSubmit(submit)
         Button(action: submit) {
           Image(systemName: "paperplane.fill")
@@ -591,6 +593,15 @@ private struct ChatPanel: View {
     .background(.regularMaterial, in: .rect(cornerRadius: 14))
     .overlay {
       RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.12))
+    }
+    .onAppear {
+      // Opening the panel means typing; focus lands without a click. The
+      // retry covers macOS applying focus only once the window is key.
+      inputFocused = true
+      Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(200))
+        if !inputFocused { inputFocused = true }
+      }
     }
   }
 
