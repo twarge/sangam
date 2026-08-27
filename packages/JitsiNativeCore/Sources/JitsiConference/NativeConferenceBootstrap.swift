@@ -129,7 +129,10 @@ public struct NativeConferenceBootstrap: Sendable {
     else { throw NativeConferenceBootstrapError.invalidRoom }
 
     let deployment = try await discoveryClient.discover(baseURL: options.serverURL)
-    let endpointID = "sangam-" + UUID().uuidString.prefix(8).lowercased()
+    // Bare 8-hex-char id, matching upstream's randomHexString(8): deployed
+    // jitsi-meet webapps parse a source name's owner with split('-')[0], so a
+    // dash inside the endpoint id breaks their screen-share tile binding.
+    let endpointID = String(UUID().uuidString.prefix(8)).lowercased()
     let roomJID = "\(room)@\(deployment.mucDomain)"
     let username = options.username?.trimmingCharacters(in: .whitespacesAndNewlines)
     let hasCredentials = username?.isEmpty == false && options.password?.isEmpty == false
