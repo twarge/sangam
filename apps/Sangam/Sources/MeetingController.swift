@@ -94,9 +94,6 @@ final class MeetingController: ObservableObject {
   @Published private(set) var currentCameraID: String?
   /// The address other people join with, for the invite button.
   @Published private(set) var meetingLink: URL?
-  /// The per-source height cap asked of the bridge (the performance
-  /// setting); 720 matches the web's default.
-  @Published private(set) var receiveQuality = 720
   /// Whether this client moderates the room; gates the moderation controls.
   @Published private(set) var isModerator = false
   /// Room-wide audio moderation: while on, participants need approval to
@@ -105,8 +102,8 @@ final class MeetingController: ObservableObject {
   /// How much of the window's left edge the floating sidebar occupies, so
   /// the toolbar can center itself over the visible stage.
   @Published private(set) var sidebarInset: CGFloat = 0
-  /// Apple-native background blur on the outgoing camera.
-  @Published private(set) var backgroundBlurOn = false
+  /// The iOS settings pane; macOS uses the Settings window instead.
+  @Published var showsSettingsPane = false
   /// System Picture in Picture: availability and whether it is up.
   @Published private(set) var pipAvailable = false
   @Published private(set) var isPiPActive = false
@@ -116,6 +113,23 @@ final class MeetingController: ObservableObject {
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
+  private let settings = AppSettings.shared
+  private var settingsObservers: Set<AnyCancellable> = []
+
+  init() {
+    // Preferences apply live: a change in the Settings window (or the More
+    // menu, which edits the same object) reaches the running meeting.
+    settings.$receiveQuality
+      .dropFirst()
+      .removeDuplicates()
+      .sink { [weak self] height in self?.send(.setReceiveQuality(maxHeight: height)) }
+      .store(in: &settingsObservers)
+    settings.$backgroundBlur
+      .dropFirst()
+      .removeDuplicates()
+      .sink { [weak self] enabled in self?.send(.setBackgroundBlur(enabled: enabled)) }
+      .store(in: &settingsObservers)
+  }
 
   func attach(commandHandler: @escaping (Command) -> Void) {
     self.commandHandler = commandHandler
@@ -200,12 +214,6 @@ final class MeetingController: ObservableObject {
     meetingLink = link
   }
 
-  func setReceiveQuality(_ maxHeight: Int) {
-    guard maxHeight != receiveQuality else { return }
-    receiveQuality = maxHeight
-    send(.setReceiveQuality(maxHeight: maxHeight))
-  }
-
   func setAudioModeration(_ enabled: Bool) {
     audioModerationOn = enabled
     send(.setAudioModeration(enabled: enabled))
@@ -225,11 +233,6 @@ final class MeetingController: ObservableObject {
 
   func didChangeSidebarInset(_ inset: CGFloat) {
     sidebarInset = inset
-  }
-
-  func setBackgroundBlur(_ enabled: Bool) {
-    backgroundBlurOn = enabled
-    send(.setBackgroundBlur(enabled: enabled))
   }
 
   func togglePictureInPicture() {
@@ -276,6 +279,13 @@ final class MeetingController: ObservableObject {
   func didJoin() {
     connectionState = .joined
     errorMessage = nil
+    // Bring the fresh conference in line with the stored preferences.
+    if settings.receiveQuality != 720 {
+      send(.setReceiveQuality(maxHeight: settings.receiveQuality))
+    }
+    if settings.backgroundBlur {
+      send(.setBackgroundBlur(enabled: true))
+    }
   }
 
   func requireAccess(message: String? = nil) {

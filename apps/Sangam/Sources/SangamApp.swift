@@ -11,5 +11,11 @@ struct SangamApp: App {
       .defaultSize(width: 1100, height: 700)
       .windowResizability(.contentMinSize)
     #endif
+
+    #if os(macOS)
+      Settings {
+        SettingsView()
+      }
+    #endif
   }
 }

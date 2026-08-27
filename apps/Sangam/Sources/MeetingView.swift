@@ -125,6 +125,14 @@ struct MeetingView: View {
         dismiss()
       }
     }
+    #if os(iOS)
+      .sheet(isPresented: $controller.showsSettingsPane) {
+        NavigationStack {
+          SettingsView()
+        }
+        .presentationDetents([.medium, .large])
+      }
+    #endif
   }
 
   /// The room the bar may occupy: the window minus whatever the sidebar

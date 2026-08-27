@@ -27,6 +27,9 @@ struct NativeMeetingSurface: View {
   /// The floating sidebar's width, draggable at its trailing edge and
   /// remembered across meetings.
   @AppStorage("sidebarWidth") private var sidebarWidth = 236.0
+  /// Whether the sidebar and chat panel push the stage aside instead of
+  /// floating over it; the same key AppSettings writes.
+  @AppStorage("panelsPushStage") private var panelsPushStage = false
 
 
   var body: some View {
@@ -70,28 +73,25 @@ struct NativeMeetingSurface: View {
     /// thumbnail row per feed beneath; audio-only participants are just their
     /// header. Selecting a thumbnail pins it to the stage.
     private var meetingRoot: some View {
-      ZStack(alignment: .leading) {
-        detailContent
-          .ignoresSafeArea()
-        if !model.sidebarCollapsed {
-          // The list itself honors the toolbar's safe area; only the panel's
-          // backdrop runs all the way to the window edge behind it.
-          sidebarRoster
-            .scrollContentBackground(.hidden)
-            .frame(width: sidebarWidth)
-            .background {
-              SidebarBackdrop()
-                .overlay(Color.black.opacity(0.35))
-                .ignoresSafeArea()
-            }
-            .environment(\.colorScheme, .dark)
-            .overlay(alignment: .trailing) {
-              SidebarResizeHandle(width: $sidebarWidth)
-            }
-            .transition(.move(edge: .leading).combined(with: .opacity))
+      Group {
+        if panelsPushStage {
+          // Push mode: the stage narrows to make room for the panel.
+          HStack(spacing: 0) {
+            if !model.sidebarCollapsed { sidebarPanel }
+            detailContent
+              .ignoresSafeArea()
+          }
+        } else {
+          // Float mode: the stage runs edge to edge under the panel.
+          ZStack(alignment: .leading) {
+            detailContent
+              .ignoresSafeArea()
+            if !model.sidebarCollapsed { sidebarPanel }
+          }
         }
       }
       .animation(.snappy, value: model.sidebarCollapsed)
+      .animation(.snappy, value: panelsPushStage)
       .onAppear { reportSidebarInset() }
       .onChange(of: model.sidebarCollapsed) { _, _ in reportSidebarInset() }
       .onChange(of: sidebarWidth) { _, _ in reportSidebarInset() }
@@ -108,8 +108,27 @@ struct NativeMeetingSurface: View {
       }
     }
 
-    /// Tells the toolbar host how much of the left edge the floating
-    /// sidebar occupies, so the control bar centers over the visible stage.
+    /// The roster panel with its backdrop and resize handle. The list
+    /// itself honors the toolbar's safe area; only the backdrop runs all
+    /// the way to the window edge behind it.
+    private var sidebarPanel: some View {
+      sidebarRoster
+        .scrollContentBackground(.hidden)
+        .frame(width: sidebarWidth)
+        .background {
+          SidebarBackdrop()
+            .overlay(Color.black.opacity(0.35))
+            .ignoresSafeArea()
+        }
+        .environment(\.colorScheme, .dark)
+        .overlay(alignment: .trailing) {
+          SidebarResizeHandle(width: $sidebarWidth)
+        }
+        .transition(.move(edge: .leading).combined(with: .opacity))
+    }
+
+    /// Tells the toolbar host how much of the left edge the sidebar
+    /// occupies, so the control bar centers over the visible stage.
     private func reportSidebarInset() {
       controller.didChangeSidebarInset(model.sidebarCollapsed ? 0 : sidebarWidth)
     }
@@ -258,6 +277,9 @@ struct NativeMeetingSurface: View {
     // explicit fill the leading-aligned ZStack collapses to the sidebar's
     // width and the sidebar renders centered in the window on first join.
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // In push mode the open chat carves its width out of the stage instead
+    // of covering it; the panel overlay then sits in the carved-out gap.
+    .padding(.trailing, panelsPushStage && controller.isChatOpen ? 312 : 0)
     .background(.black)
     .overlay(alignment: .topTrailing) {
       // A corner self-preview for the grid layout only: the other layouts show

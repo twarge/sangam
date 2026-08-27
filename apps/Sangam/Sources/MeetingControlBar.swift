@@ -189,12 +189,8 @@ struct MeetingControlBar: View {
 /// that never earn their own button (quality, moderation).
 private struct MoreMenu: View {
   @ObservedObject var controller: MeetingController
+  @ObservedObject private var settings = AppSettings.shared
   var overflow: [MeetingControlBar.OverflowControl] = []
-
-  private static let qualities: [(label: String, height: Int)] = [
-    ("Low (180p)", 180), ("Standard (360p)", 360),
-    ("High (720p)", 720), ("Full HD (1080p)", 1080),
-  ]
 
   var body: some View {
     Menu {
@@ -204,25 +200,28 @@ private struct MoreMenu: View {
         }
         Divider()
       }
-      Picker(
-        "Incoming video quality",
-        selection: Binding(
-          get: { controller.receiveQuality },
-          set: { controller.setReceiveQuality($0) }
-        )
-      ) {
-        ForEach(Self.qualities, id: \.height) { quality in
-          Text(quality.label).tag(quality.height)
+      // The settings live here for reach, and identically in the Settings
+      // window (⌘, on macOS) — both edit the same stored preferences.
+      Section("Settings") {
+        Picker("Incoming Video Quality", selection: $settings.receiveQuality) {
+          ForEach(SettingsView.qualities, id: \.height) { quality in
+            Text(quality.label).tag(quality.height)
+          }
         }
+        Toggle("Blur My Background", isOn: $settings.backgroundBlur)
+        Picker("Sidebar & Chat", selection: $settings.panelsPushStage) {
+          Text("Float Over Video").tag(false)
+          Text("Push Video Aside").tag(true)
+        }
+        #if os(macOS)
+          SettingsLink {
+            Text("All Settings…")
+          }
+        #else
+          Button("All Settings…") { controller.showsSettingsPane = true }
+        #endif
       }
       Divider()
-      Toggle(
-        "Blur My Background",
-        isOn: Binding(
-          get: { controller.backgroundBlurOn },
-          set: { controller.setBackgroundBlur($0) }
-        )
-      )
       if controller.pipAvailable {
         Button {
           controller.togglePictureInPicture()
