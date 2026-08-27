@@ -92,12 +92,19 @@ public final class WebRTCMediaFactory: @unchecked Sendable {
   }
 
   public func makeAudioTrack(id: String) -> RTCAudioTrack {
+    // WebRTC's audio processing module: echo cancellation, gain control,
+    // spectral noise suppression, and a high-pass filter that removes
+    // low-frequency rumble (desk thumps, HVAC). Apple's own ML suppression
+    // (Voice Isolation) sits in front of all of this as a system microphone
+    // mode the user enables from Control Center — the app can only open
+    // that picker, not switch the mode itself.
     let constraints = RTCMediaConstraints(
       mandatoryConstraints: nil,
       optionalConstraints: [
         "googEchoCancellation": "true",
         "googAutoGainControl": "true",
         "googNoiseSuppression": "true",
+        "googHighpassFilter": "true",
       ]
     )
     let source = peerConnectionFactory.audioSource(with: constraints)

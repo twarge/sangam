@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 #if os(macOS)
@@ -214,6 +215,14 @@ private struct MoreMenu: View {
           Text(quality.label).tag(quality.height)
         }
       }
+      Divider()
+      // Apple's ML noise suppression (Voice Isolation) is a system
+      // microphone mode: only the user can switch it, from the picker this
+      // opens. The label shows what is active right now.
+      Text("Microphone: \(Self.microphoneModeName)")
+      Button("Noise Suppression (Mic Mode)…") {
+        AVCaptureDevice.showSystemUserInterface(.microphoneModes)
+      }
       if controller.isModerator {
         Divider()
         Toggle(
@@ -242,6 +251,17 @@ private struct MoreMenu: View {
     .fixedSize()
     .help("More options")
     .accessibilityLabel("More options")
+  }
+
+  /// Menus rebuild their content on every open, so reading the live mode
+  /// here keeps the label current without observation.
+  private static var microphoneModeName: String {
+    switch AVCaptureDevice.activeMicrophoneMode {
+    case .voiceIsolation: "Voice Isolation"
+    case .wideSpectrum: "Wide Spectrum"
+    case .standard: "Standard"
+    @unknown default: "Standard"
+    }
   }
 
   @ViewBuilder
