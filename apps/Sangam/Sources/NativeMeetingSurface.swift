@@ -1218,6 +1218,10 @@ final class NativeMeetingModel: ObservableObject {
     switch command {
     case .authenticate(let username, let password):
       guard let configuration else { return }
+      // Signing in from the lobby abandons the anonymous knock still in
+      // flight; its cancellation tears down what that join opened.
+      joinTask?.cancel()
+      joinTask = nil
       await startJoin(
         configuration: configuration,
         controller: controller,

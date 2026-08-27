@@ -55,13 +55,32 @@ struct MeetingView: View {
       }
 
       if controller.connectionState == .waitingInLobby {
-        LobbyWaitingCard(waitsForHost: controller.lobbyWaitsForHost, leave: dismiss)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        LobbyWaitingCard(
+          waitsForHost: controller.lobbyWaitsForHost,
+          authenticate: controller.authenticate
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
       }
 
       if controller.connectionState == .joined {
         meetingToolbar
+      }
+    }
+    .overlay(alignment: .topLeading) {
+      // Leaving the waiting room is navigation, not an action on the card.
+      if controller.connectionState == .waitingInLobby {
+        Button(action: dismiss) {
+          Label("Back", systemImage: "chevron.backward")
+            .font(.body.weight(.medium))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.85))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.white.opacity(0.1), in: .capsule)
+        .padding(16)
+        .keyboardShortcut(.cancelAction)
       }
     }
     .overlay(alignment: .top) {
@@ -292,11 +311,23 @@ private struct MeetingAccessCard: View {
   }
 }
 
-/// Shown while the meeting's lobby holds us. There is nothing to do but wait
-/// or give up: admission arrives on its own.
+/// Shown while the meeting's lobby holds us. Admission arrives on its own;
+/// an administrator can instead sign in and join as a host, bypassing the
+/// wait. Leaving is the Back button in the window's corner, not a card
+/// action.
 private struct LobbyWaitingCard: View {
   let waitsForHost: Bool
-  let leave: () -> Void
+  let authenticate: (String, String) -> Void
+
+  @State private var showsLogin = false
+  @State private var username = ""
+  @State private var password = ""
+  @FocusState private var focusedField: Field?
+
+  private enum Field {
+    case username
+    case password
+  }
 
   var body: some View {
     VStack(spacing: 22) {
@@ -307,12 +338,12 @@ private struct LobbyWaitingCard: View {
         .background(.tint.opacity(0.14), in: .circle)
 
       VStack(spacing: 7) {
-        Text("Waiting to be let in")
+        Text("Waiting to be admitted…")
           .font(.title2.bold())
         Text(
           waitsForHost
-            ? "This meeting has a lobby. You’ll join automatically once a host arrives."
-            : "This meeting has a lobby. You’ll join as soon as the host admits you."
+            ? "This meeting has a waiting room. You’ll join automatically once a host arrives."
+            : "This meeting has a waiting room. You’ll join as soon as the host admits you."
         )
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
@@ -321,12 +352,35 @@ private struct LobbyWaitingCard: View {
 
       ProgressView()
         .controlSize(.large)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
 
-      Button("Leave meeting", role: .cancel, action: leave)
+      if showsLogin {
+        VStack(spacing: 12) {
+          TextField("Username", text: $username)
+            .textContentType(.username)
+            .focused($focusedField, equals: .username)
+            .onSubmit { focusedField = .password }
+          SecureField("Password", text: $password)
+            .textContentType(.password)
+            .focused($focusedField, equals: .password)
+            .onSubmit(submitCredentials)
+          Button("Sign in and join", action: submitCredentials)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(
+              username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || password.isEmpty
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .textFieldStyle(.roundedBorder)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+      } else {
+        Button("Administrator login") {
+          showsLogin = true
+        }
         .buttonStyle(.bordered)
-        .controlSize(.large)
-        .frame(maxWidth: .infinity)
+      }
     }
     .padding(30)
     .frame(maxWidth: 430)
@@ -337,6 +391,26 @@ private struct LobbyWaitingCard: View {
     }
     .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
     .padding(24)
+    .animation(.snappy, value: showsLogin)
+    .onChange(of: showsLogin) { _, shown in
+      if shown { focusUsernameField() }
+    }
+  }
+
+  /// macOS applies focus only once the window is key; set it, then check
+  /// again shortly after.
+  private func focusUsernameField() {
+    focusedField = .username
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(200))
+      if focusedField == nil { focusedField = .username }
+    }
+  }
+
+  private func submitCredentials() {
+    let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedUsername.isEmpty, !password.isEmpty else { return }
+    authenticate(normalizedUsername, password)
   }
 }
 
