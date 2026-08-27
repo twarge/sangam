@@ -87,6 +87,9 @@ final class MeetingController: ObservableObject {
   /// Room-wide audio moderation: while on, participants need approval to
   /// unmute.
   @Published private(set) var audioModerationOn = false
+  /// How much of the window's left edge the floating sidebar occupies, so
+  /// the toolbar can center itself over the visible stage.
+  @Published private(set) var sidebarInset: CGFloat = 0
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -195,6 +198,10 @@ final class MeetingController: ObservableObject {
 
   func didChangeModeratorStatus(_ moderator: Bool) {
     isModerator = moderator
+  }
+
+  func didChangeSidebarInset(_ inset: CGFloat) {
+    sidebarInset = inset
   }
 
   func hangUp() {

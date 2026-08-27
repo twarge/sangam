@@ -6,11 +6,63 @@ import SwiftUI
   import UIKit
 #endif
 
+/// The jitsi-meet reaction vocabulary, shared by the palette popover and the
+/// overflow menu so reactions land on web participants exactly as their own.
+private let meetingReactions: [(name: String, emoji: String)] = [
+  ("like", "👍"), ("clap", "👏"), ("laugh", "😀"), ("surprised", "😮"),
+  ("boo", "🙁"), ("silence", "😶"), ("love", "💖"),
+]
+
+private func copyMeetingLink(_ link: URL) {
+  #if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(link.absoluteString, forType: .string)
+  #else
+    UIPasteboard.general.url = link
+  #endif
+}
+
 struct MeetingControlBar: View {
   @ObservedObject var controller: MeetingController
   /// True while one of the bar's popovers is open, so an auto-hiding host
   /// can keep the bar on screen underneath it.
   @Binding var popoverPinned: Bool
+  /// Width the bar may occupy. When it runs short — a narrow window, or the
+  /// sidebar and chat panel encroaching — optional controls retreat into
+  /// the More menu until only microphone, camera, More, and Leave remain.
+  var availableWidth: CGFloat = .infinity
+
+  enum OverflowControl: CaseIterable {
+    case screenShare
+    case raiseHand
+    case reactions
+    case chat
+    case layout
+    case invite
+  }
+
+  /// Which optional controls keep their own button. Ordered by how much
+  /// they are worth keeping inline; the rest go to the More menu.
+  private var inlineControls: Set<OverflowControl> {
+    let keepOrder: [OverflowControl] = [
+      .screenShare, .chat, .raiseHand, .reactions, .layout, .invite,
+    ]
+    guard availableWidth.isFinite else { return Set(keepOrder) }
+    // Microphone, camera (+ flip on iOS), More, and Leave always stay.
+    #if os(iOS)
+      let essentialSlots = 5.0
+    #else
+      let essentialSlots = 4.0
+    #endif
+    let slot = 52.0
+    let fitting = Int(((availableWidth - 20 - essentialSlots * slot) / slot).rounded(.down))
+    return Set(keepOrder.prefix(max(0, fitting)))
+  }
+
+  private var overflowControls: [OverflowControl] {
+    let inline = inlineControls
+    return OverflowControl.allCases.filter { !inline.contains($0) }
+  }
 
   /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
   /// chat panel is open so typing a message never toggles the microphone.
@@ -19,6 +71,7 @@ struct MeetingControlBar: View {
   }
 
   var body: some View {
+    let inline = inlineControls
     HStack(spacing: 10) {
       ControlButton(
         title: controller.isAudioMuted ? "Unmute" : "Mute",
@@ -62,44 +115,57 @@ struct MeetingControlBar: View {
         )
       #endif
 
-      ControlButton(
-        title: controller.isScreenSharing ? "Stop Sharing" : "Share",
-        symbol: controller.isScreenSharing ? "rectangle.slash.fill" : "rectangle.on.rectangle",
-        isActive: controller.isScreenSharing,
-        action: controller.toggleScreenSharing
-      )
-      .keyboardShortcut(shortcut("d"))
+      if inline.contains(.screenShare) {
+        ControlButton(
+          title: controller.isScreenSharing ? "Stop Sharing" : "Share",
+          symbol: controller.isScreenSharing
+            ? "rectangle.slash.fill" : "rectangle.on.rectangle",
+          isActive: controller.isScreenSharing,
+          action: controller.toggleScreenSharing
+        )
+        .keyboardShortcut(shortcut("d"))
+      }
 
-      ControlButton(
-        title: controller.isHandRaised ? "Lower Hand" : "Raise Hand",
-        symbol: "hand.raised.fill",
-        isActive: controller.isHandRaised,
-        action: controller.toggleHandRaised
-      )
-      .keyboardShortcut(shortcut("r"))
+      if inline.contains(.raiseHand) {
+        ControlButton(
+          title: controller.isHandRaised ? "Lower Hand" : "Raise Hand",
+          symbol: "hand.raised.fill",
+          isActive: controller.isHandRaised,
+          action: controller.toggleHandRaised
+        )
+        .keyboardShortcut(shortcut("r"))
+      }
 
-      ReactionsButton(send: controller.sendReaction, pinned: $popoverPinned)
+      if inline.contains(.reactions) {
+        ReactionsButton(send: controller.sendReaction, pinned: $popoverPinned)
+      }
 
-      ControlButton(
-        title: controller.isChatOpen ? "Hide Chat" : "Chat",
-        symbol: "bubble.left.and.bubble.right.fill",
-        isActive: controller.isChatOpen,
-        badge: controller.unreadChatCount,
-        action: controller.toggleChat
-      )
-      .keyboardShortcut(shortcut("c"))
+      if inline.contains(.chat) {
+        ControlButton(
+          title: controller.isChatOpen ? "Hide Chat" : "Chat",
+          symbol: "bubble.left.and.bubble.right.fill",
+          isActive: controller.isChatOpen,
+          badge: controller.unreadChatCount,
+          action: controller.toggleChat
+        )
+        .keyboardShortcut(shortcut("c"))
+      }
 
-      ControlButton(
-        title: controller.usesTileGrid ? "Speaker View" : "Grid View",
-        symbol: controller.usesTileGrid
-          ? "person.crop.rectangle.fill" : "square.grid.2x2.fill",
-        action: controller.toggleLayout
-      )
-      .keyboardShortcut(shortcut("w"))
+      if inline.contains(.layout) {
+        ControlButton(
+          title: controller.usesTileGrid ? "Speaker View" : "Grid View",
+          symbol: controller.usesTileGrid
+            ? "person.crop.rectangle.fill" : "square.grid.2x2.fill",
+          action: controller.toggleLayout
+        )
+        .keyboardShortcut(shortcut("w"))
+      }
 
-      InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
+      if inline.contains(.invite) {
+        InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
+      }
 
-      MoreMenu(controller: controller)
+      MoreMenu(controller: controller, overflow: overflowControls)
 
       ControlButton(
         title: "Leave",
@@ -114,14 +180,15 @@ struct MeetingControlBar: View {
       Capsule().strokeBorder(.white.opacity(0.12))
     }
     .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+    .animation(.snappy, value: inline)
   }
 }
 
-/// The overflow menu: settings that don't earn their own toolbar button,
-/// starting with the incoming-video quality cap (the web's performance
-/// setting).
+/// The junk drawer: overflowed toolbar controls first, then the settings
+/// that never earn their own button (quality, moderation).
 private struct MoreMenu: View {
   @ObservedObject var controller: MeetingController
+  var overflow: [MeetingControlBar.OverflowControl] = []
 
   private static let qualities: [(label: String, height: Int)] = [
     ("Low (180p)", 180), ("Standard (360p)", 360),
@@ -130,6 +197,12 @@ private struct MoreMenu: View {
 
   var body: some View {
     Menu {
+      if !overflow.isEmpty {
+        ForEach(overflow, id: \.self) { control in
+          overflowEntry(for: control)
+        }
+        Divider()
+      }
       Picker(
         "Incoming video quality",
         selection: Binding(
@@ -156,6 +229,11 @@ private struct MoreMenu: View {
         .font(.system(size: 17, weight: .semibold))
         .frame(width: 42, height: 42)
         .contentShape(.circle)
+        .overlay(alignment: .topTrailing) {
+          if overflow.contains(.chat), controller.unreadChatCount > 0 {
+            Circle().fill(.red).frame(width: 9, height: 9).offset(x: 1, y: -1)
+          }
+        }
     }
     .menuIndicator(.hidden)
     .buttonStyle(.plain)
@@ -164,6 +242,69 @@ private struct MoreMenu: View {
     .fixedSize()
     .help("More options")
     .accessibilityLabel("More options")
+  }
+
+  @ViewBuilder
+  private func overflowEntry(for control: MeetingControlBar.OverflowControl) -> some View {
+    switch control {
+    case .screenShare:
+      Button {
+        controller.toggleScreenSharing()
+      } label: {
+        Label(
+          controller.isScreenSharing ? "Stop Sharing" : "Share Screen",
+          systemImage: "rectangle.on.rectangle")
+      }
+    case .raiseHand:
+      Button {
+        controller.toggleHandRaised()
+      } label: {
+        Label(
+          controller.isHandRaised ? "Lower Hand" : "Raise Hand",
+          systemImage: "hand.raised")
+      }
+    case .reactions:
+      Menu {
+        ForEach(meetingReactions, id: \.name) { reaction in
+          Button("\(reaction.emoji) \(reaction.name.capitalized)") {
+            controller.sendReaction(reaction.name)
+          }
+        }
+      } label: {
+        Label("React", systemImage: "face.smiling")
+      }
+    case .chat:
+      Button {
+        controller.toggleChat()
+      } label: {
+        Label(
+          controller.isChatOpen
+            ? "Hide Chat"
+            : controller.unreadChatCount > 0
+              ? "Show Chat (\(controller.unreadChatCount))" : "Show Chat",
+          systemImage: "bubble.left.and.bubble.right")
+      }
+    case .layout:
+      Button {
+        controller.toggleLayout()
+      } label: {
+        Label(
+          controller.usesTileGrid ? "Speaker View" : "Grid View",
+          systemImage: controller.usesTileGrid
+            ? "person.crop.rectangle" : "square.grid.2x2")
+      }
+    case .invite:
+      if let link = controller.meetingLink {
+        Button {
+          copyMeetingLink(link)
+        } label: {
+          Label("Copy Invite Link", systemImage: "person.badge.plus")
+        }
+        ShareLink(item: link) {
+          Label("Share Invite…", systemImage: "square.and.arrow.up")
+        }
+      }
+    }
   }
 }
 
@@ -190,7 +331,12 @@ private struct InviteButton: View {
             .textSelection(.enabled)
           HStack(spacing: 10) {
             Button(copied ? "Copied" : "Copy Link") {
-              copy(link)
+              copyMeetingLink(link)
+              copied = true
+              Task {
+                try? await Task.sleep(for: .seconds(2))
+                copied = false
+              }
             }
             ShareLink(item: link) {
               Label("Share…", systemImage: "square.and.arrow.up")
@@ -202,34 +348,14 @@ private struct InviteButton: View {
       .frame(minWidth: 300, alignment: .leading)
     }
   }
-
-  private func copy(_ link: URL) {
-    #if os(macOS)
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(link.absoluteString, forType: .string)
-    #else
-      UIPasteboard.general.url = link
-    #endif
-    copied = true
-    Task {
-      try? await Task.sleep(for: .seconds(2))
-      copied = false
-    }
-  }
 }
 
-/// The jitsi-meet reaction palette, sharing its wire vocabulary so reactions
-/// land on web participants exactly as their own do.
+/// The reaction palette popover behind the toolbar's React button.
 private struct ReactionsButton: View {
   let send: (String) -> Void
   @Binding var pinned: Bool
 
   @State private var showsPalette = false
-
-  private static let reactions: [(name: String, emoji: String)] = [
-    ("like", "👍"), ("clap", "👏"), ("laugh", "😀"), ("surprised", "😮"),
-    ("boo", "🙁"), ("silence", "😶"), ("love", "💖"),
-  ]
 
   var body: some View {
     ControlButton(title: "React", symbol: "face.smiling", isActive: showsPalette) {
@@ -238,7 +364,7 @@ private struct ReactionsButton: View {
     .onChange(of: showsPalette) { _, open in pinned = open }
     .popover(isPresented: $showsPalette, arrowEdge: .top) {
       HStack(spacing: 6) {
-        ForEach(Self.reactions, id: \.name) { reaction in
+        ForEach(meetingReactions, id: \.name) { reaction in
           Button {
             send(reaction.name)
           } label: {

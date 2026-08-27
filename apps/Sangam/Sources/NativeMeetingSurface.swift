@@ -74,6 +74,9 @@ struct NativeMeetingSurface: View {
         }
       }
       .animation(.snappy, value: model.sidebarCollapsed)
+      .onAppear { reportSidebarInset() }
+      .onChange(of: model.sidebarCollapsed) { _, _ in reportSidebarInset() }
+      .onChange(of: sidebarWidth) { _, _ in reportSidebarInset() }
       .toolbar {
         ToolbarItem(placement: .navigation) {
           Button {
@@ -85,6 +88,12 @@ struct NativeMeetingSurface: View {
           .keyboardShortcut("s", modifiers: [.command, .option])
         }
       }
+    }
+
+    /// Tells the toolbar host how much of the left edge the floating
+    /// sidebar occupies, so the control bar centers over the visible stage.
+    private func reportSidebarInset() {
+      controller.didChangeSidebarInset(model.sidebarCollapsed ? 0 : sidebarWidth)
     }
 
     private var sidebarRoster: some View {

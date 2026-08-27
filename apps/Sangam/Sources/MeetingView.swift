@@ -11,6 +11,7 @@ struct MeetingView: View {
   @State private var toolbarPinned = false
   @State private var toolbarVisible = true
   @State private var toolbarHideTask: Task<Void, Never>?
+  @State private var windowWidth: CGFloat = 0
 
   var body: some View {
     ZStack(alignment: .bottom) {
@@ -67,6 +68,13 @@ struct MeetingView: View {
         meetingToolbar
       }
     }
+    .background {
+      GeometryReader { geometry in
+        Color.clear
+          .onAppear { windowWidth = geometry.size.width }
+          .onChange(of: geometry.size.width) { _, width in windowWidth = width }
+      }
+    }
     .overlay(alignment: .topLeading) {
       // Leaving the waiting room is navigation, not an action on the card.
       if controller.connectionState == .waitingInLobby {
@@ -119,6 +127,18 @@ struct MeetingView: View {
     }
   }
 
+  /// The room the bar may occupy: the window minus whatever the sidebar
+  /// and the chat panel cover. Buttons overflow into the More menu when it
+  /// runs short.
+  private var toolbarAvailableWidth: CGFloat {
+    guard windowWidth > 0 else { return .infinity }
+    return max(0, windowWidth - controller.sidebarInset - chatInset - 32)
+  }
+
+  private var chatInset: CGFloat {
+    controller.isChatOpen ? 312 : 0
+  }
+
   @ViewBuilder
   private var meetingToolbar: some View {
     #if os(macOS)
@@ -126,18 +146,27 @@ struct MeetingView: View {
       // keeps the exact bounds hit-testable (and so hoverable) even while
       // the bar inside is invisible and ignoring clicks.
       ZStack {
-        MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
-          .opacity(toolbarVisible ? 1 : 0)
-          .allowsHitTesting(toolbarVisible)
-          .animation(.easeOut(duration: 0.15), value: toolbarVisible)
+        MeetingControlBar(
+          controller: controller,
+          popoverPinned: $toolbarPinned,
+          availableWidth: toolbarAvailableWidth
+        )
+        .opacity(toolbarVisible ? 1 : 0)
+        .allowsHitTesting(toolbarVisible)
+        .animation(.easeOut(duration: 0.15), value: toolbarVisible)
       }
       .contentShape(Rectangle())
       .onHover { inside in
         toolbarHovered = inside
         updateToolbarVisibility()
       }
-      .padding(.horizontal, 16)
+      // Center the bar over the visible stage, not the whole window.
+      .frame(maxWidth: .infinity)
+      .padding(.leading, controller.sidebarInset + 16)
+      .padding(.trailing, chatInset + 16)
       .padding(.bottom, 14)
+      .animation(.snappy, value: controller.sidebarInset)
+      .animation(.snappy, value: controller.isChatOpen)
       .onChange(of: toolbarPinned) { _, _ in updateToolbarVisibility() }
       .onChange(of: controller.isChatOpen) { _, open in
         // The bar sits right over the chat's input; get out of the way at
@@ -150,9 +179,14 @@ struct MeetingView: View {
       .onAppear { updateToolbarVisibility() }
     #else
       // iOS has no pointer to hover with; the bar stays put.
-      MeetingControlBar(controller: controller, popoverPinned: $toolbarPinned)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+      MeetingControlBar(
+        controller: controller,
+        popoverPinned: $toolbarPinned,
+        availableWidth: toolbarAvailableWidth
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 16)
+      .padding(.bottom, 14)
     #endif
   }
 
