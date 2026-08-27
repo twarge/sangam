@@ -13,6 +13,7 @@ final class MeetingController: ObservableObject {
     case kickParticipant(id: String)
     case grantModerator(id: String)
     case muteParticipant(id: String)
+    case setReceiveQuality(maxHeight: Int)
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -76,6 +77,9 @@ final class MeetingController: ObservableObject {
   @Published private(set) var currentCameraID: String?
   /// The address other people join with, for the invite button.
   @Published private(set) var meetingLink: URL?
+  /// The per-source height cap asked of the bridge (the performance
+  /// setting); 720 matches the web's default.
+  @Published private(set) var receiveQuality = 720
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -161,6 +165,12 @@ final class MeetingController: ObservableObject {
 
   func didSetMeetingLink(_ link: URL) {
     meetingLink = link
+  }
+
+  func setReceiveQuality(_ maxHeight: Int) {
+    guard maxHeight != receiveQuality else { return }
+    receiveQuality = maxHeight
+    send(.setReceiveQuality(maxHeight: maxHeight))
   }
 
   func hangUp() {
@@ -257,8 +267,8 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
-      .switchCamera, .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
-      .denyLobbyParticipant, .hangUp:
+      .setReceiveQuality, .switchCamera, .authenticate, .waitForHost, .cancelWaiting,
+      .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
       break
     }
 

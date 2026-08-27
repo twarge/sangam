@@ -192,6 +192,9 @@ public actor NativeJingleCoordinator {
   private var raisedHandTimestamp: String?
   private var screenEnabled = false
   private var screenPublished = false
+  /// The user's receive-quality preference: per-source height cap the bridge
+  /// applies to everything it forwards us (the web's performance slider).
+  private var preferredReceiveMaxHeight = 720
   private var outgoingSequence: UInt64 = 0
 
   // Local ICE candidates gather the moment the local description is installed,
@@ -1595,10 +1598,21 @@ public actor NativeJingleCoordinator {
     let constraints = ReceiverVideoConstraints(
       lastN: -1,
       assumedBandwidthBps: -1,
-      defaultConstraints: VideoConstraint(maxHeight: 720)
+      defaultConstraints: VideoConstraint(maxHeight: preferredReceiveMaxHeight)
     )
-    emit(.diagnostic(message: "recv-constraints: lastN=-1 defaultMaxHeight=720"))
+    emit(
+      .diagnostic(
+        message: "recv-constraints: lastN=-1 defaultMaxHeight=\(preferredReceiveMaxHeight)"))
     try? await bridgeChannel.send(constraints)
+  }
+
+  /// The user's receive-quality preference (the web's performance slider):
+  /// caps the height of every forwarded remote source. Re-sent immediately
+  /// when the bridge channel is up, and used for every later constraint
+  /// send.
+  public func setPreferredReceiveMaxHeight(_ maxHeight: Int) async {
+    preferredReceiveMaxHeight = maxHeight
+    await sendReceiverVideoConstraints()
   }
 
   private func addRemoteCandidates(_ session: JingleSessionDescription) async throws {

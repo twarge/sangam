@@ -1191,6 +1191,8 @@ final class NativeMeetingModel: ObservableObject {
       } catch {
         controller.report(error: error.localizedDescription)
       }
+    case .setReceiveQuality(let maxHeight):
+      await coordinator.setPreferredReceiveMaxHeight(maxHeight)
     case .setScreenSharing(let enabled):
       if enabled {
         startScreenCapture(coordinator: coordinator, controller: controller)

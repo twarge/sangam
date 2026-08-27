@@ -96,6 +96,8 @@ struct MeetingControlBar: View {
 
       InviteButton(link: controller.meetingLink)
 
+      MoreMenu(controller: controller)
+
       ControlButton(
         title: "Leave",
         symbol: "phone.down.fill",
@@ -109,6 +111,46 @@ struct MeetingControlBar: View {
       Capsule().strokeBorder(.white.opacity(0.12))
     }
     .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+  }
+}
+
+/// The overflow menu: settings that don't earn their own toolbar button,
+/// starting with the incoming-video quality cap (the web's performance
+/// setting).
+private struct MoreMenu: View {
+  @ObservedObject var controller: MeetingController
+
+  private static let qualities: [(label: String, height: Int)] = [
+    ("Low (180p)", 180), ("Standard (360p)", 360),
+    ("High (720p)", 720), ("Full HD (1080p)", 1080),
+  ]
+
+  var body: some View {
+    Menu {
+      Picker(
+        "Incoming video quality",
+        selection: Binding(
+          get: { controller.receiveQuality },
+          set: { controller.setReceiveQuality($0) }
+        )
+      ) {
+        ForEach(Self.qualities, id: \.height) { quality in
+          Text(quality.label).tag(quality.height)
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 17, weight: .semibold))
+        .frame(width: 42, height: 42)
+        .contentShape(.circle)
+    }
+    .menuIndicator(.hidden)
+    .buttonStyle(.plain)
+    .foregroundStyle(.white)
+    .background(.black.opacity(0.48), in: .circle)
+    .fixedSize()
+    .help("More options")
+    .accessibilityLabel("More options")
   }
 }
 
