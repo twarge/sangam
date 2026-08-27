@@ -22,6 +22,7 @@
 		43F6C5C0C6709789AFC38EA0 /* SangamWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4161D0C3DE1CB3CE797055F2 /* SangamWidgets.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		462CC651A92FED8750F6586C /* JitsiMeetSDK in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, ); productRef = EE53558E2CBC14575E6E1CE4 /* JitsiMeetSDK */; };
 		51B966F2B1C23394819A886E /* MeetingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */; };
+		53DE55F9FF8684977961317E /* FeedWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */; };
 		5BA33D29762719668331175D /* PlatformMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */; };
 		60531943B3842581B8FD0B0C /* SangamBroadcastExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0F43CEDFACF4E584D9316019 /* SangamBroadcastExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92020D258073CA69E8B28E7 /* PictureInPicture.swift */; };
@@ -97,6 +98,7 @@
 		6CF4ABBA402C90522AE89350 /* SampleUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleUploader.swift; sourceTree = "<group>"; };
 		6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMeetingSurface.swift; sourceTree = "<group>"; };
 		710F14230F532246B2D7BEAA /* DarwinNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarwinNotificationCenter.swift; sourceTree = "<group>"; };
+		7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedWindow.swift; sourceTree = "<group>"; };
 		8781C36A5DED9919CB53A627 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
 		8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9281FDC1DCBFB690D23631E7 /* SangamApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamApp.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 			children = (
 				193A237959FDD9FC7F773DFC /* AppSettings.swift */,
 				C55AB411F65CE07234B0FF28 /* CallSessionManager.swift */,
+				7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */,
 				E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */,
 				5C87E2777CF1ACC3EA7731E2 /* MacScreenShareController.swift */,
 				10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */,
@@ -375,6 +378,7 @@
 			files = (
 				86DDF0ACBE53A67CBEF2AFC2 /* AppSettings.swift in Sources */,
 				A20421A69544D4E3E835FD5F /* CallSessionManager.swift in Sources */,
+				53DE55F9FF8684977961317E /* FeedWindow.swift in Sources */,
 				2A4AB97D81B6F1DDCEEF2FE8 /* JoinView.swift in Sources */,
 				9B90CB41CDB264585024AD6F /* MacScreenShareController.swift in Sources */,
 				51B966F2B1C23394819A886E /* MeetingActivityAttributes.swift in Sources */,

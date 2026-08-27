@@ -20,6 +20,20 @@ struct SangamApp: App {
       .windowResizability(.contentMinSize)
     #endif
 
+    // A double-clicked sidebar feed in its own window (its own scene on
+    // iPad); keyed by stream id, so reopening the same feed refocuses the
+    // existing window.
+    WindowGroup("Feed", id: "feed", for: String.self) { $streamID in
+      if let streamID {
+        FeedWindow(streamID: streamID)
+      } else {
+        Text("No feed selected")
+      }
+    }
+    #if os(macOS)
+      .defaultSize(width: 640, height: 400)
+    #endif
+
     #if os(macOS)
       Settings {
         SettingsView()

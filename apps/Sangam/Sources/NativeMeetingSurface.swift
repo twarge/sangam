@@ -24,6 +24,7 @@ struct NativeMeetingSurface: View {
   @ObservedObject var controller: MeetingController
 
   @StateObject private var model = NativeMeetingModel()
+  @Environment(\.openWindow) private var openWindow
   /// The floating sidebar's width, draggable at its trailing edge and
   /// remembered across meetings.
   @AppStorage("sidebarWidth") private var sidebarWidth = 236.0
@@ -184,6 +185,11 @@ struct NativeMeetingSurface: View {
                 NativeVideoSurface(track: stream.track)
               }
               .tag(stream.id)
+              // A double-click floats the feed in its own window; a single
+              // click still selects (pins) through the List.
+              .onTapGesture(count: 2) {
+                openWindow(id: "feed", value: stream.id)
+              }
               .contextMenu { rosterMenu(for: entry, stream: stream) }
               .accessibilityLabel(Text("\(entry.displayName) video"))
             }
@@ -361,6 +367,18 @@ struct NativeMeetingSurface: View {
               ForEach(tiles) { tile in
                 tileView(for: tile)
                   .frame(height: 100)
+                  #if os(iOS)
+                    // iPad multiwindow: a double-tap floats the feed in
+                    // its own scene (iPhone has no additional windows).
+                    .highPriorityGesture(
+                      TapGesture(count: 2).onEnded {
+                        guard UIDevice.current.userInterfaceIdiom == .pad,
+                          let stream = tile.stream
+                        else { return }
+                        openWindow(id: "feed", value: stream.id)
+                      }
+                    )
+                  #endif
               }
             }
           }
@@ -1069,6 +1087,7 @@ final class NativeMeetingModel: ObservableObject {
   func join(configuration: MeetingConfiguration, controller: MeetingController) async {
     guard joinTask == nil, handle == nil else { return }
     self.configuration = configuration
+    MeetingHub.shared.registerModel(self)
     controller.didSetMeetingLink(configuration.meetingLink)
     controller.attach { [weak self, weak controller] command in
       guard let self, let controller else { return }
@@ -1199,6 +1218,7 @@ final class NativeMeetingModel: ObservableObject {
   }
 
   func leave(controller: MeetingController) {
+    MeetingHub.shared.unregisterModel(self)
     controller.detach()
     joinTask?.cancel()
     joinTask = nil
@@ -1751,7 +1771,7 @@ final class NativeMeetingModel: ObservableObject {
     func updateUIView(_ view: RPSystemBroadcastPickerView, context: Context) {}
   }
 
-  private struct NativeVideoSurface: UIViewRepresentable {
+  struct NativeVideoSurface: UIViewRepresentable {
     let track: RemoteVideoTrack?
 
     func makeUIView(context: Context) -> NativeVideoRendererView {
@@ -1783,7 +1803,7 @@ final class NativeMeetingModel: ObservableObject {
     }
   }
 #elseif os(macOS)
-  private struct NativeVideoSurface: NSViewRepresentable {
+  struct NativeVideoSurface: NSViewRepresentable {
     let track: RemoteVideoTrack?
 
     func makeNSView(context: Context) -> NativeVideoRendererView {

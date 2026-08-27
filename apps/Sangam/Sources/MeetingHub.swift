@@ -20,6 +20,19 @@ final class MeetingHub: ObservableObject {
   /// The meeting currently on screen, for system surfaces to act on.
   @Published private(set) var activeConfiguration: MeetingConfiguration?
   @Published private(set) var activeController: MeetingController?
+  /// The live meeting model, for feed windows to resolve streams from.
+  @Published private(set) var activeModel: NativeMeetingModel?
+
+  func registerModel(_ model: NativeMeetingModel) {
+    Task { @MainActor in self.activeModel = model }
+  }
+
+  func unregisterModel(_ model: NativeMeetingModel) {
+    Task { @MainActor in
+      guard self.activeModel === model else { return }
+      self.activeModel = nil
+    }
+  }
 
   /// Rooms joined lately, newest first, for Siri and Spotlight suggestions.
   @Published private(set) var recentRooms: [String]
