@@ -24,6 +24,9 @@ final class MeetingHub: ObservableObject {
   /// Rooms joined lately, newest first, for Siri and Spotlight suggestions.
   @Published private(set) var recentRooms: [String]
 
+  /// Shows the macOS menu bar extra only while a meeting is on screen.
+  @Published var menuBarVisible = false
+
   private init() {
     recentRooms = UserDefaults.standard.stringArray(forKey: "recentRooms") ?? []
   }
@@ -31,6 +34,7 @@ final class MeetingHub: ObservableObject {
   func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
     activeConfiguration = configuration
     activeController = controller
+    menuBarVisible = true
     MeetingNotifications.prepare()
     var recents = recentRooms.filter {
       $0.caseInsensitiveCompare(configuration.normalizedRoom) != .orderedSame
@@ -43,6 +47,7 @@ final class MeetingHub: ObservableObject {
   func noteMeetingEnded() {
     activeConfiguration = nil
     activeController = nil
+    menuBarVisible = false
   }
 
   /// Joins a room by name on the user's configured server.

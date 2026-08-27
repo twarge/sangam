@@ -23,6 +23,7 @@
 		634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92020D258073CA69E8B28E7 /* PictureInPicture.swift */; };
 		65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */; };
 		6650E50F3FEBCBBB4BDF68B9 /* MeetingNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */; };
+		80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47C324E5E8C593BF40E952B /* MenuBarControls.swift */; };
 		86DDF0ACBE53A67CBEF2AFC2 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A237959FDD9FC7F773DFC /* AppSettings.swift */; };
 		88FDB53321D1DDAD7322DBBF /* SocketConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */; };
 		8A41E847CA299F6D5566466D /* JitsiNativeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 302E109F2207DCC9D637AAAB /* JitsiNativeCore */; };
@@ -85,6 +86,7 @@
 		98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConnection.swift; sourceTree = "<group>"; };
 		B0C991D47AFD16CAABED8B8D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingHub.swift; sourceTree = "<group>"; };
+		C47C324E5E8C593BF40E952B /* MenuBarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarControls.swift; sourceTree = "<group>"; };
 		C55AB411F65CE07234B0FF28 /* CallSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSessionManager.swift; sourceTree = "<group>"; };
 		D5FAFE5FC31E55605E60979E /* SangamIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamIntents.swift; sourceTree = "<group>"; };
 		D92020D258073CA69E8B28E7 /* PictureInPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPicture.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */,
 				E010A4D7D521AEE84209E08C /* MeetingSounds.swift */,
 				97B74C1C95D53382ACA4E38A /* MeetingView.swift */,
+				C47C324E5E8C593BF40E952B /* MenuBarControls.swift */,
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
 				D92020D258073CA69E8B28E7 /* PictureInPicture.swift */,
 				3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */,
@@ -308,6 +311,7 @@
 				6650E50F3FEBCBBB4BDF68B9 /* MeetingNotifications.swift in Sources */,
 				CCE6710DC4171CF48B6568ED /* MeetingSounds.swift in Sources */,
 				E041F8DB12FF01E298E96A9F /* MeetingView.swift in Sources */,
+				80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */,
 				65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */,
 				634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */,
 				5BA33D29762719668331175D /* PlatformMeetingSurface.swift in Sources */,
