@@ -31,6 +31,7 @@ final class MeetingHub: ObservableObject {
   func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
     activeConfiguration = configuration
     activeController = controller
+    MeetingNotifications.prepare()
     var recents = recentRooms.filter {
       $0.caseInsensitiveCompare(configuration.normalizedRoom) != .orderedSame
     }

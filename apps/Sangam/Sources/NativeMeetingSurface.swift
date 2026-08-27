@@ -1314,7 +1314,14 @@ final class NativeMeetingModel: ObservableObject {
         case .chatMessageReceived(let message):
           chatMessages.append(message)
           if chatMessages.count > 500 { chatMessages.removeFirst(chatMessages.count - 500) }
-          if !message.isLocal { controller.noteUnreadChatMessage() }
+          if !message.isLocal {
+            controller.noteUnreadChatMessage()
+            MeetingNotifications.post(
+              title: message.senderDisplayName,
+              body: message.text,
+              id: "chat-\(message.id)"
+            )
+          }
         case .reactionsReceived(let endpointID, let reactions):
           SangamLog.event(
             "event: reactions from=\(endpointID ?? "self") [\(reactions.joined(separator: ", "))]")
@@ -1407,6 +1414,14 @@ final class NativeMeetingModel: ObservableObject {
           controller.didChangeLobbyEnabled(enabled)
         case .lobbyKnockersChanged(let knockers):
           SangamLog.event("event: lobbyKnockersChanged count=\(knockers.count)")
+          let known = Set(controller.lobbyRequests.map(\.id))
+          for knocker in knockers where !known.contains(knocker.id) {
+            MeetingNotifications.post(
+              title: "Waiting to join",
+              body: "\(knocker.displayName) is asking to join the meeting.",
+              id: "knock-\(knocker.id)"
+            )
+          }
           controller.didChangeLobbyRequests(
             knockers.map { MeetingController.LobbyRequest(id: $0.id, displayName: $0.displayName) }
           )

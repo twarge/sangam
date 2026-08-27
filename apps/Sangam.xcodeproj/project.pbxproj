@@ -22,6 +22,7 @@
 		60531943B3842581B8FD0B0C /* SangamBroadcastExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0F43CEDFACF4E584D9316019 /* SangamBroadcastExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92020D258073CA69E8B28E7 /* PictureInPicture.swift */; };
 		65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */; };
+		6650E50F3FEBCBBB4BDF68B9 /* MeetingNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */; };
 		86DDF0ACBE53A67CBEF2AFC2 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A237959FDD9FC7F773DFC /* AppSettings.swift */; };
 		88FDB53321D1DDAD7322DBBF /* SocketConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */; };
 		8A41E847CA299F6D5566466D /* JitsiNativeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 302E109F2207DCC9D637AAAB /* JitsiNativeCore */; };
@@ -90,6 +91,7 @@
 		E010A4D7D521AEE84209E08C /* MeetingSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSounds.swift; sourceTree = "<group>"; };
 		E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinView.swift; sourceTree = "<group>"; };
 		E6EABEC3E58B670AB3011ECA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingNotifications.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,6 +120,7 @@
 				19074360D5D558EF60955DBD /* MeetingControlBar.swift */,
 				570BA7976AA9D8EC8251C514 /* MeetingController.swift */,
 				BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */,
+				F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */,
 				E010A4D7D521AEE84209E08C /* MeetingSounds.swift */,
 				97B74C1C95D53382ACA4E38A /* MeetingView.swift */,
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
@@ -302,6 +305,7 @@
 				432E5BEC316DEF6417DA3781 /* MeetingControlBar.swift in Sources */,
 				3AC7F4262007860171A451F6 /* MeetingController.swift in Sources */,
 				252B380B1E0F6831D3FFB5B5 /* MeetingHub.swift in Sources */,
+				6650E50F3FEBCBBB4BDF68B9 /* MeetingNotifications.swift in Sources */,
 				CCE6710DC4171CF48B6568ED /* MeetingSounds.swift in Sources */,
 				E041F8DB12FF01E298E96A9F /* MeetingView.swift in Sources */,
 				65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */,
