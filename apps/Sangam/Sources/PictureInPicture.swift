@@ -37,7 +37,7 @@ final class PictureInPictureManager: NSObject, ObservableObject {
     self.controller = controller
   }
 
-  func toggle(stream: RemoteVideoStream?) {
+  func toggle(remote: RemoteVideoStream?, localFallback: LocalVideoTrack?) {
     prepareIfNeeded()
     guard let controller else {
       SangamLog.event("pip: unsupported on this system")
@@ -50,12 +50,19 @@ final class PictureInPictureManager: NSObject, ObservableObject {
       controller.stopPictureInPicture()
       return
     }
-    guard let stream else {
-      SangamLog.event("pip: no remote stream to float")
-      onError?("There’s no remote video to float yet.")
+    if let remote {
+      SangamLog.event("pip: floating remote \(remote.id)")
+      bridge.attach(to: remote.track)
+    } else if let localFallback {
+      // Alone in the room: float the self view and wait; the first remote
+      // stream to appear takes over.
+      SangamLog.event("pip: floating self view while waiting")
+      bridge.attach(to: localFallback)
+    } else {
+      SangamLog.event("pip: nothing to float")
+      onError?("There’s no video to float yet — turn your camera on or wait for someone to join.")
       return
     }
-    bridge.attach(to: stream.track)
     startWhenPossible(controller)
   }
 
@@ -92,12 +99,14 @@ final class PictureInPictureManager: NSObject, ObservableObject {
     }
   }
 
-  /// Follows stage changes while the floating window is up; with nothing
-  /// left to show, the window closes.
-  func showStream(_ stream: RemoteVideoStream?) {
+  /// Follows stage changes while the floating window is up: the featured
+  /// remote stream, else back to the self view, else the window closes.
+  func showRemote(_ stream: RemoteVideoStream?, localFallback: LocalVideoTrack?) {
     guard isActive else { return }
     if let stream {
       bridge.attach(to: stream.track)
+    } else if let localFallback {
+      bridge.attach(to: localFallback)
     } else {
       controller?.stopPictureInPicture()
     }

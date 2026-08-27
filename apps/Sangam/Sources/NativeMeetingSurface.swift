@@ -46,7 +46,8 @@ struct NativeMeetingSurface: View {
         .allowsHitTesting(false)
       }
       .onChange(of: model.featuredRemoteStream?.id) { _, _ in
-        model.pictureInPicture.showStream(model.featuredRemoteStream)
+        model.pictureInPicture.showRemote(
+          model.featuredRemoteStream, localFallback: model.localCameraTrack)
       }
       .task {
         await model.join(configuration: configuration, controller: controller)
@@ -1474,7 +1475,7 @@ final class NativeMeetingModel: ObservableObject {
       pictureInPicture.onError = { [weak controller] message in
         controller?.report(error: message)
       }
-      pictureInPicture.toggle(stream: featuredRemoteStream)
+      pictureInPicture.toggle(remote: featuredRemoteStream, localFallback: localCameraTrack)
     case .setScreenSharing(let enabled):
       if enabled {
         startScreenCapture(coordinator: coordinator, controller: controller)

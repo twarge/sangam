@@ -27,15 +27,25 @@ public final class VideoSampleBufferBridge {
   }
 
   public func attach(to track: RemoteVideoTrack) {
-    detach()
-    forwarder.flush()
-    track.track.add(forwarder)
-    currentTrack = track.track
+    attachTrack(track.track)
+  }
+
+  /// The local camera can feed the bridge too — how PiP shows the self
+  /// view while waiting alone in a room.
+  public func attach(to track: LocalVideoTrack) {
+    attachTrack(track.track)
   }
 
   public func detach() {
     currentTrack?.remove(forwarder)
     currentTrack = nil
+  }
+
+  private func attachTrack(_ track: RTCVideoTrack) {
+    detach()
+    forwarder.flush()
+    track.add(forwarder)
+    currentTrack = track
   }
 }
 
