@@ -168,7 +168,12 @@
     }
   }
 
-  extension MacScreenShareController: SCStreamDelegate, SCStreamOutput {
+  // The conformances must be explicitly nonisolated: under the app's
+  // default MainActor isolation they would otherwise infer as main-actor
+  // conformances, which cannot be handed to SCStream from the nonisolated
+  // capture path (its callbacks arrive on capture queues, never the main
+  // thread).
+  extension MacScreenShareController: nonisolated SCStreamDelegate, nonisolated SCStreamOutput {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
       _ = takeStream()
       // Closing the shared window, or stopping from the system's screen

@@ -10,6 +10,8 @@ options:
 
 settings:
   base:
+    # Apple Silicon only, everywhere — including the Mac and the simulator.
+    ARCHS: arm64
     CURRENT_PROJECT_VERSION: 1
     DEVELOPMENT_TEAM: 257KW9ZJFP
     ENABLE_USER_SCRIPT_SANDBOXING: YES
