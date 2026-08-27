@@ -38,6 +38,7 @@ struct MeetingView: View {
         }
         .padding(18)
         .background(.regularMaterial, in: .rect(cornerRadius: 14))
+        .environment(\.colorScheme, .dark)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
 
@@ -49,8 +50,7 @@ struct MeetingView: View {
           message: controller.accessMessage,
           authenticate: controller.authenticate,
           waitForHost: controller.waitForHost,
-          useAccount: controller.cancelWaiting,
-          leave: dismiss
+          useAccount: controller.cancelWaiting
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -87,9 +87,9 @@ struct MeetingView: View {
       }
     }
     .overlay(alignment: .topLeading) {
-      // Leaving the waiting room is navigation, not an action on the card.
-      if controller.connectionState == .waitingInLobby
-        || controller.connectionState == .passwordRequired
+      // Leaving any pre-join hold is navigation, not an action on the card.
+      if [.waitingInLobby, .passwordRequired, .accessRequired, .waitingForHost]
+        .contains(controller.connectionState)
       {
         Button(action: dismiss) {
           Label("Back", systemImage: "chevron.backward")
@@ -300,13 +300,38 @@ struct MeetingView: View {
   }
 }
 
+/// The shared chrome for every pre-join card: a dark HUD over the black
+/// stage. Forcing the dark scheme is what makes these readable — with the
+/// system in light mode, the material rendered light grey over black and
+/// every secondary label washed out.
+private struct MeetingCardChrome: ViewModifier {
+  func body(content: Content) -> some View {
+    content
+      .padding(30)
+      .frame(maxWidth: 430)
+      .background(.regularMaterial, in: .rect(cornerRadius: 24))
+      .overlay {
+        RoundedRectangle(cornerRadius: 24)
+          .strokeBorder(.white.opacity(0.14))
+      }
+      .shadow(color: .black.opacity(0.45), radius: 30, y: 16)
+      .padding(24)
+      .environment(\.colorScheme, .dark)
+  }
+}
+
+extension View {
+  fileprivate func meetingCardChrome() -> some View {
+    modifier(MeetingCardChrome())
+  }
+}
+
 private struct MeetingAccessCard: View {
   let isWaiting: Bool
   let message: String?
   let authenticate: (String, String) -> Void
   let waitForHost: () -> Void
   let useAccount: () -> Void
-  let leave: () -> Void
 
   @State private var username = ""
   @State private var password = ""
@@ -381,20 +406,8 @@ private struct MeetingAccessCard: View {
           .controlSize(.large)
           .frame(maxWidth: .infinity)
       }
-
-      Button("Leave meeting", role: .cancel, action: leave)
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
     }
-    .padding(30)
-    .frame(maxWidth: 430)
-    .background(.regularMaterial, in: .rect(cornerRadius: 24))
-    .overlay {
-      RoundedRectangle(cornerRadius: 24)
-        .strokeBorder(.white.opacity(0.12))
-    }
-    .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
-    .padding(24)
+    .meetingCardChrome()
     .animation(.snappy, value: isWaiting)
     .defaultFocus($focusedField, .username)
     .onAppear {
@@ -468,15 +481,7 @@ private struct MeetingPasswordCard: View {
         .disabled(password.isEmpty)
         .frame(maxWidth: .infinity)
     }
-    .padding(30)
-    .frame(maxWidth: 430)
-    .background(.regularMaterial, in: .rect(cornerRadius: 24))
-    .overlay {
-      RoundedRectangle(cornerRadius: 24)
-        .strokeBorder(.white.opacity(0.12))
-    }
-    .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
-    .padding(24)
+    .meetingCardChrome()
     .onAppear {
       focused = true
       Task { @MainActor in
@@ -585,22 +590,14 @@ private struct LobbyWaitingCard: View {
             expanded = .meetingPassword
           }
           .buttonStyle(.bordered)
-          Button("Administrator login") {
+          Button("Host sign in") {
             expanded = .login
           }
           .buttonStyle(.bordered)
         }
       }
     }
-    .padding(30)
-    .frame(maxWidth: 430)
-    .background(.regularMaterial, in: .rect(cornerRadius: 24))
-    .overlay {
-      RoundedRectangle(cornerRadius: 24)
-        .strokeBorder(.white.opacity(0.12))
-    }
-    .shadow(color: .black.opacity(0.35), radius: 30, y: 16)
-    .padding(24)
+    .meetingCardChrome()
     .animation(.snappy, value: expanded)
     .onChange(of: expanded) { _, expansion in
       switch expansion {
@@ -667,8 +664,9 @@ private struct LobbyRequestsPanel: View {
     .background(.regularMaterial, in: .rect(cornerRadius: 18))
     .overlay {
       RoundedRectangle(cornerRadius: 18)
-        .strokeBorder(.white.opacity(0.12))
+        .strokeBorder(.white.opacity(0.14))
     }
     .shadow(color: .black.opacity(0.3), radius: 22, y: 10)
+    .environment(\.colorScheme, .dark)
   }
 }

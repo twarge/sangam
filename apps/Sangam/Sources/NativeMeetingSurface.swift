@@ -1196,8 +1196,20 @@ final class NativeMeetingModel: ObservableObject {
         // receive a Jingle media offer yet.
         controller.didJoin()
       } catch NativeConferenceBootstrapError.authenticationRequired {
-        SangamLog.event("join: authenticationRequired")
-        controller.requireAccess()
+        if waitForHost || username != nil {
+          // A waiting join or a credentialed join should not bounce here;
+          // fall back to the sign-in card rather than looping.
+          SangamLog.event("join: authenticationRequired after credentials/wait")
+          controller.requireAccess()
+        } else {
+          // No host yet: wait for one by default. Signing in as a host is
+          // the waiting card's expandable secondary path.
+          SangamLog.event("join: authenticationRequired — waiting for a host")
+          controller.didEnterLobby(waitingForHost: true)
+          self.joinTask = nil
+          await self.startJoin(
+            configuration: configuration, controller: controller, waitForHost: true)
+        }
       } catch NativeConferenceBootstrapError.invalidCredentials {
         SangamLog.event("join: invalidCredentials")
         controller.requireAccess(message: "That username or password wasn’t accepted.")
