@@ -35,6 +35,12 @@ stage-webrtc:
 test: stage-webrtc
 	swift test --package-path packages/JitsiNativeCore
 
+# Serially, for CI: coordinator tests construct real WebRTC factories, and on
+# a headless runner concurrent first-touch CoreAudio init deadlocks — freezing
+# the whole parallel run. One at a time, each init completes.
+test-ci: stage-webrtc
+	swift test --package-path packages/JitsiNativeCore --no-parallel
+
 media:
 	swift build --package-path packages/JitsiNativeCore --target JitsiMedia
 	swift build --package-path packages/JitsiNativeCore --target JitsiConference

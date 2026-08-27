@@ -36,7 +36,7 @@ jobs:
         # Under a PTY: swift test block-buffers its per-test lines when piped,
         # so a hang looks like no output at all. The PTY flushes each line and
         # the log then shows exactly which test a runner is stuck in.
-        run: script -q /dev/null make test
+        run: script -q /dev/null make test-ci
 
   build:
     name: Build (${{ matrix.name }})
