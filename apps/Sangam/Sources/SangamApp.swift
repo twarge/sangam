@@ -2,6 +2,14 @@ import SwiftUI
 
 @main
 struct SangamApp: App {
+  init() {
+    #if os(iOS)
+      // CallKit owns audio activation; WebRTC must be in manual-audio mode
+      // before the first call's audio units exist.
+      CallSessionManager.prepareAudio()
+    #endif
+  }
+
   var body: some Scene {
     WindowGroup {
       RootView()

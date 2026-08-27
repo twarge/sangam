@@ -155,6 +155,26 @@ struct MeetingView: View {
       activity.webpageURL = configuration.meetingLink
       activity.isEligibleForHandoff = true
     }
+    #if os(iOS)
+      // The meeting is a system call while joined: call-priority audio,
+      // system mute, arbitration with phone calls.
+      .onChange(of: controller.connectionState) { _, state in
+        switch state {
+        case .joined:
+          CallSessionManager.shared.begin(room: configuration.normalizedRoom)
+        case .ended, .failed:
+          CallSessionManager.shared.end()
+        default:
+          break
+        }
+      }
+      .onChange(of: controller.isAudioMuted) { _, muted in
+        CallSessionManager.shared.setMuted(muted)
+      }
+      .onDisappear {
+        CallSessionManager.shared.end()
+      }
+    #endif
     .sheet(isPresented: $controller.showsPollsPane) {
       PollsPanel(controller: controller)
     }
