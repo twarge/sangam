@@ -12,6 +12,7 @@ final class MeetingController: ObservableObject {
     case sendReaction(String)
     case kickParticipant(id: String)
     case grantModerator(id: String)
+    case muteParticipant(id: String)
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -128,6 +129,10 @@ final class MeetingController: ObservableObject {
 
   func grantModerator(_ id: String) {
     send(.grantModerator(id: id))
+  }
+
+  func muteParticipant(_ id: String) {
+    send(.muteParticipant(id: id))
   }
 
   /// Called by the meeting surface when a chat message arrives while the
@@ -251,8 +256,8 @@ final class MeetingController: ObservableObject {
       isScreenSharing = sharing
     case .setHandRaised(let raised):
       isHandRaised = raised
-    case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .switchCamera,
-      .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
+    case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
+      .switchCamera, .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
       .denyLobbyParticipant, .hangUp:
       break
     }

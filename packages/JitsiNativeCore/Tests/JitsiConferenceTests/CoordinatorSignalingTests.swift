@@ -559,6 +559,72 @@ struct CoordinatorSignalingTests {
       "<iq from=\"\(TestConference.roomJID)\" id=\"\(Self.stanzaID(of: grantIQ))\" type=\"result\"/>"
     )
     try await grant.value
+
+    // Remote mute: a jitmeet/audio mute IQ addressed to the focus occupant,
+    // naming the target's full occupant JID.
+    let muteTask = Task { try await harness.coordinator.muteParticipant(id: "72dcd87f") }
+    let muteStanza = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("http://jitsi.org/jitmeet/audio")
+          && $0.contains("jid=\"\(TestConference.roomJID)/72dcd87f\"")
+          && $0.contains("to=\"\(TestConference.roomJID)/focus\"")
+      }
+    }
+    let muteIQ = try #require(muteStanza, "no mute IQ was sent")
+    await harness.socket.push(
+      "<iq from=\"\(TestConference.roomJID)/focus\" id=\"\(Self.stanzaID(of: muteIQ))\" type=\"result\"/>"
+    )
+    try await muteTask.value
+  }
+
+  /// A focus-relayed mute request must silence the microphone, update
+  /// presence, and surface the event; the same request from a non-focus
+  /// occupant must be ignored.
+  @Test
+  func honorsARemoteMuteFromTheFocusOnly() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    // An impostor participant cannot mute us. The request is still
+    // acknowledged (it is addressed to us) but never honoured.
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)/72dcd87f" to="\(TestConference.responderJID)" \
+      id="impostor-1" type="set">\
+      <mute xmlns="http://jitsi.org/jitmeet/audio" actor="72dcd87f">true</mute></iq>
+      """
+    )
+    _ = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first { $0.contains("impostor-1") }
+    }
+    let mutedByImpostor = await harness.events.contains {
+      if case .mutedByModerator = $0 { return true }
+      return false
+    }
+    #expect(!mutedByImpostor, "a non-focus occupant muted us")
+
+    // The focus can.
+    await harness.socket.push(
+      """
+      <iq from="\(TestConference.roomJID)/focus" to="\(TestConference.responderJID)" \
+      id="focus-mute-1" type="set">\
+      <mute xmlns="http://jitsi.org/jitmeet/audio" actor="72dcd87f">true</mute></iq>
+      """
+    )
+    let muted = await eventually {
+      await harness.events.contains {
+        if case .mutedByModerator(let media) = $0 { return media == "audio" }
+        return false
+      }
+    }
+    #expect(muted, "the focus mute request was not honoured")
+    // Presence follows: the newest source presence advertises the muted mic.
+    let mutedPresence = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().last {
+        $0.contains("<presence") && $0.contains("audiomuted")
+      }
+    }
+    #expect(mutedPresence?.contains("true") == true, "presence does not show the muted mic")
   }
 
   /// The bridge's sender constraints: 0 pauses (nobody is watching), any

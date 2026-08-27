@@ -116,6 +116,41 @@ public struct MUCKickRequest: Equatable, Sendable {
   }
 }
 
+/// Asks Jicofo to mute an occupant — Jitsi's remote-mute moderation. The IQ
+/// goes to the focus occupant of the room; the target is named by full
+/// occupant JID and the media by the mute element's namespace. The protocol
+/// deliberately has no remote unmute: people unmute themselves.
+public struct JitsiMuteRequest: Equatable, Sendable {
+  public var id: String
+  public var roomJID: String
+  public var targetNickname: String
+  /// "audio" or "video", selecting the namespace exactly as the reference
+  /// client does.
+  public var media: String
+
+  public init(id: String, roomJID: String, targetNickname: String, media: String) {
+    self.id = id
+    self.roomJID = roomJID
+    self.targetNickname = targetNickname
+    self.media = media
+  }
+
+  public func element() -> XMPPElement {
+    XMPPElement(
+      name: "iq",
+      attributes: ["id": id, "to": "\(roomJID)/focus", "type": "set"],
+      children: [
+        XMPPElement(
+          name: "mute",
+          namespace: "http://jitsi.org/jitmeet/\(media)",
+          attributes: ["jid": "\(roomJID)/\(targetNickname)"],
+          text: "true"
+        )
+      ]
+    )
+  }
+}
+
 /// Changes an occupant's affiliation (XEP-0045 §10.3). Jitsi's "grant
 /// moderator" makes the target an owner, addressed by real JID — which the
 /// room only discloses to moderators.

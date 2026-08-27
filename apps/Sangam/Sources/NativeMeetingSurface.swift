@@ -146,6 +146,9 @@ struct NativeMeetingSurface: View {
       if model.isModerator, let endpointID = entry.endpointID,
         let participant = model.participants.first(where: { $0.id == endpointID })
       {
+        if !participant.audioMuted {
+          Button("Mute microphone") { controller.muteParticipant(participant.id) }
+        }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
         }
@@ -369,6 +372,9 @@ struct NativeMeetingSurface: View {
         Button("Pin to stage") { model.pinnedTileID = tile.id }
       }
       if model.isModerator, let participant {
+        if !participant.audioMuted {
+          Button("Mute microphone") { controller.muteParticipant(participant.id) }
+        }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
         }
@@ -1093,6 +1099,15 @@ final class NativeMeetingModel: ObservableObject {
             updated.videoType = videoType
             return updated
           }
+        case .mutedByModerator(let media):
+          SangamLog.event("event: mutedByModerator media=\(media)")
+          if media == "audio" {
+            controller.didChangeAudioMuted(true)
+            controller.report(error: "A moderator muted your microphone.")
+          } else {
+            controller.didChangeVideoMuted(true)
+            controller.report(error: "A moderator turned off your camera.")
+          }
         case .camerasChanged(let available, let currentDeviceID):
           SangamLog.event(
             "event: camerasChanged count=\(available.count)"
@@ -1167,6 +1182,12 @@ final class NativeMeetingModel: ObservableObject {
     case .grantModerator(let id):
       do {
         try await coordinator.grantModerator(id: id)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
+    case .muteParticipant(let id):
+      do {
+        try await coordinator.muteParticipant(id: id)
       } catch {
         controller.report(error: error.localizedDescription)
       }

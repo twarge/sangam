@@ -126,6 +126,9 @@ public enum NativeJingleEvent: Sendable {
   /// picked switch or automatic failover after the active camera vanished.
   /// `currentDeviceID` is nil while no camera is capturing.
   case camerasChanged(available: [CameraDevice], currentDeviceID: String?)
+  /// A moderator muted this client's microphone ("audio") or camera
+  /// ("video"); the tracks are already stopped when this arrives.
+  case mutedByModerator(media: String)
   /// The meeting's lobby was switched on or off. Only reported to moderators,
   /// who are the only ones the room tells.
   case lobbyEnabledChanged(Bool)
@@ -413,6 +416,26 @@ public actor NativeJingleCoordinator {
     )
   }
 
+  /// Asks Jicofo to mute a participant's microphone (or camera, with media
+  /// "video"), as the web's moderation menu does. Only moderators can, and
+  /// there is deliberately no remote unmute — people unmute themselves.
+  public func muteParticipant(id: String, media: String = "audio") async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard participants[id] != nil else {
+      throw NativeJingleCoordinatorError.unknownParticipant
+    }
+    let requestID = nextID(prefix: "mute")
+    _ = try await request(
+      JitsiMuteRequest(
+        id: requestID,
+        roomJID: configuration.roomJID,
+        targetNickname: id,
+        media: media
+      ).element(),
+      id: requestID
+    )
+  }
+
   /// Makes a participant a moderator (room owner, as the web app grants it).
   /// The affiliation change addresses the occupant's real JID, which the room
   /// only discloses to moderators.
@@ -695,6 +718,15 @@ public actor NativeJingleCoordinator {
       return
     }
     guard type == "set" else { return }
+    // A moderator asked Jicofo to mute us; the request arrives as a plain
+    // IQ from the focus, the media named by the mute element's namespace.
+    for media in ["audio", "video"] {
+      guard
+        let mute = element.child(named: "mute", namespace: "http://jitsi.org/jitmeet/\(media)")
+      else { continue }
+      try await handleRemoteMute(element: element, mute: mute, media: media)
+      return
+    }
     guard element.child(named: "jingle", namespace: JingleParser.jingleNamespace) != nil else {
       return
     }
@@ -775,6 +807,33 @@ public actor NativeJingleCoordinator {
     case .sessionAccept, .transportReplace, .transportAccept:
       emit(.unsupportedAction(incoming.session.action))
     }
+  }
+
+  /// Honours a focus-relayed mute: mutes the microphone (or stops the
+  /// camera), acknowledges the IQ, and tells the app so its toggles follow.
+  /// Requests not sent by the focus are ignored, like the reference client;
+  /// so are unmutes, which the protocol does not allow remotely.
+  private func handleRemoteMute(
+    element: XMPPElement,
+    mute: XMPPElement,
+    media: String
+  ) async throws {
+    if let id = element[attribute: "id"], let from = element[attribute: "from"] {
+      try await connection.send(
+        XMPPElement(name: "iq", attributes: ["id": id, "to": from, "type": "result"]))
+    }
+    guard let from = element[attribute: "from"], isFocus(from), mute.text == "true" else {
+      return
+    }
+    if media == "audio" {
+      microphoneMuted = true
+      audioTrack.isMuted = true
+    } else {
+      cameraEnabled = false
+      cameraTrack.videoTrack.isEnabled = false
+    }
+    await sendSourcePresence()
+    emit(.mutedByModerator(media: media))
   }
 
   private func handlePresence(_ element: XMPPElement) {
