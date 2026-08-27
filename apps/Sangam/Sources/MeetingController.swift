@@ -17,6 +17,7 @@ final class MeetingController: ObservableObject {
     case setAudioModeration(enabled: Bool)
     case allowToSpeak(id: String)
     case setBackgroundBlur(enabled: Bool)
+    case togglePictureInPicture
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -93,6 +94,9 @@ final class MeetingController: ObservableObject {
   @Published private(set) var sidebarInset: CGFloat = 0
   /// Apple-native background blur on the outgoing camera.
   @Published private(set) var backgroundBlurOn = false
+  /// System Picture in Picture: availability and whether it is up.
+  @Published private(set) var pipAvailable = false
+  @Published private(set) var isPiPActive = false
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -212,6 +216,15 @@ final class MeetingController: ObservableObject {
     send(.setBackgroundBlur(enabled: enabled))
   }
 
+  func togglePictureInPicture() {
+    send(.togglePictureInPicture)
+  }
+
+  func didChangePictureInPicture(available: Bool, active: Bool) {
+    pipAvailable = available
+    isPiPActive = active
+  }
+
   func hangUp() {
     send(.hangUp)
   }
@@ -306,9 +319,9 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
-      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur, .switchCamera,
-      .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant,
-      .hangUp:
+      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur,
+      .togglePictureInPicture, .switchCamera, .authenticate, .waitForHost, .cancelWaiting,
+      .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
       break
     }
 

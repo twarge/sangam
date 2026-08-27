@@ -223,6 +223,15 @@ private struct MoreMenu: View {
           set: { controller.setBackgroundBlur($0) }
         )
       )
+      if controller.pipAvailable {
+        Button {
+          controller.togglePictureInPicture()
+        } label: {
+          Label(
+            controller.isPiPActive ? "Exit Picture in Picture" : "Picture in Picture",
+            systemImage: "pip")
+        }
+      }
       Divider()
       // Apple's ML noise suppression (Voice Isolation) is a system
       // microphone mode: only the user can switch it, from the picker this

@@ -31,6 +31,23 @@ struct NativeMeetingSurface: View {
 
   var body: some View {
     meetingRoot
+      .overlay(alignment: .bottomTrailing) {
+        // AVKit needs the PiP content layer in a window; it hides in the
+        // corner while the system window does the real rendering.
+        PiPLayerHost(layer: model.pictureInPicture.bridge.layer) {
+          model.pictureInPicture.prepareIfNeeded()
+          controller.didChangePictureInPicture(
+            available: model.pictureInPicture.isSupported,
+            active: model.pictureInPicture.isActive
+          )
+        }
+        .frame(width: 64, height: 36)
+        .opacity(0.02)
+        .allowsHitTesting(false)
+      }
+      .onChange(of: model.featuredRemoteStream?.id) { _, _ in
+        model.pictureInPicture.showStream(model.featuredRemoteStream)
+      }
       .task {
         await model.join(configuration: configuration, controller: controller)
       }
@@ -865,6 +882,21 @@ final class NativeMeetingModel: ObservableObject {
   /// capture is broken while a good preview clears everything up to the
   /// encoder.
   @Published private(set) var localScreenTrack: LocalVideoTrack?
+  /// System Picture in Picture, fed by whatever the stage features.
+  let pictureInPicture = PictureInPictureManager()
+
+  /// What the PiP window should show: the pinned tile's stream, else a
+  /// screen share, else the dominant speaker's, else any stream at all.
+  var featuredRemoteStream: RemoteVideoStream? {
+    let tiles = self.tiles
+    guard !tiles.isEmpty else { return nil }
+    let featured =
+      tiles.first { $0.id == pinnedTileID }
+      ?? tiles.first { $0.stream?.videoType == "desktop" }
+      ?? tiles.first { $0.endpointID != nil && $0.endpointID == dominantSpeakerID }
+      ?? tiles[0]
+    return featured.stream ?? tiles.compactMap(\.stream).first
+  }
 
   /// A reaction shown on a participant's tiles; the token distinguishes a
   /// repeat of the same emoji so its expiry timer restarts.
@@ -1347,6 +1379,14 @@ final class NativeMeetingModel: ObservableObject {
       }
     case .setBackgroundBlur(let enabled):
       await coordinator.setVirtualBackground(enabled ? .blur : .none)
+    case .togglePictureInPicture:
+      pictureInPicture.onActiveChanged = { [weak controller, weak self] active in
+        guard let self, let controller else { return }
+        controller.didChangePictureInPicture(
+          available: self.pictureInPicture.isSupported, active: active)
+        if !active { self.pictureInPicture.bridge.detach() }
+      }
+      pictureInPicture.toggle(stream: featuredRemoteStream)
     case .setScreenSharing(let enabled):
       if enabled {
         startScreenCapture(coordinator: coordinator, controller: controller)
