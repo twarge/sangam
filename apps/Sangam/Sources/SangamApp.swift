@@ -31,6 +31,9 @@ struct SangamApp: App {
       }
     }
     #if os(macOS)
+      // Full-bleed video: the title bar is transparent, with the traffic
+      // lights floating over the feed like the main meeting window.
+      .windowStyle(.hiddenTitleBar)
       .defaultSize(width: 640, height: 400)
     #endif
 

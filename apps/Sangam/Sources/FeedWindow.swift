@@ -38,6 +38,8 @@ private struct FeedContent: View {
       }
     }
     .background(.black)
+    // The video runs under the transparent title bar, edge to edge.
+    .ignoresSafeArea()
   }
 
   private func title(for stream: RemoteVideoStream) -> String {
