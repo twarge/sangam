@@ -561,6 +561,18 @@ struct CoordinatorSignalingTests {
     try await grant.value
   }
 
+  /// The bridge's sender constraints: 0 pauses (nobody is watching), any
+  /// positive height caps, and -1 means UNCONSTRAINED — the value the web
+  /// client sets for the source it features on stage. Pausing on -1 froze
+  /// stage sources after one keyframe.
+  @Test
+  func treatsNegativeSenderConstraintAsUnconstrained() {
+    #expect(!NativeJingleCoordinator.senderConstraintAllowsSending(maxHeight: 0))
+    #expect(NativeJingleCoordinator.senderConstraintAllowsSending(maxHeight: -1))
+    #expect(NativeJingleCoordinator.senderConstraintAllowsSending(maxHeight: 180))
+    #expect(NativeJingleCoordinator.senderConstraintAllowsSending(maxHeight: 2160))
+  }
+
   /// The `id` attribute of a serialized stanza.
   private static func stanzaID(of stanza: String) -> String {
     guard let range = stanza.range(of: "id=\"") else { return "" }

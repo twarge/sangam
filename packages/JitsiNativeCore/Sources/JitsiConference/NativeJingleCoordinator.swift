@@ -1230,10 +1230,21 @@ public actor NativeJingleCoordinator {
     default: trackID = nil
     }
     guard let trackID else { return }
+    let active = Self.senderConstraintAllowsSending(maxHeight: maxHeight)
     emit(
       .diagnostic(
-        message: "sender \(sourceName): \(maxHeight > 0 ? "resume" : "pause") encodings"))
-    await peerConnection.setVideoSenderActive(trackID: trackID, active: maxHeight > 0)
+        message: "sender \(sourceName): \(active ? "resume" : "pause") encodings"
+          + " (maxHeight=\(maxHeight))"))
+    await peerConnection.setVideoSenderActive(trackID: trackID, active: active)
+  }
+
+  /// Whether a bridge sender constraint allows sending at all. The bridge
+  /// sends 0 when no receiver wants the source, and a NEGATIVE height (-1)
+  /// for "unconstrained" — the web client sets exactly that for a source it
+  /// puts on stage, so treating -1 as a pause froze the very source everyone
+  /// was watching after a single keyframe.
+  static func senderConstraintAllowsSending(maxHeight: Int) -> Bool {
+    maxHeight != 0
   }
 
   /// Applies an SSRC-rewriting bridge's source map (`VideoSourcesMap` /
