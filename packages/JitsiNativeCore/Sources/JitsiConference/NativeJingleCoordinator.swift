@@ -17,6 +17,10 @@ public struct NativeJingleConfiguration: Equatable, Sendable {
   public var cameraSourceName: String
   public var screenSourceName: String
 
+  /// The deployment's main XMPP domain, whose disco#info announces service
+  /// components (AV moderation, speaker stats, …).
+  public var xmppDomain: String
+
   /// The meeting room's bare address, derived from `occupantJID`.
   public var roomJID: String { XMPPJID.bare(occupantJID) }
   /// This client's nickname in the meeting room, derived from `occupantJID`.
@@ -31,7 +35,8 @@ public struct NativeJingleConfiguration: Equatable, Sendable {
     cameraTrackID: String = "native-video-0",
     audioSourceName: String = "native-a0",
     cameraSourceName: String = "native-v0",
-    screenSourceName: String = "native-v1"
+    screenSourceName: String = "native-v1",
+    xmppDomain: String = ""
   ) {
     self.responderJID = responderJID
     self.occupantJID = occupantJID
@@ -42,6 +47,7 @@ public struct NativeJingleConfiguration: Equatable, Sendable {
     self.audioSourceName = audioSourceName
     self.cameraSourceName = cameraSourceName
     self.screenSourceName = screenSourceName
+    self.xmppDomain = xmppDomain.isEmpty ? XMPPJID.domain(responderJID) : xmppDomain
   }
 }
 
@@ -129,6 +135,15 @@ public enum NativeJingleEvent: Sendable {
   /// A moderator muted this client's microphone ("audio") or camera
   /// ("video"); the tracks are already stopped when this arrives.
   case mutedByModerator(media: String)
+  /// AV moderation was switched on or off for a media type: while on,
+  /// participants cannot unmute that media until a moderator approves them.
+  case avModerationChanged(media: String, enabled: Bool, actor: String?)
+  /// This client was approved (or had its approval revoked) to unmute the
+  /// given media while AV moderation is on.
+  case avModerationApprovalChanged(media: String, approved: Bool)
+  /// An unmute was refused locally because AV moderation is on and this
+  /// client is not approved; the media stays muted.
+  case unmuteBlocked(media: String)
   /// The meeting's lobby was switched on or off. Only reported to moderators,
   /// who are the only ones the room tells.
   case lobbyEnabledChanged(Bool)
@@ -195,6 +210,13 @@ public actor NativeJingleCoordinator {
   /// The user's receive-quality preference: per-source height cap the bridge
   /// applies to everything it forwards us (the web's performance slider).
   private var preferredReceiveMaxHeight = 720
+  /// The deployment's AV moderation component, from the domain's disco
+  /// identities; nil when the server runs none.
+  private var avModerationComponent: String?
+  /// Room-wide AV moderation state per media type ("audio"/"video").
+  private var avModerationEnabled: [String: Bool] = [:]
+  /// This client's per-media approval to unmute while moderation is on.
+  private var avModerationSelfApproved: [String: Bool] = [:]
   private var outgoingSequence: UInt64 = 0
 
   // Local ICE candidates gather the moment the local description is installed,
@@ -308,6 +330,7 @@ public actor NativeJingleCoordinator {
     receiveTask = Task { [weak self] in await self?.runReceiveLoop() }
     mediaTask = Task { [weak self] in await self?.runMediaLoop() }
     cameraTask = Task { [weak self] in await self?.runCameraLoop() }
+    Task { [weak self] in await self?.discoverServerComponents() }
   }
 
   public func startCamera(
@@ -327,6 +350,10 @@ public actor NativeJingleCoordinator {
   }
 
   public func setMicrophoneMuted(_ muted: Bool) async {
+    if !muted, unmuteBlocked(media: "audio") {
+      emit(.unmuteBlocked(media: "audio"))
+      return
+    }
     microphoneMuted = muted
     audioTrack.isMuted = muted
     await sendSourcePresence()
@@ -344,9 +371,61 @@ public actor NativeJingleCoordinator {
   }
 
   public func setCameraEnabled(_ enabled: Bool) async {
+    if enabled, unmuteBlocked(media: "video") {
+      emit(.unmuteBlocked(media: "video"))
+      return
+    }
     cameraEnabled = enabled
     cameraTrack.videoTrack.isEnabled = enabled
     await sendSourcePresence()
+  }
+
+  /// Switches AV moderation on or off for a media type — while on, only
+  /// approved participants can unmute it. Moderators only, and only where
+  /// the deployment runs the component.
+  public func setAVModeration(media: String = "audio", enabled: Bool) async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let component = avModerationComponent else {
+      throw NativeJingleCoordinatorError.avModerationUnavailable
+    }
+    try await connection.send(
+      XMPPElement(
+        name: "message",
+        attributes: ["to": component, "id": nextID(prefix: "avmod")],
+        children: [
+          XMPPElement(
+            name: "av_moderation",
+            attributes: ["enable": enabled ? "true" : "false", "mediaType": media]
+          )
+        ]
+      )
+    )
+  }
+
+  /// Approves a participant to unmute `media` while AV moderation is on, by
+  /// whitelisting their occupant address with the component.
+  public func approveUnmute(id: String, media: String = "audio") async throws {
+    guard isModerator else { throw NativeJingleCoordinatorError.notModerator }
+    guard let component = avModerationComponent else {
+      throw NativeJingleCoordinatorError.avModerationUnavailable
+    }
+    guard participants[id] != nil else {
+      throw NativeJingleCoordinatorError.unknownParticipant
+    }
+    try await connection.send(
+      XMPPElement(
+        name: "message",
+        attributes: ["to": component, "id": nextID(prefix: "avmod")],
+        children: [
+          XMPPElement(
+            name: "av_moderation",
+            attributes: [
+              "jidToWhitelist": "\(configuration.roomJID)/\(id)", "mediaType": media,
+            ]
+          )
+        ]
+      )
+    )
   }
 
   /// Raises or lowers the local hand, signalled as Jitsi's
@@ -614,6 +693,9 @@ public actor NativeJingleCoordinator {
     pendingAcceptID = nil
     screenPublished = false
     sessionEnded = false
+    avModerationComponent = nil
+    avModerationEnabled = [:]
+    avModerationSelfApproved = [:]
     pendingLocalCandidates.removeAll()
     clearRemoteSourceState()
     participants.removeAll()
@@ -892,6 +974,7 @@ public actor NativeJingleCoordinator {
   }
 
   private func handleMessage(_ element: XMPPElement) {
+    if handleComponentMessage(element) { return }
     guard
       let from = element[attribute: "from"],
       XMPPJID.matches(XMPPJID.bare(from), configuration.roomJID)
@@ -922,6 +1005,77 @@ public actor NativeJingleCoordinator {
     if isModerator, MUCRoomNotice.isConfigurationChange(element) {
       scheduleRoomInfoRefresh()
     }
+  }
+
+  /// Asks the deployment's main domain which service components it runs;
+  /// AV moderation is only offered when the disco identities announce one.
+  private func discoverServerComponents() async {
+    let id = nextID(prefix: "components")
+    do {
+      let response = try await request(
+        MUCRoomInfoRequest(id: id, roomJID: configuration.xmppDomain).element(),
+        id: id
+      )
+      let identities = response.child(named: "query")?.children.filter { $0.name == "identity" }
+      for identity in identities ?? [] where identity[attribute: "type"] == "av_moderation" {
+        avModerationComponent = identity[attribute: "name"]
+      }
+      emit(
+        .diagnostic(
+          message: "components: av-moderation=\(avModerationComponent ?? "none")"))
+    } catch {
+      emit(.diagnostic(message: "components: discovery failed (\(error.localizedDescription))"))
+    }
+  }
+
+  /// Handles a service component's `json-message` payload — AV moderation
+  /// state from the avmoderation component, exactly as the reference parses
+  /// it. Returns whether the message was one.
+  private func handleComponentMessage(_ element: XMPPElement) -> Bool {
+    guard
+      let component = avModerationComponent,
+      let from = element[attribute: "from"],
+      XMPPJID.matches(XMPPJID.bare(from), component),
+      let json = element.child(named: "json-message", namespace: "http://jitsi.org/jitmeet")?
+        .text,
+      let data = json.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["type"] as? String == "av_moderation"
+    else { return false }
+
+    let media = object["mediaType"] as? String ?? "audio"
+    if object["whitelists"] != nil {
+      // Moderators receive the full whitelist; this client only needs its
+      // own approval state, which arrives separately.
+      return true
+    }
+    if let enabled = object["enabled"] as? Bool {
+      if avModerationEnabled[media] != enabled {
+        avModerationEnabled[media] = enabled
+        if !enabled { avModerationSelfApproved[media] = nil }
+        emit(
+          .avModerationChanged(media: media, enabled: enabled, actor: object["actor"] as? String)
+        )
+      }
+      return true
+    }
+    if object["removed"] as? Bool == true {
+      avModerationSelfApproved[media] = false
+      emit(.avModerationApprovalChanged(media: media, approved: false))
+      return true
+    }
+    if object["approved"] as? Bool == true {
+      avModerationSelfApproved[media] = true
+      emit(.avModerationApprovalChanged(media: media, approved: true))
+      return true
+    }
+    return true
+  }
+
+  /// Whether an unmute of `media` must be refused: moderation is on and no
+  /// approval has arrived. Moderators are never blocked.
+  private func unmuteBlocked(media: String) -> Bool {
+    avModerationEnabled[media] == true && avModerationSelfApproved[media] != true && !isModerator
   }
 
   private func updateLocalRole(_ presence: MUCParticipantPresence) {
@@ -1821,6 +1975,8 @@ public enum NativeJingleCoordinatorError: Error, Equatable, Sendable {
   /// The room did not disclose the participant's real address, which an
   /// affiliation change needs.
   case participantAddressUnknown
+  /// The deployment announces no AV moderation component.
+  case avModerationUnavailable
 }
 
 extension NativeJingleCoordinatorError: LocalizedError {
@@ -1836,6 +1992,8 @@ extension NativeJingleCoordinatorError: LocalizedError {
       return "That person is no longer in the meeting."
     case .participantAddressUnknown:
       return "The meeting did not disclose that person's address, so they cannot be promoted."
+    case .avModerationUnavailable:
+      return "This meeting server does not offer moderation controls."
     }
   }
 }

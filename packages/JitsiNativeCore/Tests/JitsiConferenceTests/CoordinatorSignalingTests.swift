@@ -627,6 +627,141 @@ struct CoordinatorSignalingTests {
     #expect(mutedPresence?.contains("true") == true, "presence does not show the muted mic")
   }
 
+  /// AV moderation end to end: the component is discovered from the
+  /// domain's disco identities, an unapproved unmute is refused locally
+  /// while moderation is on, approval lifts the block, and a moderator's
+  /// toggle and approval go out as messages to the component.
+  @Test
+  func enforcesAVModeration() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    let disco = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("sangam-components-") && $0.contains("to=\"example.test\"")
+      }
+    }
+    let discoIQ = try #require(disco, "no components discovery was sent")
+    await harness.socket.push(
+      """
+      <iq from="example.test" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: discoIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/disco#info">\
+      <identity category="component" type="av_moderation" name="avmoderation.example.test"/>\
+      </query></iq>
+      """
+    )
+    // Discovery resumes asynchronously on the actor: wait until the
+    // component is registered before it must accept messages.
+    let discovered = await eventually {
+      await harness.events.contains {
+        if case .diagnostic(let message) = $0 {
+          return message.contains("av-moderation=avmoderation.example.test")
+        }
+        return false
+      }
+    }
+    #expect(discovered, "the av-moderation component was never registered")
+
+    // The component switches audio moderation on for the room.
+    await harness.socket.push(
+      """
+      <message from="avmoderation.example.test" to="\(TestConference.responderJID)">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"av_moderation","enabled":true,"mediaType":"audio","actor":"someone"}\
+      </json-message></message>
+      """
+    )
+    let enabled = await eventually {
+      await harness.events.contains {
+        if case .avModerationChanged(let media, let on, _) = $0 {
+          return media == "audio" && on
+        }
+        return false
+      }
+    }
+    #expect(enabled, "the moderation enable never surfaced")
+
+    // Unmuting is refused locally while unapproved.
+    await harness.coordinator.setMicrophoneMuted(true)
+    await harness.coordinator.setMicrophoneMuted(false)
+    let blocked = await eventually {
+      await harness.events.contains {
+        if case .unmuteBlocked(let media) = $0 { return media == "audio" }
+        return false
+      }
+    }
+    #expect(blocked, "the unapproved unmute was not refused")
+
+    // Approval lifts the block; the next unmute goes out in presence.
+    await harness.socket.push(
+      """
+      <message from="avmoderation.example.test" to="\(TestConference.responderJID)">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"av_moderation","approved":true,"mediaType":"audio"}\
+      </json-message></message>
+      """
+    )
+    let approved = await eventually {
+      await harness.events.contains {
+        if case .avModerationApprovalChanged(let media, let isApproved) = $0 {
+          return media == "audio" && isApproved
+        }
+        return false
+      }
+    }
+    #expect(approved, "the approval never surfaced")
+    await harness.coordinator.setMicrophoneMuted(false)
+    let unmutedPresence = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().last {
+        $0.contains("<presence") && $0.contains("audiomuted") && $0.contains("false")
+      }
+    }
+    #expect(unmutedPresence != nil, "the approved unmute did not reach presence")
+
+    // Moderator controls go to the component: the toggle and an approval.
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/native" to="\(TestConference.responderJID)">
+        <x xmlns="http://jabber.org/protocol/muc#user">
+          <item role="moderator" affiliation="owner"/>
+          <status code="110"/>
+        </x>
+      </presence>
+      """
+    )
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/72dcd87f" to="\(TestConference.responderJID)">
+        <nick xmlns="http://jabber.org/protocol/nick">Ada</nick>
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="participant" affiliation="member"/></x>
+      </presence>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .moderatorStatusChanged(true) = $0 { return true }
+        return false
+      }
+    }
+    try await harness.coordinator.setAVModeration(enabled: true)
+    let toggle = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("av_moderation") && $0.contains("enable=\"true\"")
+          && $0.contains("avmoderation.example.test")
+      }
+    }
+    #expect(toggle != nil, "the moderation toggle was not sent to the component")
+    try await harness.coordinator.approveUnmute(id: "72dcd87f")
+    let approval = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("jidToWhitelist=\"\(TestConference.roomJID)/72dcd87f\"")
+      }
+    }
+    #expect(approval != nil, "the approval was not sent to the component")
+  }
+
   /// The bridge's sender constraints: 0 pauses (nobody is watching), any
   /// positive height caps, and -1 means UNCONSTRAINED — the value the web
   /// client sets for the source it features on stage. Pausing on -1 froze

@@ -14,6 +14,8 @@ final class MeetingController: ObservableObject {
     case grantModerator(id: String)
     case muteParticipant(id: String)
     case setReceiveQuality(maxHeight: Int)
+    case setAudioModeration(enabled: Bool)
+    case allowToSpeak(id: String)
     case switchCamera(deviceID: String)
     case authenticate(username: String, password: String)
     case waitForHost
@@ -80,6 +82,11 @@ final class MeetingController: ObservableObject {
   /// The per-source height cap asked of the bridge (the performance
   /// setting); 720 matches the web's default.
   @Published private(set) var receiveQuality = 720
+  /// Whether this client moderates the room; gates the moderation controls.
+  @Published private(set) var isModerator = false
+  /// Room-wide audio moderation: while on, participants need approval to
+  /// unmute.
+  @Published private(set) var audioModerationOn = false
 
   private var commandHandler: ((Command) -> Void)?
   private var pendingCommands: [Command] = []
@@ -171,6 +178,23 @@ final class MeetingController: ObservableObject {
     guard maxHeight != receiveQuality else { return }
     receiveQuality = maxHeight
     send(.setReceiveQuality(maxHeight: maxHeight))
+  }
+
+  func setAudioModeration(_ enabled: Bool) {
+    audioModerationOn = enabled
+    send(.setAudioModeration(enabled: enabled))
+  }
+
+  func allowToSpeak(_ id: String) {
+    send(.allowToSpeak(id: id))
+  }
+
+  func didChangeAudioModeration(_ enabled: Bool) {
+    audioModerationOn = enabled
+  }
+
+  func didChangeModeratorStatus(_ moderator: Bool) {
+    isModerator = moderator
   }
 
   func hangUp() {
@@ -267,8 +291,8 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
-      .setReceiveQuality, .switchCamera, .authenticate, .waitForHost, .cancelWaiting,
-      .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
+      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .switchCamera, .authenticate,
+      .waitForHost, .cancelWaiting, .admitLobbyParticipant, .denyLobbyParticipant, .hangUp:
       break
     }
 

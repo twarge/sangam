@@ -141,6 +141,16 @@ private struct MoreMenu: View {
           Text(quality.label).tag(quality.height)
         }
       }
+      if controller.isModerator {
+        Divider()
+        Toggle(
+          "Require permission to speak",
+          isOn: Binding(
+            get: { controller.audioModerationOn },
+            set: { controller.setAudioModeration($0) }
+          )
+        )
+      }
     } label: {
       Image(systemName: "ellipsis")
         .font(.system(size: 17, weight: .semibold))

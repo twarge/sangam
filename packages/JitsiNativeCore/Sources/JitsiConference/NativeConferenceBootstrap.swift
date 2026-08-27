@@ -184,7 +184,10 @@ public struct NativeConferenceBootstrap: Sendable {
           cameraTrackID: "\(endpointID)-camera-track",
           audioSourceName: "\(endpointID)-a0",
           cameraSourceName: "\(endpointID)-v0",
-          screenSourceName: "\(endpointID)-v1"
+          screenSourceName: "\(endpointID)-v1",
+          // Anonymous joins bind on the guest domain, but service components
+          // (AV moderation, speaker stats) announce on the main one.
+          xmppDomain: deployment.xmppDomain
         ),
         policy: PeerConnectionPolicy(iceServers: iceServers)
       )

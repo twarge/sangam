@@ -168,9 +168,12 @@ struct CoordinatorLobbyTests {
       </message>
       """
     )
+    // The second lookup addressed to the ROOM (the server-components disco
+    // that also goes out at start is filtered away by the address).
     let request = await eventuallyValue {
-      await harness.socket.stanzasAfterBootstrap().filter { $0.contains("disco#info") }.dropFirst()
-        .first
+      await harness.socket.stanzasAfterBootstrap()
+        .filter { $0.contains("disco#info") && $0.contains("to=\"\(TestConference.roomJID)\"") }
+        .dropFirst().first
     }
     let lookup = try #require(request, "no second lookup")
     let id = try #require(Self.attribute("id", in: lookup))
@@ -281,11 +284,14 @@ private struct LobbyHarness {
         )
       )
     )
+    // The room lookup, not the coordinator's own server-components disco
+    // (which also goes out at start and also carries disco#info).
     let request = await eventuallyValue {
-      await socket.stanzasAfterBootstrap().first { $0.contains("disco#info") }
+      await socket.stanzasAfterBootstrap().first {
+        $0.contains("disco#info") && $0.contains("to=\"\(TestConference.roomJID)\"")
+      }
     }
     let lookup = try #require(request, "becoming moderator did not look the room up")
-    #expect(lookup.contains("to=\"\(TestConference.roomJID)\""))
     let id = try #require(CoordinatorLobbyTests.attribute("id", in: lookup))
     await socket.push(
       """

@@ -23,4 +23,12 @@ public enum XMPPJID {
   public static func matches(_ lhs: String, _ rhs: String) -> Bool {
     lhs.lowercased() == rhs.lowercased()
   }
+
+  /// `guest@example.test/native` -> `example.test`; the whole bare JID when
+  /// there is no node part.
+  public static func domain(_ jid: String) -> String {
+    let bare = bare(jid)
+    guard let at = bare.firstIndex(of: "@") else { return bare }
+    return String(bare[bare.index(after: at)...])
+  }
 }

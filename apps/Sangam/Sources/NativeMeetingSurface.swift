@@ -156,6 +156,9 @@ struct NativeMeetingSurface: View {
         if !participant.audioMuted {
           Button("Mute microphone") { controller.muteParticipant(participant.id) }
         }
+        if controller.audioModerationOn {
+          Button("Allow to speak") { controller.allowToSpeak(participant.id) }
+        }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
         }
@@ -371,6 +374,9 @@ struct NativeMeetingSurface: View {
       if model.isModerator, let participant {
         if !participant.audioMuted {
           Button("Mute microphone") { controller.muteParticipant(participant.id) }
+        }
+        if controller.audioModerationOn {
+          Button("Allow to speak") { controller.allowToSpeak(participant.id) }
         }
         if !participant.isModerator, participant.realJID != nil {
           Button("Make moderator") { controller.grantModerator(participant.id) }
@@ -1122,6 +1128,32 @@ final class NativeMeetingModel: ObservableObject {
         case .moderatorStatusChanged(let moderator):
           SangamLog.event("event: moderatorStatusChanged=\(moderator)")
           isModerator = moderator
+          controller.didChangeModeratorStatus(moderator)
+        case .avModerationChanged(let media, let enabled, _):
+          SangamLog.event("event: avModeration \(media) enabled=\(enabled)")
+          if media == "audio" {
+            controller.didChangeAudioModeration(enabled)
+          }
+        case .avModerationApprovalChanged(let media, let approved):
+          SangamLog.event("event: avModerationApproval \(media)=\(approved)")
+          if approved {
+            controller.report(
+              error: media == "audio"
+                ? "A moderator has allowed you to unmute."
+                : "A moderator has allowed you to turn your camera on.")
+          }
+        case .unmuteBlocked(let media):
+          SangamLog.event("event: unmuteBlocked media=\(media)")
+          if media == "audio" {
+            controller.didChangeAudioMuted(true)
+            controller.report(
+              error: "Moderation is on — raise your hand and a moderator can allow you to speak."
+            )
+          } else {
+            controller.didChangeVideoMuted(true)
+            controller.report(
+              error: "Moderation is on — a moderator must allow you to turn your camera on.")
+          }
         case .chatMessageReceived(let message):
           chatMessages.append(message)
           if chatMessages.count > 500 { chatMessages.removeFirst(chatMessages.count - 500) }
@@ -1247,6 +1279,19 @@ final class NativeMeetingModel: ObservableObject {
       }
     case .setReceiveQuality(let maxHeight):
       await coordinator.setPreferredReceiveMaxHeight(maxHeight)
+    case .setAudioModeration(let enabled):
+      do {
+        try await coordinator.setAVModeration(enabled: enabled)
+      } catch {
+        controller.didChangeAudioModeration(!enabled)
+        controller.report(error: error.localizedDescription)
+      }
+    case .allowToSpeak(let id):
+      do {
+        try await coordinator.approveUnmute(id: id)
+      } catch {
+        controller.report(error: error.localizedDescription)
+      }
     case .setScreenSharing(let enabled):
       if enabled {
         startScreenCapture(coordinator: coordinator, controller: controller)

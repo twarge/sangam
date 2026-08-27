@@ -119,7 +119,8 @@
           view.toggleCamera()
         case .authenticate, .waitForHost, .cancelWaiting, .admitLobbyParticipant,
           .denyLobbyParticipant, .setHandRaised, .sendChatMessage, .sendReaction,
-          .kickParticipant, .grantModerator, .muteParticipant, .setReceiveQuality:
+          .kickParticipant, .grantModerator, .muteParticipant, .setReceiveQuality,
+          .setAudioModeration, .allowToSpeak:
           break
         case .hangUp:
           view.hangUp()
