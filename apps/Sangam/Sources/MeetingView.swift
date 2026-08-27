@@ -182,6 +182,9 @@ struct MeetingView: View {
     .sheet(isPresented: $controller.showsPollsPane) {
       PollsPanel(controller: controller)
     }
+    .sheet(isPresented: $controller.showsSpeakerStats) {
+      SpeakerStatsPanel(controller: controller)
+    }
     .alert("Set Meeting Password", isPresented: $controller.showsRoomPasswordPrompt) {
       TextField("Password", text: $roomPasswordDraft)
       Button("Set") {

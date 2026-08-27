@@ -1093,6 +1093,78 @@ struct CoordinatorSignalingTests {
     #expect(answer != nil, "the answer command was not sent")
   }
 
+  /// Speaker stats: the component's history snapshot seeds totals and
+  /// remembers speakers who already left; the live snapshot merges in room
+  /// participants and sorts by time.
+  @Test
+  func seedsSpeakerStatsFromTheComponentSnapshot() async throws {
+    let harness = try await Harness()
+    defer { harness.tearDown() }
+
+    let disco = await eventuallyValue {
+      await harness.socket.stanzasAfterBootstrap().first {
+        $0.contains("sangam-components-") && $0.contains("to=\"example.test\"")
+      }
+    }
+    let discoIQ = try #require(disco, "no components discovery was sent")
+    await harness.socket.push(
+      """
+      <iq from="example.test" to="\(TestConference.responderJID)" \
+      id="\(Self.stanzaID(of: discoIQ))" type="result">\
+      <query xmlns="http://jabber.org/protocol/disco#info">\
+      <identity category="component" type="speakerstats" name="speakerstats.example.test"/>\
+      </query></iq>
+      """
+    )
+    _ = await eventually {
+      await harness.events.contains {
+        if case .diagnostic(let message) = $0 {
+          return message.contains("speaker-stats=speakerstats.example.test")
+        }
+        return false
+      }
+    }
+
+    // Ada is in the room; Grace spoke for two minutes and left before we
+    // arrived.
+    await harness.socket.push(
+      """
+      <presence from="\(TestConference.roomJID)/72dcd87f" to="\(TestConference.responderJID)">
+        <nick xmlns="http://jabber.org/protocol/nick">Ada</nick>
+        <x xmlns="http://jabber.org/protocol/muc#user">\
+      <item role="participant" affiliation="member"/></x>
+      </presence>
+      """
+    )
+    await harness.socket.push(
+      """
+      <message from="speakerstats.example.test" to="\(TestConference.responderJID)" type="chat">\
+      <json-message xmlns="http://jitsi.org/jitmeet">\
+      {"type":"speakerstats","users":{\
+      "grace01":{"displayName":"Grace","totalDominantSpeakerTime":120000},\
+      "72dcd87f":{"displayName":"Ada","totalDominantSpeakerTime":30000}}}\
+      </json-message></message>
+      """
+    )
+    let seeded = await eventually {
+      let stats = await harness.coordinator.currentSpeakerStats()
+      return stats.contains { $0.id == "grace01" }
+    }
+    #expect(seeded, "the snapshot never seeded")
+
+    let stats = await harness.coordinator.currentSpeakerStats()
+    let grace = try #require(stats.first { $0.id == "grace01" })
+    #expect(grace.displayName == "Grace")
+    #expect(grace.totalSpeakingTime == 120)
+    #expect(grace.hasLeft, "a departed speaker should be marked as gone")
+    let ada = try #require(stats.first { $0.id == "72dcd87f" })
+    #expect(ada.displayName == "Ada")
+    #expect(ada.totalSpeakingTime == 30)
+    #expect(!ada.hasLeft)
+    // Sorted by time: Grace's two minutes outrank Ada's thirty seconds.
+    #expect(stats.first?.id == "grace01")
+  }
+
   /// The bridge's sender constraints: 0 pauses (nobody is watching), any
   /// positive height caps, and -1 means UNCONSTRAINED — the value the web
   /// client sets for the source it features on stage. Pausing on -1 froze

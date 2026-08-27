@@ -52,6 +52,15 @@ struct NativeMeetingSurface: View {
         model.pictureInPicture.showRemote(
           model.featuredRemoteStream, localFallback: model.localCameraTrack)
       }
+      // The stats panel ticks once a second while open, so the current
+      // speaker's time counts up live.
+      .task(id: controller.showsSpeakerStats) {
+        guard controller.showsSpeakerStats else { return }
+        while !Task.isCancelled, controller.showsSpeakerStats {
+          await model.refreshSpeakerStats(controller: controller)
+          try? await Task.sleep(for: .seconds(1))
+        }
+      }
       .task {
         await model.join(configuration: configuration, controller: controller)
       }
@@ -1066,6 +1075,26 @@ final class NativeMeetingModel: ObservableObject {
       Task { @MainActor in await self.execute(command, controller: controller) }
     }
     await startJoin(configuration: configuration, controller: controller)
+  }
+
+  /// One tick of the speaker-stats panel: a fresh snapshot from the
+  /// coordinator, with the self row renamed.
+  func refreshSpeakerStats(controller: MeetingController) async {
+    guard let handle else { return }
+    let selfID = handle.occupantJID.split(separator: "/").last.map(String.init) ?? ""
+    let stats = await handle.coordinator.currentSpeakerStats()
+    controller.didChangeSpeakerStats(
+      stats.map { stat in
+        MeetingController.SpeakerStatDisplay(
+          id: stat.id,
+          name: stat.id == selfID
+            ? "You" : stat.displayName.isEmpty ? stat.id : stat.displayName,
+          seconds: stat.totalSpeakingTime,
+          isSpeaking: stat.isSpeaking,
+          hasLeft: stat.hasLeft
+        )
+      }
+    )
   }
 
   /// Moves this client to another room in the same deployment — a breakout

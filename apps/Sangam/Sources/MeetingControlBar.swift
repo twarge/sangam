@@ -238,6 +238,11 @@ private struct MoreMenu: View {
           controller.polls.isEmpty ? "Polls…" : "Polls (\(controller.polls.count))…",
           systemImage: "chart.bar.xaxis")
       }
+      Button {
+        controller.showsSpeakerStats = true
+      } label: {
+        Label("Speaker Stats…", systemImage: "waveform")
+      }
       if !controller.breakoutRooms.isEmpty || controller.isModerator {
         Divider()
         Menu {

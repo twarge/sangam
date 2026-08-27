@@ -141,6 +141,18 @@ final class MeetingController: ObservableObject {
   /// The meeting's polls, and the panel that shows them.
   @Published private(set) var polls: [PollDisplay] = []
   @Published var showsPollsPane = false
+  /// Who has held the floor for how long, and the panel that shows it.
+  @Published private(set) var speakerStats: [SpeakerStatDisplay] = []
+  @Published var showsSpeakerStats = false
+
+  /// One speaker-time row for the stats panel.
+  struct SpeakerStatDisplay: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let seconds: TimeInterval
+    let isSpeaking: Bool
+    let hasLeft: Bool
+  }
   /// Whether a meeting password was already tried this join, so the retry
   /// card can say it was wrong.
   private var meetingPasswordAttempted = false
@@ -352,6 +364,10 @@ final class MeetingController: ObservableObject {
 
   func didChangePolls(_ polls: [PollDisplay]) {
     self.polls = polls
+  }
+
+  func didChangeSpeakerStats(_ stats: [SpeakerStatDisplay]) {
+    speakerStats = stats
   }
 
   func hangUp() {

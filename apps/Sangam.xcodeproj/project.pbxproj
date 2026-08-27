@@ -30,6 +30,7 @@
 		80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47C324E5E8C593BF40E952B /* MenuBarControls.swift */; };
 		812040D4A20062C7329CEF2F /* MeetingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */; };
 		86DDF0ACBE53A67CBEF2AFC2 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A237959FDD9FC7F773DFC /* AppSettings.swift */; };
+		8863F107C3E62AEE467B0689 /* SpeakerStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0FBB2248A77A5E6C12EA58 /* SpeakerStatsPanel.swift */; };
 		88FDB53321D1DDAD7322DBBF /* SocketConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A2F3B310FD32E4E08810A8 /* SocketConnection.swift */; };
 		8A41E847CA299F6D5566466D /* JitsiNativeCore in Frameworks */ = {isa = PBXBuildFile; productRef = 302E109F2207DCC9D637AAAB /* JitsiNativeCore */; };
 		9B90CB41CDB264585024AD6F /* MacScreenShareController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C87E2777CF1ACC3EA7731E2 /* MacScreenShareController.swift */; };
@@ -90,6 +91,7 @@
 		54B8FE7F270AED4C563B90C0 /* SangamBroadcastExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SangamBroadcastExtension.entitlements; sourceTree = "<group>"; };
 		570BA7976AA9D8EC8251C514 /* MeetingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingController.swift; sourceTree = "<group>"; };
 		5C87E2777CF1ACC3EA7731E2 /* MacScreenShareController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacScreenShareController.swift; sourceTree = "<group>"; };
+		5E0FBB2248A77A5E6C12EA58 /* SpeakerStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerStatsPanel.swift; sourceTree = "<group>"; };
 		60B69BC7F196A3DCB70124DC /* ReplayKitFrameReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayKitFrameReceiver.swift; sourceTree = "<group>"; };
 		6C47228AA0D89D0A9C78F5E5 /* JitsiNativeCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JitsiNativeCore; path = ../packages/JitsiNativeCore; sourceTree = SOURCE_ROOT; };
 		6CF4ABBA402C90522AE89350 /* SampleUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleUploader.swift; sourceTree = "<group>"; };
@@ -153,6 +155,7 @@
 				B0C991D47AFD16CAABED8B8D /* RootView.swift */,
 				9281FDC1DCBFB690D23631E7 /* SangamApp.swift */,
 				D5FAFE5FC31E55605E60979E /* SangamIntents.swift */,
+				5E0FBB2248A77A5E6C12EA58 /* SpeakerStatsPanel.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -392,6 +395,7 @@
 				D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */,
 				9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */,
 				CC8E52AE8B4ED3D358932C6E /* SangamIntents.swift in Sources */,
+				8863F107C3E62AEE467B0689 /* SpeakerStatsPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

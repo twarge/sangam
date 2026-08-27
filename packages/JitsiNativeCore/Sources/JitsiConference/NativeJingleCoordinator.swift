@@ -179,6 +179,29 @@ public struct BreakoutRoom: Identifiable, Equatable, Sendable {
   }
 }
 
+/// One row of speaker statistics: how long someone has held the floor.
+public struct SpeakerStat: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var displayName: String
+  public var totalSpeakingTime: TimeInterval
+  public var isSpeaking: Bool
+  public var hasLeft: Bool
+
+  public init(
+    id: String,
+    displayName: String,
+    totalSpeakingTime: TimeInterval,
+    isSpeaking: Bool,
+    hasLeft: Bool
+  ) {
+    self.id = id
+    self.displayName = displayName
+    self.totalSpeakingTime = totalSpeakingTime
+    self.isSpeaking = isSpeaking
+    self.hasLeft = hasLeft
+  }
+}
+
 /// One poll in the meeting, with live vote state.
 public struct MeetingPoll: Identifiable, Equatable, Sendable {
   public struct Answer: Equatable, Sendable {
@@ -270,6 +293,16 @@ public actor NativeJingleCoordinator {
   private var breakoutRoomsComponent: String?
   /// The deployment's polls component, discovered the same way.
   private var pollsComponent: String?
+  /// The deployment's speaker-stats component, discovered the same way.
+  private var speakerStatsComponent: String?
+  /// Accumulated dominant-speaker time per endpoint (seconds), seeded from
+  /// the component's history and grown from the bridge's dominant-speaker
+  /// events; names for speakers who already left ride the snapshot.
+  private var speakerTotals: [String: TimeInterval] = [:]
+  private var speakerSnapshotNames: [String: String] = [:]
+  private var departedSpeakerIDs: Set<String> = []
+  private var speakingEndpointID: String?
+  private var speakingSince: Date?
   /// The meeting's polls by id, in arrival order.
   private var polls: [String: MeetingPoll] = [:]
   private var pollOrder: [String] = []
@@ -980,6 +1013,12 @@ public actor NativeJingleCoordinator {
     polls = [:]
     pollOrder = []
     roomPasswordProtected = false
+    speakerStatsComponent = nil
+    speakerTotals = [:]
+    speakerSnapshotNames = [:]
+    departedSpeakerIDs = []
+    speakingEndpointID = nil
+    speakingSince = nil
     pendingLocalCandidates.removeAll()
     clearRemoteSourceState()
     participants.removeAll()
@@ -1306,6 +1345,7 @@ public actor NativeJingleCoordinator {
         case "av_moderation": avModerationComponent = identity[attribute: "name"]
         case "breakout_rooms": breakoutRoomsComponent = identity[attribute: "name"]
         case "polls": pollsComponent = identity[attribute: "name"]
+        case "speakerstats": speakerStatsComponent = identity[attribute: "name"]
         default: break
         }
       }
@@ -1313,7 +1353,8 @@ public actor NativeJingleCoordinator {
         .diagnostic(
           message: "components: av-moderation=\(avModerationComponent ?? "none")"
             + " breakout-rooms=\(breakoutRoomsComponent ?? "none")"
-            + " polls=\(pollsComponent ?? "none")"))
+            + " polls=\(pollsComponent ?? "none")"
+            + " speaker-stats=\(speakerStatsComponent ?? "none")"))
     } catch {
       emit(.diagnostic(message: "components: discovery failed (\(error.localizedDescription))"))
     }
@@ -1348,7 +1389,92 @@ public actor NativeJingleCoordinator {
       handlePollsMessage(object)
       return true
     }
+    if type == "speakerstats", let component = speakerStatsComponent,
+      XMPPJID.matches(sender, component)
+    {
+      handleSpeakerStatsSnapshot(object)
+      return true
+    }
     return false
+  }
+
+  /// Credits the outgoing speaker's floor time and stamps the new one. The
+  /// new dominant speaker also reports themselves to the component, which
+  /// is how the server-side history stays right for late joiners.
+  private func noteDominantSpeaker(_ endpointID: String?) async {
+    let now = Date()
+    if let previous = speakingEndpointID, let since = speakingSince {
+      speakerTotals[previous, default: 0] += now.timeIntervalSince(since)
+    }
+    speakingEndpointID = endpointID
+    speakingSince = endpointID == nil ? nil : now
+    if endpointID == configuration.nickname, let component = speakerStatsComponent {
+      try? await connection.send(
+        XMPPElement(
+          name: "message",
+          attributes: ["to": component, "id": nextID(prefix: "speakerstats")],
+          children: [
+            XMPPElement(
+              name: "speakerstats",
+              namespace: "http://jitsi.org/jitmeet",
+              attributes: ["room": configuration.roomJID, "silence": "false"]
+            )
+          ]
+        )
+      )
+    }
+  }
+
+  /// The component's history snapshot, sent when this client joins: totals
+  /// replace local ones (the server's are authoritative for time before we
+  /// arrived), and speakers who already left keep their names.
+  private func handleSpeakerStatsSnapshot(_ object: [String: Any]) {
+    guard let users = object["users"] as? [String: [String: Any]] else { return }
+    for (id, info) in users {
+      if let milliseconds = info["totalDominantSpeakerTime"] as? Double {
+        speakerTotals[id] = milliseconds / 1_000
+      }
+      if let name = info["displayName"] as? String, !name.isEmpty {
+        speakerSnapshotNames[id] = name
+      }
+      if participants[id] == nil, id != configuration.nickname {
+        departedSpeakerIDs.insert(id)
+      }
+    }
+  }
+
+  /// A live snapshot of who has held the floor for how long, sorted by
+  /// time. The current speaker's running interval is included.
+  public func currentSpeakerStats() -> [SpeakerStat] {
+    var ids = Set(speakerTotals.keys)
+    ids.formUnion(participants.keys)
+    ids.insert(configuration.nickname)
+    let now = Date()
+    return ids.map { id in
+      var total = speakerTotals[id] ?? 0
+      let speaking = id == speakingEndpointID
+      if speaking, let since = speakingSince {
+        total += now.timeIntervalSince(since)
+      }
+      let name: String =
+        id == configuration.nickname
+        ? configuration.displayName
+        : participants[id]?.displayName ?? speakerSnapshotNames[id] ?? id
+      return SpeakerStat(
+        id: id,
+        displayName: name,
+        totalSpeakingTime: total,
+        isSpeaking: speaking,
+        hasLeft: departedSpeakerIDs.contains(id) && participants[id] == nil
+          && id != configuration.nickname
+      )
+    }.sorted { lhs, rhs in
+      if lhs.totalSpeakingTime != rhs.totalSpeakingTime {
+        return lhs.totalSpeakingTime > rhs.totalSpeakingTime
+      }
+      return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+        == .orderedAscending
+    }
   }
 
   private func handlePollsMessage(_ object: [String: Any]) {
@@ -1826,6 +1952,7 @@ public actor NativeJingleCoordinator {
         }
       case .dominantSpeaker(let endpointID):
         emit(.diagnostic(message: "bridge: dominant speaker \(endpointID ?? "none")"))
+        await noteDominantSpeaker(endpointID)
         emit(.dominantSpeakerChanged(endpointID: endpointID))
       case .lastNChanged(let current, _, _):
         emit(.diagnostic(message: "bridge: lastN endpoints [\(current.joined(separator: ", "))]"))
