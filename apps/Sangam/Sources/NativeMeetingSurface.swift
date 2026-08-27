@@ -9,16 +9,6 @@ import SwiftUI
   import AppKit
 #endif
 
-#if os(iOS)
-  /// The legacy adapter survives on iOS only, so macOS always runs the native
-  /// transport and never consults this switch.
-  enum NativeTransportMode {
-    static var isEnabled: Bool {
-      ProcessInfo.processInfo.environment["SANGAM_LEGACY_JITSI"] != "1"
-    }
-  }
-#endif
-
 struct NativeMeetingSurface: View {
   let configuration: MeetingConfiguration
   @ObservedObject var controller: MeetingController

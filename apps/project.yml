@@ -27,9 +27,6 @@ settings:
 packages:
   JitsiNativeCore:
     path: ../packages/JitsiNativeCore
-  JitsiMeetSDK:
-    url: https://github.com/jitsi/jitsi-meet-ios-sdk-releases.git
-    exactVersion: 13.1.1
 
 targets:
   Sangam:
@@ -47,8 +44,6 @@ targets:
         product: JitsiMedia
       - package: JitsiNativeCore
         product: JitsiConference
-      - package: JitsiMeetSDK
-        destinationFilters: [iOS]
       - target: SangamBroadcastExtension
         embed: true
         destinationFilters: [iOS]

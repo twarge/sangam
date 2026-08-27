@@ -286,17 +286,8 @@ struct MeetingView: View {
     }
   #endif
 
-  @ViewBuilder
   private var meetingSurface: some View {
-    #if os(iOS)
-      if NativeTransportMode.isEnabled {
-        NativeMeetingSurface(configuration: configuration, controller: controller)
-      } else {
-        PlatformMeetingSurface(configuration: configuration, controller: controller)
-      }
-    #else
-      NativeMeetingSurface(configuration: configuration, controller: controller)
-    #endif
+    NativeMeetingSurface(configuration: configuration, controller: controller)
   }
 }
 

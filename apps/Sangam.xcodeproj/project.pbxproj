@@ -20,10 +20,8 @@
 		3AC7F4262007860171A451F6 /* MeetingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570BA7976AA9D8EC8251C514 /* MeetingController.swift */; };
 		432E5BEC316DEF6417DA3781 /* MeetingControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19074360D5D558EF60955DBD /* MeetingControlBar.swift */; };
 		43F6C5C0C6709789AFC38EA0 /* SangamWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4161D0C3DE1CB3CE797055F2 /* SangamWidgets.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		462CC651A92FED8750F6586C /* JitsiMeetSDK in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, ); productRef = EE53558E2CBC14575E6E1CE4 /* JitsiMeetSDK */; };
 		51B966F2B1C23394819A886E /* MeetingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */; };
 		53DE55F9FF8684977961317E /* FeedWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */; };
-		5BA33D29762719668331175D /* PlatformMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */; };
 		60531943B3842581B8FD0B0C /* SangamBroadcastExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0F43CEDFACF4E584D9316019 /* SangamBroadcastExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92020D258073CA69E8B28E7 /* PictureInPicture.swift */; };
 		65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */; };
@@ -84,7 +82,6 @@
 		19074360D5D558EF60955DBD /* MeetingControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingControlBar.swift; sourceTree = "<group>"; };
 		193A237959FDD9FC7F773DFC /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingActivityAttributes.swift; sourceTree = "<group>"; };
-		3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformMeetingSurface.swift; sourceTree = "<group>"; };
 		3CD0E97233746E8E30D1B33D /* PollsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollsPanel.swift; sourceTree = "<group>"; };
 		3FBBA1B46BB8A1715D0F7D29 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		4161D0C3DE1CB3CE797055F2 /* SangamWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SangamWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -126,7 +123,6 @@
 				8A41E847CA299F6D5566466D /* JitsiNativeCore in Frameworks */,
 				0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */,
 				D7E76F21778BED4F9B91B79E /* JitsiConference in Frameworks */,
-				462CC651A92FED8750F6586C /* JitsiMeetSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,7 +148,6 @@
 				C47C324E5E8C593BF40E952B /* MenuBarControls.swift */,
 				6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */,
 				D92020D258073CA69E8B28E7 /* PictureInPicture.swift */,
-				3A654D993AED191B14922972 /* PlatformMeetingSurface.swift */,
 				3CD0E97233746E8E30D1B33D /* PollsPanel.swift */,
 				60B69BC7F196A3DCB70124DC /* ReplayKitFrameReceiver.swift */,
 				B0C991D47AFD16CAABED8B8D /* RootView.swift */,
@@ -289,7 +284,6 @@
 				302E109F2207DCC9D637AAAB /* JitsiNativeCore */,
 				D1C05CC97547E3D084834834 /* JitsiMedia */,
 				B5F82B81FB7A40EBD4529E7A /* JitsiConference */,
-				EE53558E2CBC14575E6E1CE4 /* JitsiMeetSDK */,
 			);
 			productName = Sangam;
 			productReference = 978911C6FFA40F9C1D762C5F /* Sangam.app */;
@@ -325,7 +319,6 @@
 			mainGroup = B347957D816C093261B8CCEC;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				5E626B5F18B548A7DBC3897F /* XCRemoteSwiftPackageReference "jitsi-meet-ios-sdk-releases" */,
 				4F8F34258CC746795AF08A8B /* XCLocalSwiftPackageReference "../packages/JitsiNativeCore" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -393,7 +386,6 @@
 				80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */,
 				65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */,
 				634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */,
-				5BA33D29762719668331175D /* PlatformMeetingSurface.swift in Sources */,
 				2097FAD13E0FF954E0D1A9FF /* PollsPanel.swift in Sources */,
 				FBE603DE784F084E0EF8204A /* ReplayKitFrameReceiver.swift in Sources */,
 				D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */,
@@ -740,17 +732,6 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		5E626B5F18B548A7DBC3897F /* XCRemoteSwiftPackageReference "jitsi-meet-ios-sdk-releases" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jitsi/jitsi-meet-ios-sdk-releases.git";
-			requirement = {
-				kind = exactVersion;
-				version = 13.1.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		302E109F2207DCC9D637AAAB /* JitsiNativeCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -763,11 +744,6 @@
 		D1C05CC97547E3D084834834 /* JitsiMedia */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = JitsiMedia;
-		};
-		EE53558E2CBC14575E6E1CE4 /* JitsiMeetSDK */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5E626B5F18B548A7DBC3897F /* XCRemoteSwiftPackageReference "jitsi-meet-ios-sdk-releases" */;
-			productName = JitsiMeetSDK;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
