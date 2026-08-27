@@ -9,21 +9,26 @@ import Foundation
 /// — the content source AVKit's Picture in Picture accepts on both macOS
 /// and iOS. Decoded frames arrive as CVPixelBuffers from hardware decoders
 /// or as I420 from software ones; the latter are converted to NV12.
-public final class VideoSampleBufferBridge: NSObject, @unchecked Sendable {
+///
+/// The layer, like every CALayer, is main-actor bound; frames bypass it and
+/// go through its `AVSampleBufferVideoRenderer`, which is documented
+/// thread-safe and is captured once here so the decode thread never touches
+/// the layer itself.
+@MainActor
+public final class VideoSampleBufferBridge {
   public let layer = AVSampleBufferDisplayLayer()
 
-  private let forwarder = FrameForwarder()
+  private let forwarder: FrameForwarder
   private weak var currentTrack: RTCVideoTrack?
 
-  public override init() {
-    super.init()
+  public init() {
+    forwarder = FrameForwarder(renderer: layer.sampleBufferRenderer)
     layer.videoGravity = .resizeAspect
-    forwarder.layer = layer
   }
 
   public func attach(to track: RemoteVideoTrack) {
     detach()
-    layer.sampleBufferRenderer.flush()
+    forwarder.flush()
     track.track.add(forwarder)
     currentTrack = track.track
   }
@@ -35,26 +40,35 @@ public final class VideoSampleBufferBridge: NSObject, @unchecked Sendable {
 }
 
 /// The RTCVideoRenderer half: converts each frame to a sample buffer and
-/// enqueues it. Runs on WebRTC's decode thread; the display layer's
-/// renderer is thread-safe.
+/// enqueues it. Runs on WebRTC's decode thread; the video renderer is
+/// thread-safe.
 private final class FrameForwarder: NSObject, RTCVideoRenderer, @unchecked Sendable {
-  weak var layer: AVSampleBufferDisplayLayer?
+  // The renderer object is documented thread-safe; the class's @unchecked
+  // Sendable covers holding it across the decode thread.
+  nonisolated(unsafe) private let renderer: AVSampleBufferVideoRenderer
 
   private var pool: CVPixelBufferPool?
   private var poolWidth = 0
   private var poolHeight = 0
+
+  init(renderer: AVSampleBufferVideoRenderer) {
+    self.renderer = renderer
+  }
+
+  func flush() {
+    renderer.flush()
+  }
 
   func setSize(_ size: CGSize) {}
 
   func renderFrame(_ frame: RTCVideoFrame?) {
     guard
       let frame,
-      let layer,
-      layer.sampleBufferRenderer.isReadyForMoreMediaData,
+      renderer.isReadyForMoreMediaData,
       let pixelBuffer = pixelBuffer(from: frame),
       let sample = sampleBuffer(for: pixelBuffer, timeStampNs: frame.timeStampNs)
     else { return }
-    layer.sampleBufferRenderer.enqueue(sample)
+    renderer.enqueue(sample)
   }
 
   private func pixelBuffer(from frame: RTCVideoFrame) -> CVPixelBuffer? {

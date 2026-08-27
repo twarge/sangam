@@ -118,7 +118,7 @@ extension PictureInPictureManager: AVPictureInPictureSampleBufferPlaybackDelegat
 #if os(macOS)
   struct PiPLayerHost: NSViewRepresentable {
     let layer: AVSampleBufferDisplayLayer
-    let onReady: () -> Void
+    let onReady: @MainActor @Sendable () -> Void
 
     func makeNSView(context: Context) -> NSView {
       let view = NSView()
@@ -136,7 +136,7 @@ extension PictureInPictureManager: AVPictureInPictureSampleBufferPlaybackDelegat
 #else
   struct PiPLayerHost: UIViewRepresentable {
     let layer: AVSampleBufferDisplayLayer
-    let onReady: () -> Void
+    let onReady: @MainActor @Sendable () -> Void
 
     func makeUIView(context: Context) -> UIView {
       let view = UIView()
