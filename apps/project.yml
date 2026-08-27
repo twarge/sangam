@@ -33,6 +33,7 @@ targets:
     productName: Sangam
     sources:
       - path: Sangam/Sources
+      - path: SangamShared
       - path: Sangam/Assets.xcassets
     dependencies:
       - package: JitsiNativeCore
@@ -44,6 +45,9 @@ targets:
       - package: JitsiMeetSDK
         destinationFilters: [iOS]
       - target: SangamBroadcastExtension
+        embed: true
+        destinationFilters: [iOS]
+      - target: SangamWidgets
         embed: true
         destinationFilters: [iOS]
     settings:
@@ -60,6 +64,23 @@ targets:
         "INFOPLIST_FILE[sdk=macosx*]": Sangam/Info-macOS.plist
         "INFOPLIST_FILE[sdk=iphoneos*]": Sangam/Info-iOS.plist
         "INFOPLIST_FILE[sdk=iphonesimulator*]": Sangam/Info-iOS.plist
+    scheme:
+      gatherCoverageData: false
+
+  SangamWidgets:
+    type: app-extension
+    platform: iOS
+    productName: SangamWidgets
+    sources:
+      - path: SangamWidgets
+      - path: SangamShared
+    settings:
+      base:
+        INFOPLIST_FILE: SangamWidgets/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam.widgets
+        PRODUCT_NAME: SangamWidgets
+        SKIP_INSTALL: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
     scheme:
       gatherCoverageData: false
 

@@ -162,17 +162,21 @@ struct MeetingView: View {
         switch state {
         case .joined:
           CallSessionManager.shared.begin(room: configuration.normalizedRoom)
+          MeetingActivityController.shared.begin(room: configuration.normalizedRoom)
         case .ended, .failed:
           CallSessionManager.shared.end()
+          MeetingActivityController.shared.end()
         default:
           break
         }
       }
       .onChange(of: controller.isAudioMuted) { _, muted in
         CallSessionManager.shared.setMuted(muted)
+        MeetingActivityController.shared.update(muted: muted)
       }
       .onDisappear {
         CallSessionManager.shared.end()
+        MeetingActivityController.shared.end()
       }
     #endif
     .sheet(isPresented: $controller.showsPollsPane) {
