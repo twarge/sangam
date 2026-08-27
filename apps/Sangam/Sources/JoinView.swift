@@ -28,19 +28,31 @@ struct JoinView: View {
       }
 
       VStack(spacing: 12) {
-        TextField("Room name", text: $room)
+        TextField("Room name or meeting link", text: $room)
           .textFieldStyle(.roundedBorder)
           .focused($focusedField, equals: .room)
           .onSubmit(join)
-        TextField("Display name", text: $displayName)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit(join)
+          // A pasted meeting link splits into its parts: the server fills
+          // in below and the room field keeps just the room.
+          .onChange(of: room) { _, text in
+            guard text.contains("/") else { return }
+            let candidate = text.contains("://") ? text : "https://" + text
+            guard
+              let url = URL(string: candidate),
+              let parsed = MeetingHub.configuration(from: url)
+            else { return }
+            serverURL = parsed.serverURL.absoluteString
+            room = parsed.room
+          }
         TextField("Jitsi server", text: $serverURL)
           .textFieldStyle(.roundedBorder)
           #if os(iOS)
             .textInputAutocapitalization(.never)
             .keyboardType(.URL)
           #endif
+        TextField("Display name", text: $displayName)
+          .textFieldStyle(.roundedBorder)
+          .onSubmit(join)
       }
       .frame(maxWidth: 420)
 
