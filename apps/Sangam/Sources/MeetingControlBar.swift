@@ -258,13 +258,22 @@ private struct MoreMenu: View {
         }
       }
       Divider()
-      // Apple's ML noise suppression (Voice Isolation) is a system
-      // microphone mode: only the user can switch it, from the picker this
-      // opens. The label shows what is active right now.
-      Text("Microphone: \(Self.microphoneModeName)")
-      Button("Noise Suppression (Mic Mode)…") {
-        AVCaptureDevice.showSystemUserInterface(.microphoneModes)
-      }
+      #if os(iOS)
+        // Apple's ML noise suppression (Voice Isolation) is a system
+        // microphone mode: only the user can switch it, from the picker
+        // this opens. It applies here because iOS capture runs through
+        // Apple's voice-processing unit.
+        Text("Microphone: \(Self.microphoneModeName)")
+        Button("Noise Suppression (Mic Mode)…") {
+          AVCaptureDevice.showSystemUserInterface(.microphoneModes)
+        }
+      #else
+        // macOS offers microphone modes only to apps capturing through
+        // Apple's voice-processing unit; this WebRTC build captures via
+        // the HAL, so the system picker would show nothing for Sangam.
+        // WebRTC's own suppression chain is always on instead.
+        Text("Noise Suppression: On (WebRTC)")
+      #endif
       if controller.isModerator {
         Divider()
         Toggle(
