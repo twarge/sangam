@@ -28,6 +28,7 @@
 		9B90CB41CDB264585024AD6F /* MacScreenShareController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C87E2777CF1ACC3EA7731E2 /* MacScreenShareController.swift */; };
 		9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9281FDC1DCBFB690D23631E7 /* SangamApp.swift */; };
 		A20421A69544D4E3E835FD5F /* CallSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55AB411F65CE07234B0FF28 /* CallSessionManager.swift */; };
+		CC8E52AE8B4ED3D358932C6E /* SangamIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FAFE5FC31E55605E60979E /* SangamIntents.swift */; };
 		CCE6710DC4171CF48B6568ED /* MeetingSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = E010A4D7D521AEE84209E08C /* MeetingSounds.swift */; };
 		D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C991D47AFD16CAABED8B8D /* RootView.swift */; };
 		D7E76F21778BED4F9B91B79E /* JitsiConference in Frameworks */ = {isa = PBXBuildFile; productRef = B5F82B81FB7A40EBD4529E7A /* JitsiConference */; };
@@ -84,6 +85,7 @@
 		B0C991D47AFD16CAABED8B8D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		BBEB4F7C9A8C2B066969F316 /* MeetingHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingHub.swift; sourceTree = "<group>"; };
 		C55AB411F65CE07234B0FF28 /* CallSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSessionManager.swift; sourceTree = "<group>"; };
+		D5FAFE5FC31E55605E60979E /* SangamIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamIntents.swift; sourceTree = "<group>"; };
 		D92020D258073CA69E8B28E7 /* PictureInPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPicture.swift; sourceTree = "<group>"; };
 		E010A4D7D521AEE84209E08C /* MeetingSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSounds.swift; sourceTree = "<group>"; };
 		E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinView.swift; sourceTree = "<group>"; };
@@ -125,6 +127,7 @@
 				60B69BC7F196A3DCB70124DC /* ReplayKitFrameReceiver.swift */,
 				B0C991D47AFD16CAABED8B8D /* RootView.swift */,
 				9281FDC1DCBFB690D23631E7 /* SangamApp.swift */,
+				D5FAFE5FC31E55605E60979E /* SangamIntents.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -308,6 +311,7 @@
 				FBE603DE784F084E0EF8204A /* ReplayKitFrameReceiver.swift in Sources */,
 				D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */,
 				9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */,
+				CC8E52AE8B4ED3D358932C6E /* SangamIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
