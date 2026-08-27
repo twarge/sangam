@@ -4,6 +4,12 @@ import JitsiXMPP
 
 @testable import JitsiConference
 
+/// Whether tests may spin up real WebRTC media. `RTCPeerConnectionFactory`
+/// initializes a CoreAudio device module, and on a headless CI runner with no
+/// audio device that init blocks forever — starving the cooperative pool and
+/// freezing every other in-flight test with it. GitHub sets `CI` on runners.
+let mediaHardwareAvailable = ProcessInfo.processInfo.environment["CI"] == nil
+
 /// An `XMPPTextSocket` whose incoming frames are supplied by the test rather
 /// than a server. `receive()` suspends when the script runs dry, so a
 /// coordinator's receive loop parks between stanzas exactly as it would against

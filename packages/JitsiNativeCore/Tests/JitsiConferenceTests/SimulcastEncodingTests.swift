@@ -73,7 +73,7 @@ private func jicofoStyleOffer(extraRemoteVideoLines: Int = 0) -> String {
   return ([sessionLines] + sections).joined(separator: "\r\n") + "\r\n"
 }
 
-@Test
+@Test(.enabled(if: mediaHardwareAvailable, "needs an audio device; hangs on headless runners"))
 func keepsThreeEncodingsAcrossRTXAndRenegotiations() async throws {
   let factory = WebRTCMediaFactory()
   let bridge = PeerConnectionEventBridge()

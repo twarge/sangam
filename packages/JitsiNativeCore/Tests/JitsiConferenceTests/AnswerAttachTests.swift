@@ -9,7 +9,7 @@ import Testing
 /// Local tracks must still bind to the first audio/video lines; if WebRTC's
 /// transceiver reuse refuses an msid-bearing line, the answer degrades to
 /// recvonly with no local sources and Jicofo rejects the session-accept.
-@Test
+@Test(.enabled(if: mediaHardwareAvailable, "needs an audio device; hangs on headless runners"))
 func attachesLocalTracksToAnOfferWithMediaLevelMsid() async throws {
   let fingerprint: String =
     (0..<32).map { String(format: "%02X", ($0 * 7 + 11) % 256) }.joined(separator: ":")
