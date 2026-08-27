@@ -236,6 +236,11 @@ public actor NativeJingleCoordinator {
     var owner: String?
     var videoType: String?
     var isBridgePlaceholder: Bool
+    /// The id WebRTC actually gave the receiver's track — synthesized, not
+    /// the signaled msid track id, for media lines added by renegotiation.
+    /// Removal announcements must use this id, because it is what the app's
+    /// stream list holds.
+    var rtcTrackID: String?
   }
 
   // Lobby moderation. The room only tells moderators where its lobby is, and
@@ -1447,9 +1452,16 @@ public actor NativeJingleCoordinator {
         let parts = msid.split(separator: " ")
         let trackID = parts.count == 2 ? String(parts[1]) : msid
         if session.action == .sourceRemove {
+          // Announce the id the app's stream list actually holds: the RTC
+          // track id when the track arrived, the signaled one otherwise.
+          let announcedID = videoSourceByTrackID[trackID]?.rtcTrackID ?? trackID
+          if let alias = videoSourceByTrackID[trackID]?.rtcTrackID {
+            videoSourceByTrackID.removeValue(forKey: alias)
+            remoteVideoTracks.removeValue(forKey: alias)
+          }
           videoSourceByTrackID.removeValue(forKey: trackID)
           trackIDByVideoSSRC.removeValue(forKey: source.ssrc)
-          if !removedTrackIDs.contains(trackID) { removedTrackIDs.append(trackID) }
+          if !removedTrackIDs.contains(announcedID) { removedTrackIDs.append(announcedID) }
           continue
         }
         let owner =
@@ -1533,11 +1545,19 @@ public actor NativeJingleCoordinator {
     guard let remoteSDP = await peerConnection.currentRemoteSDP() else {
       throw NativeJingleCoordinatorError.sessionNotReady
     }
+    // Register added sources BEFORE renegotiating: WebRTC surfaces the new
+    // track during setRemoteDescription, and the actor yields there — the
+    // track-added event must find the source in the registry or it goes
+    // unattributed (an anonymous, never-staged tile).
+    if session.action == .sourceAdd {
+      registerRemoteVideoSources(from: session)
+    }
     let updated = try JitsiMultistreamSDP().applyingRemoteSourceUpdate(session, to: remoteSDP)
     _ = try await peerConnection.answerRenegotiation(remoteOfferSDP: updated)
     // A newly published remote source needs the bridge to be re-told we want it.
     noteRemoteVideoSources(from: session)
-    let removedTrackIDs = registerRemoteVideoSources(from: session)
+    let removedTrackIDs =
+      session.action == .sourceRemove ? registerRemoteVideoSources(from: session) : []
     // Announce removed sources' tracks ourselves: an ended share (or a
     // participant's retired camera) must leave the roster even when WebRTC
     // stays silent about the torn-down receiver.
@@ -1556,8 +1576,21 @@ public actor NativeJingleCoordinator {
           emit(.peerConnectionState(state))
         case .localCandidate(let candidate):
           try await send(candidate)
-        case .remoteVideoTrackAdded(let track):
+        case .remoteVideoTrackAdded(let track, let ssrc):
           remoteVideoTracks[track.id] = track
+          // Attribute by SSRC: WebRTC keeps signaled msid track ids only for
+          // the initial offer's media lines and synthesizes ids for lines
+          // added by renegotiation — which is how every screen share
+          // arrives. Alias the source description under the real track id so
+          // every later lookup (announce, videoType change, removal) works.
+          if let ssrc, let signaledTrackID = trackIDByVideoSSRC[ssrc],
+            signaledTrackID != track.id,
+            var info = videoSourceByTrackID[signaledTrackID]
+          {
+            info.rtcTrackID = track.id
+            videoSourceByTrackID[signaledTrackID] = info
+            videoSourceByTrackID[track.id] = info
+          }
           announceRemoteVideoTrack(id: track.id)
         case .remoteVideoTrackRemoved(let id):
           remoteVideoTracks.removeValue(forKey: id)

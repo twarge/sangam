@@ -487,10 +487,21 @@ struct CoordinatorNegotiationTests {
       TestConference.jingleIQ(
         id: "add-1", action: "source-add", body: Self.sourceAddContent(mid: "7", ssrc: 9_701))
     )
-    _ = await eventually {
-      await harness.socket.stanzasAfterBootstrap()
-        .contains { $0.contains("id=\"add-1\"") && $0.contains("type=\"result\"") }
+    // The track must be attributed to its source even though WebRTC
+    // synthesizes track ids for renegotiated media lines (the SSRC is the
+    // reliable join key).
+    let added = await eventuallyValue {
+      await harness.events.compactMap { event -> RemoteVideoStream? in
+        if case .remoteVideoTrackAdded(let stream) = event,
+          stream.sourceName == "remote-v7"
+        {
+          return stream
+        }
+        return nil
+      }.first
     }
+    let stream = try #require(added, "the added source's track was never attributed")
+    #expect(stream.endpointID == "remote")
 
     await harness.socket.push(
       TestConference.jingleIQ(
@@ -499,11 +510,11 @@ struct CoordinatorNegotiationTests {
     #expect(
       await eventually {
         await harness.events.contains {
-          if case .remoteVideoTrackRemoved(let id) = $0 { return id == "remote-track-9701" }
+          if case .remoteVideoTrackRemoved(let id) = $0 { return id == stream.id }
           return false
         }
       },
-      "the removed source's track was never announced as removed"
+      "the removal did not announce the id the app's stream list holds"
     )
   }
 

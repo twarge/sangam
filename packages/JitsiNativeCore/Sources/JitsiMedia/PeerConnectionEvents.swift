@@ -40,7 +40,11 @@ public final class RemoteVideoTrack: @unchecked Sendable, Identifiable {
 public enum NativePeerConnectionEvent: Sendable {
   case connectionStateChanged(NativePeerConnectionState)
   case localCandidate(NativeICECandidate)
-  case remoteVideoTrackAdded(RemoteVideoTrack)
+  /// `ssrc` is the receiver's first SSRC, the reliable handle for matching a
+  /// track back to its signaled source: WebRTC keeps signaled msid track ids
+  /// only for tracks from the initial offer and synthesizes ids for media
+  /// lines added by renegotiation (every screen share arrives that way).
+  case remoteVideoTrackAdded(RemoteVideoTrack, ssrc: UInt32?)
   case remoteVideoTrackRemoved(id: String)
   case negotiationNeeded
 }
@@ -162,7 +166,8 @@ extension PeerConnectionEventBridge: RTCPeerConnectionDelegate {
     streams mediaStreams: [RTCMediaStream]
   ) {
     guard let track = rtpReceiver.track as? RTCVideoTrack else { return }
-    emit(.remoteVideoTrackAdded(RemoteVideoTrack(track: track)))
+    let ssrc = rtpReceiver.parameters.encodings.first?.ssrc?.uint32Value
+    emit(.remoteVideoTrackAdded(RemoteVideoTrack(track: track), ssrc: ssrc))
   }
 
   public func peerConnection(
