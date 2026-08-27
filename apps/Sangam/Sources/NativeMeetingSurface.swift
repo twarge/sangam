@@ -24,6 +24,9 @@ struct NativeMeetingSurface: View {
   @ObservedObject var controller: MeetingController
 
   @StateObject private var model = NativeMeetingModel()
+  /// The floating sidebar's width, draggable at its trailing edge and
+  /// remembered across meetings.
+  @AppStorage("sidebarWidth") private var sidebarWidth = 236.0
 
 
   var body: some View {
@@ -57,13 +60,16 @@ struct NativeMeetingSurface: View {
           // backdrop runs all the way to the window edge behind it.
           sidebarRoster
             .scrollContentBackground(.hidden)
-            .frame(width: 236)
+            .frame(width: sidebarWidth)
             .background {
               SidebarBackdrop()
                 .overlay(Color.black.opacity(0.35))
                 .ignoresSafeArea()
             }
             .environment(\.colorScheme, .dark)
+            .overlay(alignment: .trailing) {
+              SidebarResizeHandle(width: $sidebarWidth)
+            }
             .transition(.move(edge: .leading).combined(with: .opacity))
         }
       }
@@ -212,6 +218,10 @@ struct NativeMeetingSurface: View {
         #endif
       }
     }
+    // Before any video exists the stage has no intrinsic size; without an
+    // explicit fill the leading-aligned ZStack collapses to the sidebar's
+    // width and the sidebar renders centered in the window on first join.
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(.black)
     .overlay(alignment: .topTrailing) {
       // A corner self-preview for the grid layout only: the other layouts show
@@ -425,6 +435,36 @@ struct NativeMeetingSurface: View {
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+  }
+
+  /// The invisible grab strip on the sidebar's trailing edge; dragging it
+  /// resizes the panel between sensible bounds.
+  private struct SidebarResizeHandle: View {
+    @Binding var width: Double
+
+    @State private var widthAtDragStart: Double?
+
+    var body: some View {
+      Color.clear
+        .frame(width: 8)
+        .contentShape(Rectangle())
+        .onHover { inside in
+          if inside {
+            NSCursor.resizeLeftRight.push()
+          } else {
+            NSCursor.pop()
+          }
+        }
+        .gesture(
+          DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+              let base = widthAtDragStart ?? width
+              widthAtDragStart = base
+              width = min(420, max(180, base + value.translation.width))
+            }
+            .onEnded { _ in widthAtDragStart = nil }
+        )
+    }
   }
 
   /// A participant's name line in the sidebar, with their live state beside
