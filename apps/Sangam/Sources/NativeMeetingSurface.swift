@@ -1156,6 +1156,7 @@ final class NativeMeetingModel: ObservableObject {
             serverURL: configuration.serverURL,
             room: roomOverride ?? configuration.normalizedRoom,
             displayName: configuration.displayName,
+            token: configuration.token,
             username: username,
             password: password,
             waitForHost: waitForHost,

@@ -164,7 +164,8 @@ public struct NativeConferenceBootstrap: Sendable {
       room: room,
       domain: xmppConnectionDomain,
       credential: credential,
-      endpointID: endpointID
+      endpointID: endpointID,
+      token: options.token
     )
 
     do {
@@ -314,10 +315,11 @@ public struct NativeConferenceBootstrap: Sendable {
     room: String,
     domain: String,
     credential: XMPPCredential,
-    endpointID: String
+    endpointID: String,
+    token: String?
   ) async throws -> (XMPPConnection, String) {
     var lastError: (any Error)?
-    for makeSocket in transportCandidates(deployment: deployment, room: room) {
+    for makeSocket in transportCandidates(deployment: deployment, room: room, token: token) {
       let socket: any XMPPTextSocket
       do {
         socket = try makeSocket()
@@ -347,20 +349,26 @@ public struct NativeConferenceBootstrap: Sendable {
     throw lastError ?? DiscoveryError.invalidResponse
   }
 
-  /// Transports to attempt, most capable first.
+  /// Transports to attempt, most capable first. The JWT (when the
+  /// deployment uses token auth — meet.jit.si's SSO, JaaS) rides the
+  /// connection URL: prosody validates `?token=` at session time.
   private func transportCandidates(
     deployment: DeploymentConfiguration,
-    room: String
+    room: String,
+    token: String?
   ) -> [() throws -> any XMPPTextSocket] {
     let webSocket: () throws -> any XMPPTextSocket = {
       #if canImport(Network)
         try NetworkXMPPTextSocket(
-          url: self.roomScopedWebSocketURL(deployment.xmppWebSocketURL, room: room),
+          url: Self.appending(
+            queryItems: [("room", room), ("token", token)],
+            to: deployment.xmppWebSocketURL),
           preflightURL: deployment.webSocketKeepAliveURL
         )
       #else
         URLSessionXMPPTextSocket(
-          url: deployment.xmppWebSocketURL,
+          url: Self.appending(
+            queryItems: [("token", token)], to: deployment.xmppWebSocketURL),
           preflightURL: deployment.webSocketKeepAliveURL
         )
       #endif
@@ -368,7 +376,7 @@ public struct NativeConferenceBootstrap: Sendable {
     guard let boshURL = deployment.boshURL else { return [webSocket] }
     let bosh: () throws -> any XMPPTextSocket = {
       URLSessionXMPPBOSHSocket(
-        url: boshURL,
+        url: Self.appending(queryItems: [("token", token)], to: boshURL),
         domain: deployment.xmppDomain,
         preflightURL: deployment.webSocketKeepAliveURL
       )
@@ -426,15 +434,18 @@ public struct NativeConferenceBootstrap: Sendable {
     Task { await connection.disconnect() }
   }
 
-  private func roomScopedWebSocketURL(_ url: URL, room: String) -> URL {
+  private static func appending(queryItems: [(String, String?)], to url: URL) -> URL {
     guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
       return url
     }
-    var queryItems = components.queryItems ?? []
-    if !queryItems.contains(where: { $0.name == "room" }) {
-      queryItems.append(URLQueryItem(name: "room", value: room))
+    var existing = components.queryItems ?? []
+    for (name, value) in queryItems {
+      guard let value, !value.isEmpty, !existing.contains(where: { $0.name == name }) else {
+        continue
+      }
+      existing.append(URLQueryItem(name: name, value: value))
     }
-    components.queryItems = queryItems
+    components.queryItems = existing
     return components.url ?? url
   }
 

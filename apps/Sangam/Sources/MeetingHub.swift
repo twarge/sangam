@@ -109,10 +109,15 @@ final class MeetingHub: ObservableObject {
     server.host = host
     server.port = url.port
     guard let serverURL = server.url else { return nil }
+    // Token-auth deployments hand out links with the JWT in the query —
+    // the same ?jwt= the web client honors.
+    let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+      .queryItems?.first { $0.name == "jwt" }?.value
     return MeetingConfiguration(
       serverURL: serverURL,
       room: room,
-      displayName: UserDefaults.standard.string(forKey: "displayName") ?? ""
+      displayName: UserDefaults.standard.string(forKey: "displayName") ?? "",
+      token: token.flatMap { $0.isEmpty ? nil : $0 }
     )
   }
 }

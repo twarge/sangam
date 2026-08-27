@@ -36,13 +36,7 @@ struct JoinView: View {
           // in below and the room field keeps just the room.
           .onChange(of: room) { _, text in
             guard text.contains("/") else { return }
-            let candidate = text.contains("://") ? text : "https://" + text
-            guard
-              let url = URL(string: candidate),
-              let parsed = MeetingHub.configuration(from: url)
-            else { return }
-            serverURL = parsed.serverURL.absoluteString
-            room = parsed.room
+            splitMeetingLink(text) { room = $0 }
           }
         TextField("Jitsi server", text: $serverURL)
           .textFieldStyle(.roundedBorder)
@@ -50,13 +44,7 @@ struct JoinView: View {
           // moves up and the server keeps just the origin. A plain origin
           // (no room path) is left exactly as typed.
           .onChange(of: serverURL) { _, text in
-            let candidate = text.contains("://") ? text : "https://" + text
-            guard
-              let url = URL(string: candidate),
-              let parsed = MeetingHub.configuration(from: url)
-            else { return }
-            room = parsed.room
-            serverURL = parsed.serverURL.absoluteString
+            splitMeetingLink(text) { serverURL = $0 }
           }
           #if os(iOS)
             .textInputAutocapitalization(.never)
@@ -82,6 +70,24 @@ struct JoinView: View {
     .padding(32)
     .defaultFocus($focusedField, .room)
     .onAppear(perform: focusRoomField)
+  }
+
+  /// Splits a pasted meeting link into the form's fields. A link carrying
+  /// a `?jwt=` token is a complete instruction — the form has nowhere to
+  /// hold the token, so it joins directly instead of dropping it.
+  private func splitMeetingLink(_ text: String, resetField: (String) -> Void) {
+    let candidate = text.contains("://") ? text : "https://" + text
+    guard
+      let url = URL(string: candidate),
+      let parsed = MeetingHub.configuration(from: url)
+    else { return }
+    if parsed.token != nil {
+      resetField("")
+      MeetingHub.shared.pendingJoin = parsed
+      return
+    }
+    serverURL = parsed.serverURL.absoluteString
+    room = parsed.room
   }
 
   /// macOS applies focus only once the window is key, and `onAppear` usually
