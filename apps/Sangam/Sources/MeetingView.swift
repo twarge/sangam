@@ -145,7 +145,7 @@ struct MeetingView: View {
       MeetingHub.shared.noteMeetingStarted(configuration, controller: controller)
     }
     .onDisappear {
-      MeetingHub.shared.noteMeetingEnded()
+      MeetingHub.shared.noteMeetingEnded(controller: controller)
     }
     .userActivity(
       MeetingHub.meetingActivityType,

@@ -2,8 +2,6 @@ import SwiftUI
 
 @main
 struct SangamApp: App {
-  @ObservedObject private var hub = MeetingHub.shared
-
   init() {
     #if os(iOS)
       // CallKit owns audio activation; WebRTC must be in manual-audio mode
@@ -27,8 +25,12 @@ struct SangamApp: App {
         SettingsView()
       }
 
-      // Quick call controls while the meeting window is buried.
-      MenuBarExtra(isInserted: $hub.menuBarVisible) {
+      // Quick call controls while the meeting window is buried. Always
+      // inserted: toggling a MenuBarExtra via isInserted re-enters the
+      // scene update (the status item's visibility KVO dirties the SwiftUI
+      // graph mid-evaluation) and overflows the stack, so the item stays
+      // and its CONTENT reflects whether a meeting is on.
+      MenuBarExtra {
         MenuBarControls()
       } label: {
         Image(systemName: "video.fill")

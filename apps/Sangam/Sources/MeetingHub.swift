@@ -24,30 +24,35 @@ final class MeetingHub: ObservableObject {
   /// Rooms joined lately, newest first, for Siri and Spotlight suggestions.
   @Published private(set) var recentRooms: [String]
 
-  /// Shows the macOS menu bar extra only while a meeting is on screen.
-  @Published var menuBarVisible = false
-
   private init() {
     recentRooms = UserDefaults.standard.stringArray(forKey: "recentRooms") ?? []
   }
 
   func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
-    activeConfiguration = configuration
-    activeController = controller
-    menuBarVisible = true
-    MeetingNotifications.prepare()
-    var recents = recentRooms.filter {
-      $0.caseInsensitiveCompare(configuration.normalizedRoom) != .orderedSame
+    // Deferred: the callers are view-lifecycle hooks, and publishing from
+    // inside a view update feeds SwiftUI's graph re-entrantly.
+    Task { @MainActor in
+      self.activeConfiguration = configuration
+      self.activeController = controller
+      MeetingNotifications.prepare()
+      var recents = self.recentRooms.filter {
+        $0.caseInsensitiveCompare(configuration.normalizedRoom) != .orderedSame
+      }
+      recents.insert(configuration.normalizedRoom, at: 0)
+      self.recentRooms = Array(recents.prefix(8))
+      UserDefaults.standard.set(self.recentRooms, forKey: "recentRooms")
     }
-    recents.insert(configuration.normalizedRoom, at: 0)
-    recentRooms = Array(recents.prefix(8))
-    UserDefaults.standard.set(recentRooms, forKey: "recentRooms")
   }
 
-  func noteMeetingEnded() {
-    activeConfiguration = nil
-    activeController = nil
-    menuBarVisible = false
+  /// Clears the active meeting — but only if `controller` still is it:
+  /// when a room switch replaces the meeting view, the old view's
+  /// disappearance can arrive after the new one's appearance.
+  func noteMeetingEnded(controller: MeetingController) {
+    Task { @MainActor in
+      guard self.activeController === controller else { return }
+      self.activeConfiguration = nil
+      self.activeController = nil
+    }
   }
 
   /// Joins a room by name on the user's configured server.
