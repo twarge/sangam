@@ -46,6 +46,18 @@ struct JoinView: View {
           }
         TextField("Jitsi server", text: $serverURL)
           .textFieldStyle(.roundedBorder)
+          // A full meeting link pasted here splits the other way: the room
+          // moves up and the server keeps just the origin. A plain origin
+          // (no room path) is left exactly as typed.
+          .onChange(of: serverURL) { _, text in
+            let candidate = text.contains("://") ? text : "https://" + text
+            guard
+              let url = URL(string: candidate),
+              let parsed = MeetingHub.configuration(from: url)
+            else { return }
+            room = parsed.room
+            serverURL = parsed.serverURL.absoluteString
+          }
           #if os(iOS)
             .textInputAutocapitalization(.never)
             .keyboardType(.URL)
