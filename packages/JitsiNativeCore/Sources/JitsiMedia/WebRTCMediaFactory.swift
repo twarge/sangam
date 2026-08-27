@@ -36,6 +36,16 @@ public enum WebRTCMediaError: Error, Equatable, Sendable {
   case peerConnectionCreationFailed
 }
 
+extension WebRTCMediaError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .peerConnectionCreationFailed:
+      return
+        "WebRTC refused the connection configuration (usually a malformed ICE server address)."
+    }
+  }
+}
+
 public final class WebRTCMediaFactory: @unchecked Sendable {
   public let peerConnectionFactory: RTCPeerConnectionFactory
 

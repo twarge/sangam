@@ -43,7 +43,11 @@ public struct ExternalService: Equatable, Sendable {
   /// The ICE URL form WebRTC expects, e.g. `turns:host:5349?transport=tcp`.
   public var iceURL: String {
     var url = "\(kind.rawValue):\(host):\(port)"
-    if let transport, !transport.isEmpty {
+    // Only TURN URIs take a transport parameter (RFC 7065). STUN URIs
+    // (RFC 7064) do not — and deployments do advertise `transport` on
+    // their STUN services (meet.jit.si does), which WebRTC then rejects as
+    // a malformed URL, invalidating the entire ICE configuration.
+    if kind == .turn || kind == .turns, let transport, !transport.isEmpty {
       url += "?transport=\(transport)"
     }
     return url

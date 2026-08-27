@@ -185,23 +185,35 @@ public struct NativeConferenceBootstrap: Sendable {
         connection: connection,
         domain: deployment.xmppDomain
       )
-      let coordinator = try NativeJingleCoordinator(
-        connection: connection,
-        configuration: NativeJingleConfiguration(
-          responderJID: boundJID,
-          occupantJID: "\(roomJID)/\(endpointID)",
-          displayName: options.displayName,
-          audioTrackID: "\(endpointID)-audio-track",
-          cameraTrackID: "\(endpointID)-camera-track",
-          audioSourceName: "\(endpointID)-a0",
-          cameraSourceName: "\(endpointID)-v0",
-          screenSourceName: "\(endpointID)-v1",
-          // Anonymous joins bind on the guest domain, but service components
-          // (AV moderation, speaker stats) announce on the main one.
-          xmppDomain: deployment.xmppDomain
-        ),
-        policy: PeerConnectionPolicy(iceServers: iceServers)
+      let jingleConfiguration = NativeJingleConfiguration(
+        responderJID: boundJID,
+        occupantJID: "\(roomJID)/\(endpointID)",
+        displayName: options.displayName,
+        audioTrackID: "\(endpointID)-audio-track",
+        cameraTrackID: "\(endpointID)-camera-track",
+        audioSourceName: "\(endpointID)-a0",
+        cameraSourceName: "\(endpointID)-v0",
+        screenSourceName: "\(endpointID)-v1",
+        // Anonymous joins bind on the guest domain, but service components
+        // (AV moderation, speaker stats) announce on the main one.
+        xmppDomain: deployment.xmppDomain
       )
+      let coordinator: NativeJingleCoordinator
+      do {
+        coordinator = try NativeJingleCoordinator(
+          connection: connection,
+          configuration: jingleConfiguration,
+          policy: PeerConnectionPolicy(iceServers: iceServers)
+        )
+      } catch WebRTCMediaError.peerConnectionCreationFailed where !iceServers.isEmpty {
+        // A deployment's advertised ICE set can be malformed in ways WebRTC
+        // rejects wholesale; joining without relays still beats not joining.
+        coordinator = try NativeJingleCoordinator(
+          connection: connection,
+          configuration: jingleConfiguration,
+          policy: PeerConnectionPolicy()
+        )
+      }
 
       // Bring the camera up before entering the room. Starting capture can
       // block on a permission prompt, and Jicofo probes a new occupant with
@@ -410,6 +422,9 @@ public struct NativeConferenceBootstrap: Sendable {
   ) async -> [ICEServer] {
     guard let services = try? await connection.discoverExternalServices(domain: domain) else {
       return []
+    }
+    if ProcessInfo.processInfo.environment["SANGAM_LIVE_PROBE"] != nil {
+      print("PROBE services: \(services.map { "\($0.kind) \($0.iceURL)" })")
     }
     return services.compactMap { service in
       switch service.kind {

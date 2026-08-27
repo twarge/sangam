@@ -27,49 +27,14 @@ struct MeetingView: View {
           .ignoresSafeArea()
         #endif
 
-      if controller.connectionState == .connecting {
-        VStack(spacing: 14) {
-          ProgressView("Joining…")
-          // Leaving the meeting view cancels the in-flight join and tears
-          // down whatever the bootstrap already opened.
-          Button("Cancel", role: .cancel, action: dismiss)
-            .buttonStyle(.bordered)
-            .keyboardShortcut(.cancelAction)
-        }
-        .padding(18)
-        .background(.regularMaterial, in: .rect(cornerRadius: 14))
-        .environment(\.colorScheme, .dark)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-
-      if controller.connectionState == .accessRequired
-        || controller.connectionState == .waitingForHost
-      {
-        MeetingAccessCard(
-          isWaiting: controller.connectionState == .waitingForHost,
-          message: controller.accessMessage,
-          authenticate: controller.authenticate,
-          waitForHost: controller.waitForHost,
-          useAccount: controller.cancelWaiting
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-      }
-
-      if controller.connectionState == .waitingInLobby {
-        LobbyWaitingCard(
-          waitsForHost: controller.lobbyWaitsForHost,
-          authenticate: controller.authenticate,
-          joinWithPassword: controller.joinWithMeetingPassword
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-      }
-
-      if controller.connectionState == .passwordRequired {
-        MeetingPasswordCard(
-          message: controller.accessMessage,
-          join: controller.joinWithMeetingPassword
+      // One card carries the whole pre-join journey — joining, waiting in
+      // the lobby, host sign-in, meeting password — so typed credentials
+      // and context survive every state change instead of swapping views.
+      if Self.preJoinStates.contains(controller.connectionState) {
+        PreJoinCard(
+          configuration: configuration,
+          controller: controller,
+          cancel: dismiss
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -88,9 +53,7 @@ struct MeetingView: View {
     }
     .overlay(alignment: .topLeading) {
       // Leaving any pre-join hold is navigation, not an action on the card.
-      if [.waitingInLobby, .passwordRequired, .accessRequired, .waitingForHost]
-        .contains(controller.connectionState)
-      {
+      if Self.preJoinStates.contains(controller.connectionState) {
         Button(action: dismiss) {
           Label("Back", systemImage: "chevron.backward")
             .font(.body.weight(.medium))
@@ -317,232 +280,65 @@ extension View {
   }
 }
 
-private struct MeetingAccessCard: View {
-  let isWaiting: Bool
-  let message: String?
-  let authenticate: (String, String) -> Void
-  let waitForHost: () -> Void
-  let useAccount: () -> Void
+extension MeetingView {
+  fileprivate static let preJoinStates: [MeetingController.ConnectionState] = [
+    .connecting, .waitingInLobby, .passwordRequired, .accessRequired, .waitingForHost,
+  ]
+}
 
-  @State private var username = ""
-  @State private var password = ""
-  @FocusState private var focusedField: Field?
+/// The whole pre-join journey on one card: joining, waiting in the lobby,
+/// host sign-in, and the meeting password. Credentials and expansion
+/// survive every state change because the card itself does; status renders
+/// beneath the sign-in information rather than replacing it.
+private struct PreJoinCard: View {
+  let configuration: MeetingConfiguration
+  @ObservedObject var controller: MeetingController
+  let cancel: () -> Void
+
+  private enum Expansion {
+    case none
+    case hostLogin
+    case meetingPassword
+  }
 
   private enum Field {
     case username
     case password
+    case meetingPassword
   }
-
-  var body: some View {
-    VStack(spacing: 22) {
-      Image(systemName: isWaiting ? "person.2.wave.2.fill" : "lock.shield.fill")
-        .font(.system(size: 35, weight: .semibold))
-        .foregroundStyle(.tint)
-        .frame(width: 68, height: 68)
-        .background(.tint.opacity(0.14), in: .circle)
-
-      VStack(spacing: 7) {
-        Text(isWaiting ? "Waiting for a host" : "This meeting needs a host")
-          .font(.title2.bold())
-        Text(
-          isWaiting
-            ? "You’ll join automatically when an authorized host starts the meeting."
-            : "Sign in with a conference account, or wait for a host to start the room."
-        )
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-      }
-
-      if isWaiting {
-        ProgressView()
-          .controlSize(.large)
-          .padding(.vertical, 8)
-
-        Button("Sign in instead", action: useAccount)
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
-          .frame(maxWidth: .infinity)
-      } else {
-        VStack(spacing: 12) {
-          TextField("Username", text: $username)
-            .textContentType(.username)
-            .focused($focusedField, equals: .username)
-            .onSubmit { focusedField = .password }
-          SecureField("Password", text: $password)
-            .textContentType(.password)
-            .focused($focusedField, equals: .password)
-            .onSubmit(submitCredentials)
-        }
-        .textFieldStyle(.roundedBorder)
-
-        if let message {
-          Label(message, systemImage: "exclamationmark.circle.fill")
-            .font(.callout)
-            .foregroundStyle(.red)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        Button("Sign in and join", action: submitCredentials)
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
-          .disabled(
-            username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              || password.isEmpty
-          )
-          .frame(maxWidth: .infinity)
-
-        Button("Wait for a host", action: waitForHost)
-          .buttonStyle(.bordered)
-          .controlSize(.large)
-          .frame(maxWidth: .infinity)
-      }
-    }
-    .meetingCardChrome()
-    .animation(.snappy, value: isWaiting)
-    .defaultFocus($focusedField, .username)
-    .onAppear {
-      // The card is also re-presented after a refused password, when it must
-      // reclaim focus itself; `defaultFocus` only covers the first time.
-      if !isWaiting { focusUsernameField() }
-    }
-    .onChange(of: isWaiting) { _, waiting in
-      if !waiting { focusUsernameField() }
-    }
-  }
-
-  /// macOS applies focus only once the window is key, and `onAppear` usually
-  /// fires before that — so set it, then check again shortly after.
-  private func focusUsernameField() {
-    focusedField = .username
-    Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(200))
-      if focusedField == nil { focusedField = .username }
-    }
-  }
-
-  private func submitCredentials() {
-    let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !normalizedUsername.isEmpty, !password.isEmpty else { return }
-    authenticate(normalizedUsername, password)
-  }
-}
-
-/// Asks for the meeting's password after the room refused a join without
-/// one. Leaving is the Back button in the window's corner.
-private struct MeetingPasswordCard: View {
-  let message: String?
-  let join: (String) -> Void
-
-  @State private var password = ""
-  @FocusState private var focused: Bool
-
-  var body: some View {
-    VStack(spacing: 22) {
-      Image(systemName: "key.fill")
-        .font(.system(size: 35, weight: .semibold))
-        .foregroundStyle(.tint)
-        .frame(width: 68, height: 68)
-        .background(.tint.opacity(0.14), in: .circle)
-
-      VStack(spacing: 7) {
-        Text("This meeting has a password")
-          .font(.title2.bold())
-        Text("Ask the host for the meeting password to join.")
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      SecureField("Meeting password", text: $password)
-        .textFieldStyle(.roundedBorder)
-        .focused($focused)
-        .onSubmit(submit)
-
-      if let message {
-        Label(message, systemImage: "exclamationmark.circle.fill")
-          .font(.callout)
-          .foregroundStyle(.red)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-
-      Button("Join Meeting", action: submit)
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(password.isEmpty)
-        .frame(maxWidth: .infinity)
-    }
-    .meetingCardChrome()
-    .onAppear {
-      focused = true
-      Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(200))
-        if !focused { focused = true }
-      }
-    }
-  }
-
-  private func submit() {
-    guard !password.isEmpty else { return }
-    join(password)
-  }
-}
-
-/// Shown while the meeting's lobby holds us. Admission arrives on its own;
-/// an administrator can instead sign in as a host, and anyone who knows the
-/// meeting password can join with it directly. Leaving is the Back button
-/// in the window's corner, not a card action.
-private struct LobbyWaitingCard: View {
-  let waitsForHost: Bool
-  let authenticate: (String, String) -> Void
-  let joinWithPassword: (String) -> Void
 
   @State private var expanded: Expansion = .none
   @State private var username = ""
   @State private var password = ""
   @State private var meetingPassword = ""
+  @State private var submittedCredentials = false
   @FocusState private var focusedField: Field?
 
-  private enum Expansion {
-    case none
-    case login
-    case meetingPassword
-  }
-
-  private enum Field {
-    case username
-    case password
-    case meetingPassword
+  private var state: MeetingController.ConnectionState {
+    controller.connectionState
   }
 
   var body: some View {
-    VStack(spacing: 22) {
-      Image(systemName: "person.crop.circle.badge.clock")
-        .font(.system(size: 35, weight: .semibold))
-        .foregroundStyle(.tint)
-        .frame(width: 68, height: 68)
-        .background(.tint.opacity(0.14), in: .circle)
-
-      VStack(spacing: 7) {
-        Text("Waiting to be admitted…")
-          .font(.title2.bold())
-        Text(
-          waitsForHost
-            ? "This meeting has a waiting room. You’ll join automatically once a host arrives."
-            : "This meeting has a waiting room. You’ll join as soon as the host admits you."
-        )
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
+    VStack(spacing: 18) {
+      // Where we are headed, and the way back to editing it.
+      HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(configuration.normalizedRoom)
+            .font(.title3.bold())
+          Text(configuration.serverURL.host ?? configuration.serverURL.absoluteString)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 12)
+        Button("Edit", action: cancel)
+          .buttonStyle(.plain)
+          .foregroundStyle(.tint)
       }
 
-      ProgressView()
-        .controlSize(.large)
-        .padding(.vertical, 4)
+      Divider()
 
-      switch expanded {
-      case .login:
-        VStack(spacing: 12) {
+      if showsHostLogin {
+        VStack(spacing: 10) {
           TextField("Username", text: $username)
             .textContentType(.username)
             .focused($focusedField, equals: .username)
@@ -556,14 +352,19 @@ private struct LobbyWaitingCard: View {
             .controlSize(.large)
             .disabled(
               username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || password.isEmpty
+                || password.isEmpty || state == .connecting
             )
             .frame(maxWidth: .infinity)
+          if state == .accessRequired {
+            Button("Wait for a host instead") { controller.waitForHost() }
+              .buttonStyle(.plain)
+              .foregroundStyle(.secondary)
+          }
         }
         .textFieldStyle(.roundedBorder)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
-      case .meetingPassword:
-        VStack(spacing: 12) {
+      } else if expanded == .meetingPassword {
+        VStack(spacing: 10) {
           SecureField("Meeting password", text: $meetingPassword)
             .textFieldStyle(.roundedBorder)
             .focused($focusedField, equals: .meetingPassword)
@@ -571,31 +372,84 @@ private struct LobbyWaitingCard: View {
           Button("Join with password", action: submitMeetingPassword)
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(meetingPassword.isEmpty)
+            .disabled(meetingPassword.isEmpty || state == .connecting)
             .frame(maxWidth: .infinity)
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))
-      case .none:
+      } else if offersExpansions {
         HStack(spacing: 10) {
-          Button("Enter meeting password") {
-            expanded = .meetingPassword
-          }
-          .buttonStyle(.bordered)
-          Button("Host sign in") {
-            expanded = .login
-          }
-          .buttonStyle(.bordered)
+          Button("Enter meeting password") { expanded = .meetingPassword }
+          Button("Host sign in") { expanded = .hostLogin }
+        }
+        .buttonStyle(.bordered)
+      }
+
+      if let message = controller.accessMessage {
+        Label(message, systemImage: "exclamationmark.circle.fill")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
+      if let status = statusText {
+        HStack(spacing: 10) {
+          ProgressView()
+            .controlSize(.small)
+          Text(status)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
+
+      // Cancelling the join tears down whatever the bootstrap opened.
+      Button("Cancel", role: .cancel, action: cancel)
+        .buttonStyle(.bordered)
+        .keyboardShortcut(.cancelAction)
     }
     .meetingCardChrome()
     .animation(.snappy, value: expanded)
-    .onChange(of: expanded) { _, expansion in
-      switch expansion {
-      case .login: focus(.username)
-      case .meetingPassword: focus(.meetingPassword)
-      case .none: break
-      }
+    .animation(.snappy, value: state)
+    .onAppear { adapt(to: state) }
+    .onChange(of: state) { _, newState in adapt(to: newState) }
+  }
+
+  /// The sign-in fields stay open once used — status appears below them —
+  /// and open themselves when the server demands credentials.
+  private var showsHostLogin: Bool {
+    expanded == .hostLogin || state == .accessRequired
+  }
+
+  private var offersExpansions: Bool {
+    state == .waitingInLobby || state == .waitingForHost
+  }
+
+  private var statusText: String? {
+    switch state {
+    case .connecting:
+      return submittedCredentials ? "Signing in…" : "Joining…"
+    case .waitingInLobby:
+      return controller.lobbyWaitsForHost
+        ? "Waiting for a host to arrive — you’ll join automatically."
+        : "Waiting to be admitted — the host has been asked to let you in."
+    case .waitingForHost:
+      return "Waiting for a host to start the meeting…"
+    default:
+      return nil
+    }
+  }
+
+  private func adapt(to state: MeetingController.ConnectionState) {
+    switch state {
+    case .accessRequired:
+      submittedCredentials = false
+      expanded = .hostLogin
+      focus(.username)
+    case .passwordRequired:
+      expanded = .meetingPassword
+      focus(.meetingPassword)
+    default:
+      break
     }
   }
 
@@ -612,12 +466,13 @@ private struct LobbyWaitingCard: View {
   private func submitCredentials() {
     let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedUsername.isEmpty, !password.isEmpty else { return }
-    authenticate(normalizedUsername, password)
+    submittedCredentials = true
+    controller.authenticate(username: normalizedUsername, password: password)
   }
 
   private func submitMeetingPassword() {
     guard !meetingPassword.isEmpty else { return }
-    joinWithPassword(meetingPassword)
+    controller.joinWithMeetingPassword(meetingPassword)
   }
 }
 

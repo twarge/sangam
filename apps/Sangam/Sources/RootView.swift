@@ -4,7 +4,7 @@ struct RootView: View {
   @AppStorage("serverURL") private var serverURL = MeetingConfiguration.defaultServerURL
     .absoluteString
   @AppStorage("displayName") private var displayName = ""
-  @State private var room = ""
+  @AppStorage("room") private var room = ""
   @State private var activeMeeting: MeetingConfiguration?
   @ObservedObject private var hub = MeetingHub.shared
 
