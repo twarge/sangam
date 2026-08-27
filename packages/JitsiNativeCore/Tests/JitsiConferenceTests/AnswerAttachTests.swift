@@ -110,5 +110,14 @@ func attachesLocalTracksToAnOfferWithMediaLevelMsid() async throws {
       "simulcast layer \(layer) has no msid; Jicofo would reject the accept"
     )
   }
+
+  // The SDP alone is not proof the encoder fans out: WebRTC only encodes
+  // three layers when the sender ends up with three encodings.
+  let encodingSSRCs = await negotiator.videoSenderEncodingSSRCs(trackID: "test-video-0")
+  print("=== SENDER ENCODINGS: \(encodingSSRCs) ===")
+  #expect(
+    encodingSSRCs.count == 3,
+    "the munged SIM group did not become three sender encodings; the bridge gets one layer"
+  )
   await negotiator.close()
 }

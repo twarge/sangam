@@ -54,6 +54,10 @@ public actor PeerConnectionNegotiator {
   private var simulcast = LocalSimulcastMunger()
   private let simulcastEnabled =
     ProcessInfo.processInfo.environment["SANGAM_NO_SIMULCAST"] != "1"
+  /// Local video tracks that should encode as three simulcast layers, by
+  /// track id; the value records whether the track is a screen share (whose
+  /// ladder allows a higher top-layer bitrate).
+  private var simulcastProfiles: [String: Bool] = [:]
 
   public init(connection: RTCPeerConnection) {
     self.connection = connection
@@ -83,6 +87,8 @@ public actor PeerConnectionNegotiator {
       }
       for videoTrack in localVideoTracks {
         try await self.addLocalTrackIfNeeded(videoTrack.track, streamID: streamID)
+        await self.registerSimulcastProfile(
+          trackID: videoTrack.id, isScreenShare: videoTrack.isScreenCast)
       }
       return try await self.createAndInstallAnswer()
     }
@@ -134,6 +140,7 @@ public actor PeerConnectionNegotiator {
       let previousLocalSDP = await self.currentLocalSDP()
       _ = try await self.performAnswer(remoteOfferSDP: expandedRemoteOfferSDP)
       try await self.attachLocalTrack(track.track, toMID: mid, streamID: streamID)
+      await self.registerSimulcastProfile(trackID: track.id, isScreenShare: track.isScreenCast)
       let finalSDP = try await self.performAnswer(remoteOfferSDP: expandedRemoteOfferSDP)
       return LocalSourceNegotiation(previousLocalSDP: previousLocalSDP, localSDP: finalSDP)
     }
@@ -177,6 +184,34 @@ public actor PeerConnectionNegotiator {
       for encoding in parameters.encodings { encoding.isActive = active }
       sender.parameters = parameters
     }
+  }
+
+  /// The encoding SSRCs on the sender carrying `trackID` — the ground truth
+  /// for whether the simulcast munge actually fanned the encoder out, which
+  /// the accepted SDP alone does not prove.
+  public func videoSenderEncodingSSRCs(trackID: String) async -> [UInt32] {
+    (try? await queue.run {
+      guard
+        let sender = self.connection.senders.first(where: { $0.track?.trackId == trackID })
+      else { return [] }
+      return sender.parameters.encodings.compactMap { $0.ssrc?.uint32Value }
+    }) ?? []
+  }
+
+  /// One line per encoding on the sender carrying `trackID`, for simulcast
+  /// bring-up diagnostics.
+  public func videoSenderEncodingSummary(trackID: String) async -> [String] {
+    (try? await queue.run {
+      guard
+        let sender = self.connection.senders.first(where: { $0.track?.trackId == trackID })
+      else { return [] }
+      return sender.parameters.encodings.map { encoding in
+        "ssrc=\(encoding.ssrc?.stringValue ?? "?")"
+          + " active=\(encoding.isActive)"
+          + " scale=\(encoding.scaleResolutionDownBy?.doubleValue.description ?? "-")"
+          + " maxBitrate=\(encoding.maxBitrateBps?.intValue.description ?? "-")"
+      }
+    }) ?? []
   }
 
   /// A concise one-line summary of media flow, for the opt-in `SANGAM_LOG`
@@ -269,12 +304,53 @@ public actor PeerConnectionNegotiator {
   /// is also what Jingle serialization must advertise.
   private func createAndInstallAnswer() async throws -> String {
     let answer = try await createDescription(type: .answer)
-    let sdp = simulcastEnabled ? simulcast.munge(answer.sdp) : answer.sdp
+    let preferred = CodecPreferenceMunger.preferVP8(answer.sdp)
+    let sdp = simulcastEnabled ? simulcast.munge(preferred) : preferred
     try await setLocalDescription(
       RTCSessionDescription(type: .answer, sdp: sdp),
       operation: "set local answer"
     )
+    if simulcastEnabled { applySimulcastLayerParameters() }
     return sdp
+  }
+
+  private func registerSimulcastProfile(trackID: String, isScreenShare: Bool) {
+    simulcastProfiles[trackID] = isScreenShare
+  }
+
+  /// The reference client's simulcast ladder (TPCUtils `SIM_LAYERS` with the
+  /// VP8 bitrates from `STANDARD_CODEC_SETTINGS`). The munged SDP creates
+  /// three sender encodings, but the encoder only fans out once each carries
+  /// an explicit scale factor and bitrate — without them libwebrtc keeps
+  /// sending one full-resolution stream on the primary SSRC and the bridge
+  /// can never downshift a viewer. Encoding order matches SIM-group order:
+  /// the primary (signaled) SSRC carries the quarter-scale layer, exactly as
+  /// the web client sends it.
+  private func applySimulcastLayerParameters() {
+    for (trackID, isScreenShare) in simulcastProfiles {
+      guard
+        let sender = connection.senders.first(where: { $0.track?.trackId == trackID })
+      else { continue }
+      let parameters = sender.parameters
+      guard parameters.encodings.count == 3 else { continue }
+      let layers: [(scale: Double, bitrate: Int)] = [
+        (4.0, 200_000),
+        (2.0, 500_000),
+        (1.0, isScreenShare ? 2_500_000 : 1_500_000),
+      ]
+      var changed = false
+      for (encoding, layer) in zip(parameters.encodings, layers) {
+        if encoding.scaleResolutionDownBy?.doubleValue != layer.scale {
+          encoding.scaleResolutionDownBy = NSNumber(value: layer.scale)
+          changed = true
+        }
+        if encoding.maxBitrateBps?.intValue != layer.bitrate {
+          encoding.maxBitrateBps = NSNumber(value: layer.bitrate)
+          changed = true
+        }
+      }
+      if changed { sender.parameters = parameters }
+    }
   }
 
   private func performAddRemoteCandidate(
@@ -382,9 +458,16 @@ public actor PeerConnectionNegotiator {
     _ description: RTCSessionDescription,
     operation: String
   ) async throws {
+    // The send codec follows the REMOTE description's preference order, so
+    // the codec munge must apply here too (the reference munges both
+    // directions); reordering only the local answer changes nothing.
+    let munged = RTCSessionDescription(
+      type: description.type,
+      sdp: CodecPreferenceMunger.preferVP8(description.sdp)
+    )
     try await withCheckedThrowingContinuation {
       (continuation: CheckedContinuation<Void, any Error>) in
-      connection.setRemoteDescription(description) { error in
+      connection.setRemoteDescription(munged) { error in
         Self.resume(continuation, operation: operation, error: error)
       }
     }

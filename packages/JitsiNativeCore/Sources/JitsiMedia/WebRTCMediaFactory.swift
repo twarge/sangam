@@ -109,7 +109,8 @@ public final class WebRTCMediaFactory: @unchecked Sendable {
     let source = peerConnectionFactory.videoSource(forScreenCast: screenCast)
     let capturer = RTCVideoCapturer(delegate: source)
     let track = peerConnectionFactory.videoTrack(with: source, trackId: id)
-    return LocalVideoTrack(source: source, track: track, capturer: capturer)
+    return LocalVideoTrack(
+      source: source, track: track, capturer: capturer, isScreenCast: screenCast)
   }
 
   public func makeCameraTrack(id: String) -> LocalCameraTrack {
@@ -117,7 +118,8 @@ public final class WebRTCMediaFactory: @unchecked Sendable {
     let capturer = RTCCameraVideoCapturer(delegate: source)
     let track = peerConnectionFactory.videoTrack(with: source, trackId: id)
     return LocalCameraTrack(
-      videoTrack: LocalVideoTrack(source: source, track: track, capturer: capturer),
+      videoTrack: LocalVideoTrack(
+        source: source, track: track, capturer: capturer, isScreenCast: false),
       capturer: capturer
     )
   }
@@ -140,14 +142,23 @@ public final class LocalVideoTrack: @unchecked Sendable {
   public let source: RTCVideoSource
   public let track: RTCVideoTrack
   public let capturer: RTCVideoCapturer
+  /// Screen shares get the desktop simulcast ladder (higher top-layer
+  /// bitrate) instead of the camera one.
+  public let isScreenCast: Bool
 
   /// The WebRTC track id, the handle senders are looked up by.
   public var id: String { track.trackId }
 
-  fileprivate init(source: RTCVideoSource, track: RTCVideoTrack, capturer: RTCVideoCapturer) {
+  fileprivate init(
+    source: RTCVideoSource,
+    track: RTCVideoTrack,
+    capturer: RTCVideoCapturer,
+    isScreenCast: Bool
+  ) {
     self.source = source
     self.track = track
     self.capturer = capturer
+    self.isScreenCast = isScreenCast
   }
 
   public func adapt(width: Int32, height: Int32, framesPerSecond: Int32) {
