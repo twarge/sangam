@@ -148,7 +148,13 @@ struct CoordinatorLobbyTests {
     await #expect(throws: NativeJingleCoordinatorError.notModerator) {
       try await harness.coordinator.admitLobbyParticipant(id: "anyone")
     }
-    #expect(await harness.socket.stanzasAfterBootstrap().isEmpty)
+    // Not "nothing was sent": the coordinator's own server-components disco
+    // goes out at start. Nothing addressed to the lobby did.
+    #expect(
+      await harness.socket.stanzasAfterBootstrap().allSatisfy {
+        !$0.contains("muc#admin") && !$0.contains("<invite")
+      }
+    )
   }
 
   /// The room announces configuration changes without saying what changed;
