@@ -22,7 +22,6 @@ struct NativeMeetingSurface: View {
   /// floating over it; the same key AppSettings writes.
   @AppStorage("panelsPushStage") private var panelsPushStage = false
 
-
   var body: some View {
     meetingRoot
       .overlay(alignment: .bottomTrailing) {
@@ -199,7 +198,9 @@ struct NativeMeetingSurface: View {
     }
 
     @ViewBuilder
-    private func rosterMenu(for entry: NativeMeetingModel.RosterEntry, stream: RemoteVideoStream?) -> some View {
+    private func rosterMenu(for entry: NativeMeetingModel.RosterEntry, stream: RemoteVideoStream?)
+      -> some View
+    {
       if let stream {
         if model.pinnedTileID == stream.id {
           Button("Unpin") { model.pinnedTileID = nil }
@@ -1400,6 +1401,14 @@ final class NativeMeetingModel: ObservableObject {
             var updated = stream
             updated.videoType = videoType
             return updated
+          }
+        case .remoteSourceMutedChanged(let sourceName, let muted):
+          SangamLog.event("event: sourceMuted \(sourceName) -> \(muted)")
+          // A muted source stops sending; drop its tile rather than leave the
+          // last frame frozen on stage. An unmute is followed by the
+          // coordinator re-announcing the track, which re-adds the stream.
+          if muted {
+            streams.removeAll { $0.sourceName == sourceName }
           }
         case .mutedByModerator(let media):
           SangamLog.event("event: mutedByModerator media=\(media)")

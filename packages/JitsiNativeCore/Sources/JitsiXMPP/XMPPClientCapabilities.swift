@@ -27,11 +27,9 @@ public struct XMPPClientCapabilities: Equatable, Sendable {
       "urn:xmpp:jingle:transports:dtls-sctp:1",
     ]
     // SSRC rewriting (the bridge forwards a fixed small SSRC set and remaps
-    // which conference source each carries) is implemented but not yet proven
-    // against a live deployment — receive regressions appeared the moment it
-    // was first advertised. Opt in explicitly while it is being verified;
-    // without the flag the bridge uses classic per-source forwarding.
-    if ProcessInfo.processInfo.environment["SANGAM_SSRC_REWRITING"] == "1" {
+    // which conference source each carries) is advertised by default;
+    // SANGAM_SSRC_REWRITING=0 falls back to classic per-source forwarding.
+    if ProcessInfo.processInfo.environment["SANGAM_SSRC_REWRITING"] != "0" {
       features.append("http://jitsi.org/ssrc-rewriting-1")
     }
     return XMPPClientCapabilities(features: features)

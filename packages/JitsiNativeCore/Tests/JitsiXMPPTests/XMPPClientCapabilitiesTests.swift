@@ -25,9 +25,9 @@ import Testing
   #expect(features.contains("urn:xmpp:jingle:1"))
   #expect(features.contains("urn:xmpp:jingle:apps:rtp:video"))
   #expect(features.contains("http://jitsi.org/source-name"))
-  // SSRC rewriting is opt-in via SANGAM_SSRC_REWRITING=1 until verified live;
-  // by default the bridge must use classic per-source forwarding.
-  #expect(!features.contains("http://jitsi.org/ssrc-rewriting-1"))
+  // SSRC rewriting is advertised by default; SANGAM_SSRC_REWRITING=0 is the
+  // kill switch back to classic per-source forwarding.
+  #expect(features.contains("http://jitsi.org/ssrc-rewriting-1"))
 }
 
 @Test func answersXMPPPings() throws {

@@ -119,6 +119,11 @@ public enum NativeJingleEvent: Sendable {
   case reactionsReceived(endpointID: String?, reactions: [String])
   /// A remote source switched between camera and desktop mid-call.
   case remoteSourceVideoTypeChanged(sourceName: String, videoType: String)
+  /// A remote video source was muted or unmuted, signalled per source in
+  /// presence `SourceInfo`. Under SSRC rewriting this is the only signal a
+  /// stopped screen share sends — no Jingle source-remove arrives — so the
+  /// tile must follow this event or it lingers frozen on the last frame.
+  case remoteSourceMutedChanged(sourceName: String, muted: Bool)
   case screenSharingChanged(Bool)
   case unsupportedAction(JingleAction)
   case warning(message: String)
@@ -347,6 +352,11 @@ public actor NativeJingleCoordinator {
   /// Remote audio SSRCs already present in the remote description, so an
   /// `AudioSourcesMap` only renegotiates for genuinely new ones.
   private var remoteAudioSSRCs: Set<UInt32> = []
+  /// Last known per-source video mute state from presence `SourceInfo`, by
+  /// source name. Under SSRC rewriting no Jingle source-remove is signalled;
+  /// a stopped share only flips its source to muted here, so transitions
+  /// must reach the tiles.
+  private var remoteVideoSourceMutedByName: [String: Bool] = [:]
   /// Receive slots created for an SSRC-rewriting bridge, numbered the way
   /// lib-jitsi-meet numbers them ("remote-video-1", "remote-audio-1", …).
   private var videoSlotCount = 0
@@ -1289,6 +1299,7 @@ public actor NativeJingleCoordinator {
         handRaised: presence.raisedHandTimestamp != nil,
         realJID: presence.realJID ?? participants[presence.endpointID]?.realJID
       )
+      noteRemoteVideoSourceMutes(presence.sources)
     } else {
       // Keep the departed speaker's floor time and name, and stop their
       // clock if they left mid-sentence.
@@ -1329,6 +1340,32 @@ public actor NativeJingleCoordinator {
       }
     }
     trackIDByVideoSSRC = trackIDByVideoSSRC.filter { videoSourceByTrackID[$0.value] != nil }
+    remoteVideoSourceMutedByName = remoteVideoSourceMutedByName.filter {
+      !$0.key.hasPrefix("\(endpointID)-")
+    }
+  }
+
+  /// Applies per-source video mute states from a presence `SourceInfo` and
+  /// announces the transitions. Under SSRC rewriting a stopped screen share
+  /// sends no Jingle source-remove — its source merely flips to muted here —
+  /// so this is what lets the share tile leave the stage. An unmute
+  /// re-announces the source's existing track: the bridge keeps the same
+  /// rewritten SSRC, so no new source map (and no track event) will arrive.
+  private func noteRemoteVideoSourceMutes(_ sources: [RemoteSourcePresence]) {
+    for source in sources where source.kind == "video" {
+      let previous = remoteVideoSourceMutedByName[source.name]
+      remoteVideoSourceMutedByName[source.name] = source.muted
+      guard let previous, previous != source.muted else { continue }
+      emit(
+        .diagnostic(
+          message: "presence: source \(source.name) \(source.muted ? "muted" : "unmuted")"))
+      emit(.remoteSourceMutedChanged(sourceName: source.name, muted: source.muted))
+      if !source.muted {
+        for (trackID, info) in videoSourceByTrackID where info.name == source.name {
+          announceRemoteVideoTrack(id: trackID)
+        }
+      }
+    }
   }
 
   private func handleMessage(_ element: XMPPElement) {
@@ -1823,6 +1860,7 @@ public actor NativeJingleCoordinator {
     remoteVideoTracks.removeAll()
     trackIDByVideoSSRC.removeAll()
     remoteAudioSSRCs.removeAll()
+    remoteVideoSourceMutedByName.removeAll()
     videoSlotCount = 0
     audioSlotCount = 0
   }
@@ -1904,7 +1942,9 @@ public actor NativeJingleCoordinator {
         try await performPublishScreen()
         await sendSourcePresence()
       } catch {
-        emit(.warning(message: "Could not publish the armed screen share: \(error.localizedDescription)"))
+        emit(
+          .warning(
+            message: "Could not publish the armed screen share: \(error.localizedDescription)"))
       }
     }
     emit(.connected(sessionID: incoming.session.sessionID))
@@ -2342,14 +2382,19 @@ public actor NativeJingleCoordinator {
       emit(.diagnostic(message: "recv-constraints: no bridge channel, skipped"))
       return
     }
+    // SANGAM_LASTN caps how many video sources the bridge forwards — a debug
+    // knob that makes an SSRC-rewriting bridge rotate sources through a small
+    // fixed slot set, exercising the known-SSRC re-attribution path on demand.
+    let lastN =
+      ProcessInfo.processInfo.environment["SANGAM_LASTN"].flatMap(Int.init) ?? -1
     let constraints = ReceiverVideoConstraints(
-      lastN: -1,
+      lastN: lastN,
       assumedBandwidthBps: -1,
       defaultConstraints: VideoConstraint(maxHeight: preferredReceiveMaxHeight)
     )
     emit(
       .diagnostic(
-        message: "recv-constraints: lastN=-1 defaultMaxHeight=\(preferredReceiveMaxHeight)"))
+        message: "recv-constraints: lastN=\(lastN) defaultMaxHeight=\(preferredReceiveMaxHeight)"))
     if let data = try? constraints.encoded() {
       await sendOverBridgeChannel(raw: data)
     }
