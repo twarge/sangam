@@ -314,6 +314,12 @@ struct NativeMeetingSurface: View {
     // explicit fill the leading-aligned ZStack collapses to the sidebar's
     // width and the sidebar renders centered in the window on first join.
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // Tell the bridge which sources are actually shown large: they receive
+    // full quality while everything else is decoded at thumbnail height.
+    .onAppear { controller.didChangeFeaturedVideoSources(fullQualitySourceNames) }
+    .onChange(of: fullQualitySourceNames) { _, names in
+      controller.didChangeFeaturedVideoSources(names)
+    }
     // In push mode the open chat carves its width out of the stage instead
     // of covering it; the panel overlay then sits in the carved-out gap.
     .padding(.trailing, panelsPushStage && controller.isChatOpen ? 312 : 0)
@@ -521,6 +527,30 @@ struct NativeMeetingSurface: View {
     case ...9: 3
     default: 4
     }
+  }
+
+  /// The remote video sources rendered large right now: every tile in grid
+  /// view, the featured tile otherwise, plus any feed floated in its own
+  /// window. Sorted so the onChange hook compares order-independently.
+  private var fullQualitySourceNames: [String] {
+    let tiles = model.tiles
+    var names: Set<String> = []
+    if controller.usesTileGrid {
+      for tile in tiles {
+        if let name = tile.stream?.sourceName { names.insert(name) }
+      }
+    } else if !tiles.isEmpty {
+      let featured = Self.featuredTile(
+        in: tiles,
+        pinned: model.pinnedTileID,
+        dominantSpeakerID: model.dominantSpeakerID
+      )
+      if let name = featured.stream?.sourceName { names.insert(name) }
+    }
+    for stream in model.streams where model.openFeedStreamIDs.contains(stream.id) {
+      if let name = stream.sourceName { names.insert(name) }
+    }
+    return names.sorted()
   }
 
   /// The tile the stage features: the pinned tile, else a screen share, else
@@ -1000,6 +1030,9 @@ final class NativeMeetingModel: ObservableObject {
   /// for our own), shown on that participant's tiles for a few seconds.
   @Published private(set) var tileReactions: [String: TileReaction] = [:]
   @Published var sidebarCollapsed = false
+  /// Stream ids currently floated in their own feed windows; those sources
+  /// stay at full receive quality even though they are off the stage.
+  @Published var openFeedStreamIDs: Set<String> = []
   @Published private(set) var localCameraTrack: LocalVideoTrack?
   /// The outgoing screen-share track, previewed in the sidebar while sharing.
   /// It renders straight from the capture pipeline, so a black preview means
@@ -1625,6 +1658,8 @@ final class NativeMeetingModel: ObservableObject {
       }
     case .setReceiveQuality(let maxHeight):
       await coordinator.setPreferredReceiveMaxHeight(maxHeight)
+    case .setFeaturedVideoSources(let names):
+      await coordinator.setFeaturedVideoSources(names)
     case .setAudioModeration(let enabled):
       do {
         try await coordinator.setAVModeration(enabled: enabled)

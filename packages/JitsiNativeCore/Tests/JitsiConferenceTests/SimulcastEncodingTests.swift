@@ -107,8 +107,8 @@ func keepsThreeEncodingsAcrossRTXAndRenegotiations() async throws {
 
   // The bridge pauses and resumes senders via constraints; the fan-out must
   // survive that round trip too.
-  await negotiator.setVideoSenderActive(trackID: "test-video-0", active: false)
-  await negotiator.setVideoSenderActive(trackID: "test-video-0", active: true)
+  await negotiator.setVideoSenderMaxHeight(trackID: "test-video-0", maxHeight: 0)
+  await negotiator.setVideoSenderMaxHeight(trackID: "test-video-0", maxHeight: -1)
   ssrcs = await negotiator.videoSenderEncodingSSRCs(trackID: "test-video-0")
   print("=== ENCODINGS after pause/resume: \(ssrcs) ===")
   #expect(ssrcs.count == 3, "pause/resume collapsed the simulcast encodings")

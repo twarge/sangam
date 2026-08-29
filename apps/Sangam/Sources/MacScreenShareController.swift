@@ -104,7 +104,11 @@
       SangamLog.event(
         "screen-share: start content=\(Int(filter.contentRect.width))x\(Int(filter.contentRect.height)) "
           + "scale=\(filter.pointPixelScale) stream=\(configuration.width)x\(configuration.height)")
-      configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+      // The reference client's screenshare default (SS_DEFAULT_FRAME_RATE).
+      // ScreenCaptureKit only delivers changed frames, so a static share is
+      // already cheap; the cap bounds encode cost when the shared content
+      // animates continuously.
+      configuration.minimumFrameInterval = CMTime(value: 1, timescale: 5)
       configuration.queueDepth = 5
       configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
       configuration.showsCursor = true

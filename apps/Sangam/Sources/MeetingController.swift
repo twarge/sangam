@@ -14,6 +14,7 @@ final class MeetingController: ObservableObject {
     case grantModerator(id: String)
     case muteParticipant(id: String)
     case setReceiveQuality(maxHeight: Int)
+    case setFeaturedVideoSources(names: [String])
     case setAudioModeration(enabled: Bool)
     case allowToSpeak(id: String)
     case setBackgroundBlur(enabled: Bool)
@@ -281,6 +282,13 @@ final class MeetingController: ObservableObject {
     sidebarInset = inset
   }
 
+  /// The surface reports which remote sources it is rendering large; only
+  /// those are asked for at full receive quality, everything else at
+  /// thumbnail height.
+  func didChangeFeaturedVideoSources(_ names: [String]) {
+    send(.setFeaturedVideoSources(names: names))
+  }
+
   func togglePictureInPicture() {
     send(.togglePictureInPicture)
   }
@@ -472,7 +480,8 @@ final class MeetingController: ObservableObject {
     case .setHandRaised(let raised):
       isHandRaised = raised
     case .sendChatMessage, .sendReaction, .kickParticipant, .grantModerator, .muteParticipant,
-      .setReceiveQuality, .setAudioModeration, .allowToSpeak, .setBackgroundBlur,
+      .setReceiveQuality, .setFeaturedVideoSources, .setAudioModeration, .allowToSpeak,
+      .setBackgroundBlur,
       .togglePictureInPicture, .createBreakoutRoom, .removeBreakoutRoom, .joinBreakoutRoom,
       .sendParticipantToBreakoutRoom, .joinWithMeetingPassword, .setLobbyEnabled,
       .setRoomPassword, .createPoll, .answerPoll, .switchCamera, .authenticate, .waitForHost,

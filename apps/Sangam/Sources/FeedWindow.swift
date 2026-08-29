@@ -40,6 +40,11 @@ private struct FeedContent: View {
     .background(.black)
     // The video runs under the transparent title bar, edge to edge.
     .ignoresSafeArea()
+    // A floated feed renders large, so its source must keep full receive
+    // quality even while the main window shows it as a thumbnail (or not
+    // at all).
+    .onAppear { model.openFeedStreamIDs.insert(streamID) }
+    .onDisappear { model.openFeedStreamIDs.remove(streamID) }
   }
 
   private func title(for stream: RemoteVideoStream) -> String {

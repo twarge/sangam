@@ -291,6 +291,13 @@ public actor NativeJingleCoordinator {
   /// The user's receive-quality preference: per-source height cap the bridge
   /// applies to everything it forwards us (the web's performance slider).
   private var preferredReceiveMaxHeight = 720
+  /// The height asked of every source the app shows only as a thumbnail;
+  /// matches the lowest simulcast layer, so the bridge forwards that layer
+  /// instead of one the decoder pays full price for.
+  private static let thumbnailReceiveMaxHeight = 180
+  /// Sources the app is rendering large right now (the stage, the grid, a
+  /// floated feed window); only these are asked for at the preferred height.
+  private var featuredVideoSourceNames: Set<String> = []
   /// The deployment's AV moderation component, from the domain's disco
   /// identities; nil when the server runs none.
   private var avModerationComponent: String?
@@ -2112,9 +2119,9 @@ public actor NativeJingleCoordinator {
     let active = Self.senderConstraintAllowsSending(maxHeight: maxHeight)
     emit(
       .diagnostic(
-        message: "sender \(sourceName): \(active ? "resume" : "pause") encodings"
+        message: "sender \(sourceName): \(active ? "cap" : "pause") encodings"
           + " (maxHeight=\(maxHeight))"))
-    await peerConnection.setVideoSenderActive(trackID: trackID, active: active)
+    await peerConnection.setVideoSenderMaxHeight(trackID: trackID, maxHeight: maxHeight)
   }
 
   /// Whether a bridge sender constraint allows sending at all. The bridge
@@ -2387,14 +2394,27 @@ public actor NativeJingleCoordinator {
     // fixed slot set, exercising the known-SSRC re-attribution path on demand.
     let lastN =
       ProcessInfo.processInfo.environment["SANGAM_LASTN"].flatMap(Int.init) ?? -1
+    // Sources shown large get the preferred height; the rest arrive at
+    // thumbnail height, so a sidebar of participants does not cost a full
+    // 720p decode each. Until the surface reports a stage, everything is
+    // treated as a thumbnail — the first report follows within the same
+    // layout pass that shows a tile.
     let constraints = ReceiverVideoConstraints(
       lastN: lastN,
       assumedBandwidthBps: -1,
-      defaultConstraints: VideoConstraint(maxHeight: preferredReceiveMaxHeight)
+      defaultConstraints: VideoConstraint(maxHeight: Self.thumbnailReceiveMaxHeight),
+      constraints: Dictionary(
+        uniqueKeysWithValues: featuredVideoSourceNames.map {
+          ($0, VideoConstraint(maxHeight: preferredReceiveMaxHeight))
+        }
+      )
     )
     emit(
       .diagnostic(
-        message: "recv-constraints: lastN=\(lastN) defaultMaxHeight=\(preferredReceiveMaxHeight)"))
+        message: "recv-constraints: lastN=\(lastN)"
+          + " default=\(Self.thumbnailReceiveMaxHeight)"
+          + " featured@\(preferredReceiveMaxHeight)="
+          + featuredVideoSourceNames.sorted().joined(separator: ",")))
     if let data = try? constraints.encoded() {
       await sendOverBridgeChannel(raw: data)
     }
@@ -2416,6 +2436,16 @@ public actor NativeJingleCoordinator {
   /// send.
   public func setPreferredReceiveMaxHeight(_ maxHeight: Int) async {
     preferredReceiveMaxHeight = maxHeight
+    await sendReceiverVideoConstraints()
+  }
+
+  /// The sources the app currently renders large (stage, grid, floated feed
+  /// windows). They are requested at the preferred receive height; every
+  /// other source arrives at thumbnail height.
+  public func setFeaturedVideoSources(_ names: [String]) async {
+    let updated = Set(names)
+    guard updated != featuredVideoSourceNames else { return }
+    featuredVideoSourceNames = updated
     await sendReceiverVideoConstraints()
   }
 

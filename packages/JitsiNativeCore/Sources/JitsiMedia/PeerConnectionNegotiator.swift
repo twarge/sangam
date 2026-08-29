@@ -67,6 +67,9 @@ public actor PeerConnectionNegotiator {
   /// track id; the value records whether the track is a screen share (whose
   /// ladder allows a higher top-layer bitrate).
   private var simulcastProfiles: [String: Bool] = [:]
+  /// The bridge's last SenderSourceConstraints height cap per local video
+  /// track; -1 (unconstrained) until the bridge says otherwise.
+  private var senderMaxHeights: [String: Int] = [:]
 
   public init(connection: RTCPeerConnection) {
     self.connection = connection
@@ -196,20 +199,22 @@ public actor PeerConnectionNegotiator {
     }) ?? nil
   }
 
-  /// Activates or deactivates the encodings of the sender carrying `trackID`.
-  /// Capture continues (a self-preview keeps rendering); only the outgoing
-  /// RTP stops — what the bridge asks for when no receiver wants the source
-  /// (SenderSourceConstraints with maxHeight 0).
-  public func setVideoSenderActive(trackID: String, active: Bool) async {
+  /// Applies the bridge's height cap (SenderSourceConstraints) to the sender
+  /// carrying `trackID`. Capture continues (a self-preview keeps rendering);
+  /// only encoders stop: 0 deactivates every encoding, and a positive cap
+  /// deactivates the simulcast layers no receiver can be sent, so the
+  /// encoder stops paying for resolutions nobody is shown (see
+  /// `desiredEncodingActiveStates`).
+  public func setVideoSenderMaxHeight(trackID: String, maxHeight: Int) async {
     try? await queue.run {
-      guard
-        let sender = self.connection.senders.first(where: { $0.track?.trackId == trackID })
-      else { return }
-      let parameters = sender.parameters
-      guard parameters.encodings.contains(where: { $0.isActive != active }) else { return }
-      for encoding in parameters.encodings { encoding.isActive = active }
-      sender.parameters = parameters
+      await self.applySenderMaxHeight(trackID: trackID, maxHeight: maxHeight)
     }
+  }
+
+  private func applySenderMaxHeight(trackID: String, maxHeight: Int) {
+    guard senderMaxHeights[trackID] != maxHeight else { return }
+    senderMaxHeights[trackID] = maxHeight
+    applySenderEncodingParameters(trackID: trackID)
   }
 
   /// The encoding SSRCs on the sender carrying `trackID` — the ground truth
@@ -383,6 +388,32 @@ public actor PeerConnectionNegotiator {
     simulcastProfiles[trackID] = isScreenShare
   }
 
+  /// The camera's configured capture height, which anchors each simulcast
+  /// layer's frame height (capture / scaleResolutionDownBy) the way the
+  /// reference client's `getCaptureResolution()` does.
+  private static let cameraCaptureHeight = 720.0
+
+  /// Which simulcast encodings should run, mirroring lib-jitsi-meet's
+  /// `TPCUtils.calculateEncodingsActiveState`. A cap of 0 stops everything.
+  /// A camera keeps the layers no taller than the bridge's cap — plus the
+  /// lowest layer always, so every viewer keeps a stream. A screen share
+  /// encodes only its full-resolution layer: the reference client sends the
+  /// downscaled desktop layers only in high-fps screenshare deployments, and
+  /// two extra encoders of a large capture are the priciest thing a share
+  /// pays for.
+  private func desiredEncodingActiveStates(
+    isScreenShare: Bool,
+    maxHeight: Int,
+    layerScales: [Double]
+  ) -> [Bool] {
+    guard maxHeight != 0 else { return layerScales.map { _ in false } }
+    if isScreenShare { return layerScales.map { $0 == 1.0 } }
+    guard maxHeight > 0 else { return layerScales.map { _ in true } }
+    return layerScales.enumerated().map { index, scale in
+      index == 0 || Self.cameraCaptureHeight / scale <= Double(maxHeight)
+    }
+  }
+
   /// The reference client's simulcast ladder (TPCUtils `SIM_LAYERS` with the
   /// VP8 bitrates from `STANDARD_CODEC_SETTINGS`). The munged SDP creates
   /// three sender encodings, but the encoder only fans out once each carries
@@ -392,19 +423,35 @@ public actor PeerConnectionNegotiator {
   /// the primary (signaled) SSRC carries the quarter-scale layer, exactly as
   /// the web client sends it.
   private func applySimulcastLayerParameters() {
-    for (trackID, isScreenShare) in simulcastProfiles {
-      guard
-        let sender = connection.senders.first(where: { $0.track?.trackId == trackID })
-      else { continue }
-      let parameters = sender.parameters
-      guard parameters.encodings.count == 3 else { continue }
+    for trackID in simulcastProfiles.keys {
+      applySenderEncodingParameters(trackID: trackID)
+    }
+  }
+
+  /// Writes one sender's full encoding configuration — the ladder's scale
+  /// factors and bitrates plus each layer's active state under the bridge's
+  /// current height cap. Renegotiations rebuild sender parameters, so both
+  /// halves are re-applied together from here.
+  private func applySenderEncodingParameters(trackID: String) {
+    guard
+      let sender = connection.senders.first(where: { $0.track?.trackId == trackID })
+    else { return }
+    let parameters = sender.parameters
+    let isScreenShare = simulcastProfiles[trackID] ?? false
+    let maxHeight = senderMaxHeights[trackID] ?? -1
+    var changed = false
+    if simulcastEnabled, parameters.encodings.count == 3 {
       let layers: [(scale: Double, bitrate: Int)] = [
         (4.0, 200_000),
         (2.0, 500_000),
         (1.0, isScreenShare ? 2_500_000 : 1_500_000),
       ]
-      var changed = false
-      for (encoding, layer) in zip(parameters.encodings, layers) {
+      let activeStates = desiredEncodingActiveStates(
+        isScreenShare: isScreenShare,
+        maxHeight: maxHeight,
+        layerScales: layers.map(\.scale)
+      )
+      for (index, (encoding, layer)) in zip(parameters.encodings, layers).enumerated() {
         if encoding.scaleResolutionDownBy?.doubleValue != layer.scale {
           encoding.scaleResolutionDownBy = NSNumber(value: layer.scale)
           changed = true
@@ -413,9 +460,20 @@ public actor PeerConnectionNegotiator {
           encoding.maxBitrateBps = NSNumber(value: layer.bitrate)
           changed = true
         }
+        if encoding.isActive != activeStates[index] {
+          encoding.isActive = activeStates[index]
+          changed = true
+        }
       }
-      if changed { sender.parameters = parameters }
+    } else {
+      // A single-encoding sender (SANGAM_NO_SIMULCAST) only pauses/resumes.
+      let active = maxHeight != 0
+      for encoding in parameters.encodings where encoding.isActive != active {
+        encoding.isActive = active
+        changed = true
+      }
     }
+    if changed { sender.parameters = parameters }
   }
 
   private func performAddRemoteCandidate(
