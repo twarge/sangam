@@ -27,32 +27,43 @@ struct JoinView: View {
           .foregroundStyle(.secondary)
       }
 
-      VStack(spacing: 12) {
-        TextField("Room name or meeting link", text: $room)
-          .textFieldStyle(.roundedBorder)
-          .focused($focusedField, equals: .room)
-          .onSubmit(join)
-          // A pasted meeting link splits into its parts: the server fills
-          // in below and the room field keeps just the room.
-          .onChange(of: room) { _, text in
-            guard text.contains("/") else { return }
-            splitMeetingLink(text) { room = $0 }
-          }
-        TextField("Jitsi server", text: $serverURL)
-          .textFieldStyle(.roundedBorder)
-          // A full meeting link pasted here splits the other way: the room
-          // moves up and the server keeps just the origin. A plain origin
-          // (no room path) is left exactly as typed.
-          .onChange(of: serverURL) { _, text in
-            splitMeetingLink(text) { serverURL = $0 }
-          }
-          #if os(iOS)
-            .textInputAutocapitalization(.never)
-            .keyboardType(.URL)
-          #endif
-        TextField("Display name", text: $displayName)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit(join)
+      // A labeled two-column form: server first, then room, then name,
+      // with the labels trailing-aligned against their fields.
+      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 12) {
+        GridRow {
+          fieldLabel("Server:")
+          TextField("Jitsi server", text: $serverURL)
+            .textFieldStyle(.roundedBorder)
+            // A full meeting link pasted here splits the other way: the
+            // room moves down and the server keeps just the origin. A
+            // plain origin (no room path) is left exactly as typed.
+            .onChange(of: serverURL) { _, text in
+              splitMeetingLink(text) { serverURL = $0 }
+            }
+            #if os(iOS)
+              .textInputAutocapitalization(.never)
+              .keyboardType(.URL)
+            #endif
+        }
+        GridRow {
+          fieldLabel("Room:")
+          TextField("Room name or meeting link", text: $room)
+            .textFieldStyle(.roundedBorder)
+            .focused($focusedField, equals: .room)
+            .onSubmit(join)
+            // A pasted meeting link splits into its parts: the server
+            // fills in above and the room field keeps just the room.
+            .onChange(of: room) { _, text in
+              guard text.contains("/") else { return }
+              splitMeetingLink(text) { room = $0 }
+            }
+        }
+        GridRow {
+          fieldLabel("Name:")
+          TextField("Display name", text: $displayName)
+            .textFieldStyle(.roundedBorder)
+            .onSubmit(join)
+        }
       }
       .frame(maxWidth: 420)
 
@@ -70,6 +81,12 @@ struct JoinView: View {
     .padding(32)
     .defaultFocus($focusedField, .room)
     .onAppear(perform: focusRoomField)
+  }
+
+  private func fieldLabel(_ text: String) -> some View {
+    Text(text)
+      .foregroundStyle(.secondary)
+      .gridColumnAlignment(.trailing)
   }
 
   /// Splits a pasted meeting link into the form's fields. A link carrying

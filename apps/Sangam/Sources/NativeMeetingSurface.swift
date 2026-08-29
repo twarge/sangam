@@ -23,46 +23,55 @@ struct NativeMeetingSurface: View {
   @AppStorage("panelsPushStage") private var panelsPushStage = false
 
   var body: some View {
-    meetingRoot
-      .overlay(alignment: .bottomTrailing) {
-        // AVKit needs the PiP content layer in a window; it hides in the
-        // corner while the system window does the real rendering.
-        PiPLayerHost(layer: model.pictureInPicture.bridge.layer) {
-          model.pictureInPicture.prepareIfNeeded()
-          controller.didChangePictureInPicture(
-            available: model.pictureInPicture.isSupported,
-            active: model.pictureInPicture.isActive
-          )
-        }
-        .frame(width: 64, height: 36)
-        .opacity(0.02)
-        .allowsHitTesting(false)
+    Group {
+      if controller.connectionState == .joined {
+        meetingRoot
+      } else {
+        // The surface stays mounted so the join task below keeps running,
+        // but none of the meeting chrome (sidebar, toolbar, stage) shows
+        // until actually in the conference.
+        Color.clear
       }
-      .onChange(of: model.featuredRemoteStream?.id) { _, _ in
-        model.pictureInPicture.showRemote(
-          model.featuredRemoteStream, localFallback: model.localCameraTrack)
+    }
+    .overlay(alignment: .bottomTrailing) {
+      // AVKit needs the PiP content layer in a window; it hides in the
+      // corner while the system window does the real rendering.
+      PiPLayerHost(layer: model.pictureInPicture.bridge.layer) {
+        model.pictureInPicture.prepareIfNeeded()
+        controller.didChangePictureInPicture(
+          available: model.pictureInPicture.isSupported,
+          active: model.pictureInPicture.isActive
+        )
       }
-      // The stats panel ticks once a second while open, so the current
-      // speaker's time counts up live.
-      .task(id: controller.showsSpeakerStats) {
-        guard controller.showsSpeakerStats else { return }
-        while !Task.isCancelled, controller.showsSpeakerStats {
-          await model.refreshSpeakerStats(controller: controller)
-          try? await Task.sleep(for: .seconds(1))
-        }
+      .frame(width: 64, height: 36)
+      .opacity(0.02)
+      .allowsHitTesting(false)
+    }
+    .onChange(of: model.featuredRemoteStream?.id) { _, _ in
+      model.pictureInPicture.showRemote(
+        model.featuredRemoteStream, localFallback: model.localCameraTrack)
+    }
+    // The stats panel ticks once a second while open, so the current
+    // speaker's time counts up live.
+    .task(id: controller.showsSpeakerStats) {
+      guard controller.showsSpeakerStats else { return }
+      while !Task.isCancelled, controller.showsSpeakerStats {
+        await model.refreshSpeakerStats(controller: controller)
+        try? await Task.sleep(for: .seconds(1))
       }
-      .task {
-        await model.join(configuration: configuration, controller: controller)
+    }
+    .task {
+      await model.join(configuration: configuration, controller: controller)
+    }
+    .onDisappear {
+      model.leave(controller: controller)
+    }
+    #if os(iOS)
+      .sheet(isPresented: $model.showsBroadcastPicker) {
+        NativeBroadcastPickerSheet()
+        .presentationDetents([.height(220)])
       }
-      .onDisappear {
-        model.leave(controller: controller)
-      }
-      #if os(iOS)
-        .sheet(isPresented: $model.showsBroadcastPicker) {
-          NativeBroadcastPickerSheet()
-          .presentationDetents([.height(220)])
-        }
-      #endif
+    #endif
   }
 
   #if os(macOS)

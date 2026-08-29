@@ -13,11 +13,28 @@ struct MeetingView: View {
   @State private var toolbarHideTask: Task<Void, Never>?
   @State private var windowWidth: CGFloat = 0
   @State private var roomPasswordDraft = ""
+  /// Once the conference has been entered, later passes through the
+  /// pre-join states are room switches, not first joins.
+  @State private var hasJoinedOnce = false
+
+  /// Whether the window is showing the first view's join form (the initial
+  /// pre-join hold) rather than the conference.
+  private var showsJoinForm: Bool {
+    Self.preJoinStates.contains(controller.connectionState) && !hasJoinedOnce
+  }
 
   var body: some View {
     ZStack(alignment: .bottom) {
-      Color.black
-        .ignoresSafeArea()
+      // The conference is black; the initial join hold keeps the first
+      // view's system background until actually in.
+      Group {
+        if showsJoinForm {
+          Rectangle().fill(.background)
+        } else {
+          Color.black
+        }
+      }
+      .ignoresSafeArea()
 
       // On macOS the surface manages safe areas itself: the stage ignores
       // them (video runs under the titlebar), while the floating sidebar
@@ -27,17 +44,28 @@ struct MeetingView: View {
           .ignoresSafeArea()
         #endif
 
-      // One card carries the whole pre-join journey — joining, waiting in
-      // the lobby, host sign-in, meeting password — so typed credentials
-      // and context survive every state change instead of swapping views.
+      // The whole pre-join journey stays on the first view's join form —
+      // anything the join still needs (host sign-in, lobby wait, meeting
+      // password) expands below the Join button, and the video surface
+      // only shows once actually in the conference. One view carries every
+      // state change, so typed credentials and context survive.
       if Self.preJoinStates.contains(controller.connectionState) {
-        PreJoinCard(
-          configuration: configuration,
-          controller: controller,
-          cancel: dismiss
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        if hasJoinedOnce {
+          // A mid-meeting rejoin (a breakout-room switch) passes through
+          // the same states, but the meeting is conceptually still on —
+          // showing the join form again would be jarring.
+          RoomSwitchCard()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+        } else {
+          PreJoinView(
+            configuration: configuration,
+            controller: controller,
+            cancel: dismiss
+          )
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
       }
 
       if controller.connectionState == .joined {
@@ -51,23 +79,7 @@ struct MeetingView: View {
           .onChange(of: geometry.size.width) { _, width in windowWidth = width }
       }
     }
-    .overlay(alignment: .topLeading) {
-      // Leaving any pre-join hold is navigation, not an action on the card.
-      if Self.preJoinStates.contains(controller.connectionState) {
-        Button(action: dismiss) {
-          Label("Back", systemImage: "chevron.backward")
-            .font(.body.weight(.medium))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.85))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.white.opacity(0.1), in: .capsule)
-        .padding(16)
-        .keyboardShortcut(.cancelAction)
-      }
-    }
-    .background(.black)
+    .background(showsJoinForm ? AnyShapeStyle(.background) : AnyShapeStyle(.black))
     .alert(
       "Meeting Error",
       isPresented: Binding(
@@ -84,6 +96,9 @@ struct MeetingView: View {
       Text(controller.errorMessage ?? "Unknown error")
     }
     .onChange(of: controller.connectionState) { _, state in
+      if state == .joined {
+        hasJoinedOnce = true
+      }
       if state == .ended {
         dismiss()
       }
@@ -273,11 +288,28 @@ extension MeetingView {
   ]
 }
 
-/// The whole pre-join journey on one card: joining, waiting in the lobby,
-/// host sign-in, and the meeting password. Credentials and expansion
-/// survive every state change because the card itself does; status renders
-/// beneath the sign-in information rather than replacing it.
-private struct PreJoinCard: View {
+/// The hold shown when the meeting itself continues but the room is
+/// changing underneath it (a breakout-room switch): the same pre-join
+/// states pass by, but re-showing the join form mid-meeting would read
+/// as being thrown out.
+private struct RoomSwitchCard: View {
+  var body: some View {
+    HStack(spacing: 10) {
+      ProgressView()
+        .controlSize(.small)
+      Text("Switching rooms…")
+        .foregroundStyle(.secondary)
+    }
+    .meetingCardChrome()
+  }
+}
+
+/// The whole pre-join journey rendered as the first view's join form:
+/// the same labeled fields (frozen) and Join button, with everything the
+/// join still needs — host sign-in, the lobby wait, the meeting password —
+/// expanding below the button. Credentials and expansion survive every
+/// state change because the view itself does.
+private struct PreJoinView: View {
   let configuration: MeetingConfiguration
   @ObservedObject var controller: MeetingController
   let cancel: () -> Void
@@ -306,23 +338,74 @@ private struct PreJoinCard: View {
   }
 
   var body: some View {
-    VStack(spacing: 18) {
-      // Where we are headed, and the way back to editing it.
-      HStack(alignment: .firstTextBaseline) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(configuration.normalizedRoom)
-            .font(.title3.bold())
-          Text(configuration.serverURL.host ?? configuration.serverURL.absoluteString)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        Spacer(minLength: 12)
-        Button("Edit", action: cancel)
-          .buttonStyle(.plain)
-          .foregroundStyle(.tint)
+    VStack(spacing: 24) {
+      Spacer()
+
+      Image(systemName: "video.fill")
+        .font(.system(size: 52, weight: .semibold))
+        .foregroundStyle(.tint)
+
+      VStack(spacing: 6) {
+        Text("Sangam")
+          .font(.largeTitle.bold())
+        Text("Join a Jitsi meeting")
+          .foregroundStyle(.secondary)
       }
 
-      Divider()
+      // The same labeled form the user just filled in, frozen while the
+      // join runs; Back returns to editing it.
+      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 12) {
+        GridRow {
+          fieldLabel("Server:")
+          frozenField(configuration.serverURL.absoluteString)
+        }
+        GridRow {
+          fieldLabel("Room:")
+          frozenField(configuration.normalizedRoom)
+        }
+        GridRow {
+          fieldLabel("Name:")
+          frozenField(configuration.displayName)
+        }
+      }
+      .frame(maxWidth: 420)
+
+      // The Join button's slot: joining is underway, so it cancels now.
+      Button(action: cancel) {
+        Text("Cancel")
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.large)
+      .keyboardShortcut(.cancelAction)
+      .frame(maxWidth: 420)
+
+      expansion
+        .frame(maxWidth: 420)
+
+      Spacer()
+    }
+    .padding(32)
+    .animation(.snappy, value: expanded)
+    .animation(.snappy, value: state)
+    .onAppear { adapt(to: state) }
+    .onChange(of: state) { _, newState in adapt(to: newState) }
+  }
+
+  /// Whatever the join still needs, below the Join button.
+  @ViewBuilder
+  private var expansion: some View {
+    VStack(spacing: 18) {
+      // Where the join stands, right under the Cancel button.
+      if let status = statusText {
+        HStack(spacing: 10) {
+          ProgressView()
+            .controlSize(.small)
+          Text(status)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
 
       if showsHostLogin {
         VStack(spacing: 10) {
@@ -378,27 +461,21 @@ private struct PreJoinCard: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
 
-      if let status = statusText {
-        HStack(spacing: 10) {
-          ProgressView()
-            .controlSize(.small)
-          Text(status)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-
-      // Cancelling the join tears down whatever the bootstrap opened.
-      Button("Cancel", role: .cancel, action: cancel)
-        .buttonStyle(.bordered)
-        .keyboardShortcut(.cancelAction)
     }
-    .meetingCardChrome()
-    .animation(.snappy, value: expanded)
-    .animation(.snappy, value: state)
-    .onAppear { adapt(to: state) }
-    .onChange(of: state) { _, newState in adapt(to: newState) }
+  }
+
+  private func fieldLabel(_ text: String) -> some View {
+    Text(text)
+      .foregroundStyle(.secondary)
+      .gridColumnAlignment(.trailing)
+  }
+
+  /// A field's value in the first view's rounded-border clothing, without
+  /// being editable mid-join.
+  private func frozenField(_ value: String) -> some View {
+    TextField("", text: .constant(value))
+      .textFieldStyle(.roundedBorder)
+      .disabled(true)
   }
 
   /// The sign-in fields stay open once used — status appears below them —

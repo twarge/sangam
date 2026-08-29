@@ -26,7 +26,7 @@ struct RootView: View {
         )
       }
     }
-    .frame(minWidth: 360, minHeight: 520)
+    .frame(minWidth: 320, minHeight: 400)
     // The window is named after the meeting while one is active.
     .navigationTitle(activeMeeting?.normalizedRoom ?? "Sangam")
     // Meeting links: the sangam scheme, universal links once a deployment
