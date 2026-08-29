@@ -1625,6 +1625,16 @@ final class NativeMeetingModel: ObservableObject {
       joinTask?.cancel()
       joinTask = nil
       return
+    case .joinWithMeetingPassword(let password):
+      // Pre-join like the cases above: there is no coordinator yet, so this
+      // must not fall through to the guard below. The retry abandons the
+      // anonymous knock still in flight, same as signing in from the lobby.
+      guard let configuration else { return }
+      joinTask?.cancel()
+      joinTask = nil
+      await startJoin(
+        configuration: configuration, controller: controller, meetingPassword: password)
+      return
     default:
       break
     }
@@ -1704,12 +1714,10 @@ final class NativeMeetingModel: ObservableObject {
       } catch {
         controller.report(error: error.localizedDescription)
       }
-    case .joinWithMeetingPassword(let password):
-      guard let configuration else { return }
-      joinTask?.cancel()
-      joinTask = nil
-      await startJoin(
-        configuration: configuration, controller: controller, meetingPassword: password)
+    case .joinWithMeetingPassword:
+      // Handled in the pre-join switch above; unreachable with a live
+      // coordinator (the password can only be demanded before joining).
+      break
     case .setLobbyEnabled(let enabled):
       do {
         try await coordinator.setLobbyEnabled(enabled)

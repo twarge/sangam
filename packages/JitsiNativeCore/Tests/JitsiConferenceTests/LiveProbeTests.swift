@@ -3,6 +3,56 @@ import Testing
 
 @testable import JitsiConference
 
+/// Reproduces the app's password retry against a live lobby+password room:
+/// join without a password, get parked in the lobby, cancel (the app does
+/// this when the user types the meeting password), then join again with
+/// the password — the sequence the pre-join form drives.
+///
+///     SANGAM_LIVE_PROBE=... SANGAM_LIVE_PROBE_ROOM=... \
+///     SANGAM_LIVE_PROBE_MEETING_PASSWORD=... \
+///     swift test --filter livePasswordRetryProbe
+@Test(
+  .enabled(
+    if: ProcessInfo.processInfo.environment["SANGAM_LIVE_PROBE"] != nil
+      && ProcessInfo.processInfo.environment["SANGAM_LIVE_PROBE_MEETING_PASSWORD"] != nil),
+  .timeLimit(.minutes(2))
+)
+func livePasswordRetryProbe() async throws {
+  let environment = ProcessInfo.processInfo.environment
+  let base = try #require(environment["SANGAM_LIVE_PROBE"].flatMap(URL.init(string:)))
+  let room = try #require(environment["SANGAM_LIVE_PROBE_ROOM"])
+  let password = try #require(environment["SANGAM_LIVE_PROBE_MEETING_PASSWORD"])
+
+  let reachedLobby = AsyncStream<Void>.makeStream()
+  let first = Task {
+    _ = try await NativeConferenceBootstrap().connect(
+      NativeConferenceJoinOptions(
+        serverURL: base, room: room, displayName: "Retry Probe", startCamera: false),
+      progress: { progress in
+        print("RETRY first join progress: \(progress)")
+        if case .waitingInLobby = progress { reachedLobby.continuation.yield() }
+      }
+    )
+  }
+  var lobbyEvents = reachedLobby.stream.makeAsyncIterator()
+  _ = await lobbyEvents.next()
+  print("RETRY in lobby — cancelling first join, retrying with password")
+  first.cancel()
+  do {
+    let handle = try await NativeConferenceBootstrap().connect(
+      NativeConferenceJoinOptions(
+        serverURL: base, room: room, displayName: "Retry Probe", startCamera: false,
+        meetingPassword: password),
+      progress: { progress in print("RETRY second join progress: \(progress)") }
+    )
+    print("RETRY joined as \(handle.occupantJID)")
+    await handle.coordinator.stop()
+  } catch {
+    print("RETRY second join FAILED: \(String(reflecting: error))")
+    throw error
+  }
+}
+
 /// A live join against a real deployment, for diagnosing by hand — never
 /// runs in CI:
 ///
@@ -17,14 +67,16 @@ func liveJoinProbe() async throws {
   let room =
     ProcessInfo.processInfo.environment["SANGAM_LIVE_PROBE_ROOM"]
     ?? "sangam-probe-\(UUID().uuidString.prefix(8).lowercased())"
-  print("PROBE joining \(base) room=\(room)")
+  let meetingPassword = ProcessInfo.processInfo.environment["SANGAM_LIVE_PROBE_MEETING_PASSWORD"]
+  print("PROBE joining \(base) room=\(room) password=\(meetingPassword != nil)")
   do {
     let handle = try await NativeConferenceBootstrap().connect(
       NativeConferenceJoinOptions(
         serverURL: base,
         room: room,
         displayName: "Sangam Probe",
-        startCamera: false
+        startCamera: false,
+        meetingPassword: meetingPassword
       ),
       progress: { progress in print("PROBE progress: \(progress)") }
     )
