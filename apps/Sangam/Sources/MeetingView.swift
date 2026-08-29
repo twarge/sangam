@@ -314,19 +314,12 @@ private struct PreJoinView: View {
   @ObservedObject var controller: MeetingController
   let cancel: () -> Void
 
-  private enum Expansion {
-    case none
-    case hostLogin
-    case meetingPassword
-  }
-
   private enum Field {
     case username
     case password
     case meetingPassword
   }
 
-  @State private var expanded: Expansion = .none
   @State private var username = ""
   @State private var password = ""
   @State private var meetingPassword = ""
@@ -386,7 +379,6 @@ private struct PreJoinView: View {
       Spacer()
     }
     .padding(32)
-    .animation(.snappy, value: expanded)
     .animation(.snappy, value: state)
     .onAppear { adapt(to: state) }
     .onChange(of: state) { _, newState in adapt(to: newState) }
@@ -407,51 +399,55 @@ private struct PreJoinView: View {
         }
       }
 
-      if showsHostLogin {
-        VStack(spacing: 10) {
-          TextField("Username", text: $username)
-            .textContentType(.username)
-            .focused($focusedField, equals: .username)
-            .onSubmit { focusedField = .password }
-          SecureField("Password", text: $password)
-            .textContentType(.password)
-            .focused($focusedField, equals: .password)
-            .onSubmit(submitCredentials)
-          Button("Sign in and join", action: submitCredentials)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(
-              username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || password.isEmpty || state == .connecting
-            )
-            .frame(maxWidth: .infinity)
+      // Both unlock paths, offered together: a meeting password, or an
+      // admin sign-in. One Log in button submits whichever is filled.
+      if showsCredentialFields {
+        VStack(spacing: 14) {
+          Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 12) {
+            GridRow {
+              fieldLabel("Meeting password:")
+              SecureField("", text: $meetingPassword)
+                .focused($focusedField, equals: .meetingPassword)
+                .onSubmit(submit)
+            }
+            GridRow {
+              Text("or")
+                .foregroundStyle(.secondary)
+                .gridCellColumns(2)
+                .frame(maxWidth: .infinity)
+            }
+            GridRow {
+              fieldLabel("Admin user:")
+              TextField("", text: $username)
+                .textContentType(.username)
+                .focused($focusedField, equals: .username)
+                .onSubmit { focusedField = .password }
+            }
+            GridRow {
+              fieldLabel("Admin password:")
+              SecureField("", text: $password)
+                .textContentType(.password)
+                .focused($focusedField, equals: .password)
+                .onSubmit(submit)
+            }
+          }
+          .textFieldStyle(.roundedBorder)
+
+          Button(action: submit) {
+            Text("Log in")
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .disabled(!canSubmit || state == .connecting)
+
           if state == .accessRequired {
             Button("Wait for a host instead") { controller.waitForHost() }
               .buttonStyle(.plain)
               .foregroundStyle(.secondary)
           }
         }
-        .textFieldStyle(.roundedBorder)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
-      } else if expanded == .meetingPassword {
-        VStack(spacing: 10) {
-          SecureField("Meeting password", text: $meetingPassword)
-            .textFieldStyle(.roundedBorder)
-            .focused($focusedField, equals: .meetingPassword)
-            .onSubmit(submitMeetingPassword)
-          Button("Join with password", action: submitMeetingPassword)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(meetingPassword.isEmpty || state == .connecting)
-            .frame(maxWidth: .infinity)
-        }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-      } else if offersExpansions {
-        HStack(spacing: 10) {
-          Button("Enter meeting password") { expanded = .meetingPassword }
-          Button("Host sign in") { expanded = .hostLogin }
-        }
-        .buttonStyle(.bordered)
       }
 
       if let message = controller.accessMessage {
@@ -478,14 +474,24 @@ private struct PreJoinView: View {
       .disabled(true)
   }
 
-  /// The sign-in fields stay open once used — status appears below them —
-  /// and open themselves when the server demands credentials.
-  private var showsHostLogin: Bool {
-    expanded == .hostLogin || state == .accessRequired
+  /// The credential fields show whenever they could unblock the join —
+  /// waiting in the lobby, waiting for a host, or when the server demands
+  /// one of them outright.
+  private var showsCredentialFields: Bool {
+    switch state {
+    case .waitingInLobby, .waitingForHost, .accessRequired, .passwordRequired:
+      return true
+    default:
+      return false
+    }
   }
 
-  private var offersExpansions: Bool {
-    state == .waitingInLobby || state == .waitingForHost
+  private var trimmedUsername: String {
+    username.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var canSubmit: Bool {
+    !meetingPassword.isEmpty || (!trimmedUsername.isEmpty && !password.isEmpty)
   }
 
   private var statusText: String? {
@@ -507,10 +513,8 @@ private struct PreJoinView: View {
     switch state {
     case .accessRequired:
       submittedCredentials = false
-      expanded = .hostLogin
       focus(.username)
     case .passwordRequired:
-      expanded = .meetingPassword
       focus(.meetingPassword)
     default:
       break
@@ -527,15 +531,14 @@ private struct PreJoinView: View {
     }
   }
 
-  private func submitCredentials() {
-    let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !normalizedUsername.isEmpty, !password.isEmpty else { return }
-    submittedCredentials = true
-    controller.authenticate(username: normalizedUsername, password: password)
-  }
-
-  private func submitMeetingPassword() {
-    guard !meetingPassword.isEmpty else { return }
-    controller.joinWithMeetingPassword(meetingPassword)
+  /// Submits whichever unlock path is filled in. Admin credentials win
+  /// when both are: signing in also joins, with the stronger role.
+  private func submit() {
+    if !trimmedUsername.isEmpty, !password.isEmpty {
+      submittedCredentials = true
+      controller.authenticate(username: trimmedUsername, password: password)
+    } else if !meetingPassword.isEmpty {
+      controller.joinWithMeetingPassword(meetingPassword)
+    }
   }
 }
