@@ -67,19 +67,6 @@ struct MeetingView: View {
         .keyboardShortcut(.cancelAction)
       }
     }
-    .overlay(alignment: .top) {
-      if controller.connectionState == .joined, !controller.lobbyRequests.isEmpty {
-        LobbyRequestsPanel(
-          requests: controller.lobbyRequests,
-          admit: controller.admitLobbyParticipant,
-          deny: controller.denyLobbyParticipant
-        )
-        .padding(.top, 18)
-        .padding(.horizontal, 16)
-        .transition(.move(edge: .top).combined(with: .opacity))
-      }
-    }
-    .animation(.snappy, value: controller.lobbyRequests)
     .background(.black)
     .alert(
       "Meeting Error",
@@ -473,46 +460,5 @@ private struct PreJoinCard: View {
   private func submitMeetingPassword() {
     guard !meetingPassword.isEmpty else { return }
     controller.joinWithMeetingPassword(meetingPassword)
-  }
-}
-
-/// Hosts see who is knocking and let them in, or not, one at a time.
-private struct LobbyRequestsPanel: View {
-  let requests: [MeetingController.LobbyRequest]
-  let admit: (String) -> Void
-  let deny: (String) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Label(
-        requests.count == 1
-          ? "Someone is waiting to join"
-          : "\(requests.count) people are waiting to join",
-        systemImage: "person.crop.circle.badge.clock"
-      )
-      .font(.headline)
-
-      ForEach(requests) { request in
-        HStack(spacing: 10) {
-          Text(request.displayName)
-            .lineLimit(1)
-            .truncationMode(.tail)
-          Spacer(minLength: 12)
-          Button("Deny") { deny(request.id) }
-            .buttonStyle(.bordered)
-          Button("Admit") { admit(request.id) }
-            .buttonStyle(.borderedProminent)
-        }
-      }
-    }
-    .padding(16)
-    .frame(maxWidth: 440)
-    .background(.regularMaterial, in: .rect(cornerRadius: 18))
-    .overlay {
-      RoundedRectangle(cornerRadius: 18)
-        .strokeBorder(.white.opacity(0.14))
-    }
-    .shadow(color: .black.opacity(0.3), radius: 22, y: 10)
-    .environment(\.colorScheme, .dark)
   }
 }

@@ -100,6 +100,16 @@ struct NativeMeetingSurface: View {
             model.sidebarCollapsed.toggle()
           } label: {
             Image(systemName: "sidebar.left")
+              // Admit/deny lives in the roster, so a collapsed sidebar
+              // would otherwise hide that someone is waiting.
+              .overlay(alignment: .topTrailing) {
+                if model.sidebarCollapsed, !controller.lobbyRequests.isEmpty {
+                  Circle()
+                    .fill(.orange)
+                    .frame(width: 7, height: 7)
+                    .offset(x: 4, y: -4)
+                }
+              }
           }
           .help(model.sidebarCollapsed ? "Show participants" : "Hide participants")
           .keyboardShortcut("s", modifiers: [.command, .option])
@@ -134,6 +144,27 @@ struct NativeMeetingSurface: View {
 
     private var sidebarRoster: some View {
       List(selection: $model.pinnedTileID) {
+        // Hosts see who is knocking at the top of the roster and let them
+        // in, or not, one at a time.
+        if !controller.lobbyRequests.isEmpty {
+          Section {
+            ForEach(controller.lobbyRequests) { request in
+              LobbyRequestRow(
+                displayName: request.displayName,
+                admit: { controller.admitLobbyParticipant(request.id) },
+                deny: { controller.denyLobbyParticipant(request.id) }
+              )
+            }
+          } header: {
+            Label(
+              controller.lobbyRequests.count == 1
+                ? "Waiting to join" : "Waiting to join (\(controller.lobbyRequests.count))",
+              systemImage: "person.crop.circle.badge.clock"
+            )
+            .font(.subheadline.weight(.semibold))
+          }
+        }
+
         Section {
           if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
             SidebarThumbnail(
@@ -587,6 +618,40 @@ struct NativeMeetingSurface: View {
   }
 
   /// One feed's thumbnail row under its owner's name.
+  /// One person waiting in the lobby: their name with inline admit and
+  /// deny controls, compact enough for the narrow roster column.
+  private struct LobbyRequestRow: View {
+    let displayName: String
+    let admit: () -> Void
+    let deny: () -> Void
+
+    var body: some View {
+      HStack(spacing: 8) {
+        Text(displayName)
+          .lineLimit(1)
+          .truncationMode(.tail)
+        Spacer(minLength: 8)
+        Button(action: deny) {
+          Image(systemName: "xmark.circle.fill")
+            .font(.title3)
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Deny")
+        .accessibilityLabel(Text("Deny \(displayName)"))
+        Button(action: admit) {
+          Image(systemName: "checkmark.circle.fill")
+            .font(.title3)
+            .foregroundStyle(.green)
+        }
+        .buttonStyle(.plain)
+        .help("Admit")
+        .accessibilityLabel(Text("Admit \(displayName)"))
+      }
+      .padding(.vertical, 2)
+    }
+  }
+
   private struct SidebarThumbnail<Surface: View>: View {
     let isPinned: Bool
     let videoType: String?
