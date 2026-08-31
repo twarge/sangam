@@ -291,11 +291,19 @@ struct NativeMeetingSurface: View {
           }
           if controller.connectionState == .joined {
             VStack(spacing: 6) {
-              Text("You’re the only one in the meeting")
-                .font(.headline)
-              Text("Others will appear here when they join.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+              if controller.lobbyRequests.isEmpty {
+                Text("You’re the only one in the meeting")
+                  .font(.headline)
+                Text("Others will appear here when they join.")
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+              } else {
+                Text("There are guests in the lobby waiting to be admitted")
+                  .font(.headline)
+                Text("Admit them in the sidebar.")
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+              }
             }
             .padding(16)
             .background(.regularMaterial, in: .rect(cornerRadius: 14))
