@@ -15,6 +15,11 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- network.server is required for WebRTC media, not for any user-facing
+	     server: the App Sandbox denies bind() on the UDP sockets libwebrtc
+	     opens for ICE host candidates (EPERM) unless this entitlement is
+	     present, so without it the app cannot send or receive audio/video.
+	     Verified empirically 2026-09; App Review asked about this key. -->
 	<key>com.apple.security.network.server</key>
 	<true/>
 </dict>
