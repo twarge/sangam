@@ -64,6 +64,10 @@ targets:
         "INFOPLIST_FILE[sdk=macosx*]": Sangam/Info-macOS.plist
         "INFOPLIST_FILE[sdk=iphoneos*]": Sangam/Info-iOS.plist
         "INFOPLIST_FILE[sdk=iphonesimulator*]": Sangam/Info-iOS.plist
+        # XcodeGen gives a multi-destination app the iOS runpath only, so a Mac
+        # build looks for embedded frameworks beside the executable instead of
+        # in Contents/Frameworks and dyld fails to load WebRTC at launch.
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
     scheme:
       gatherCoverageData: false
 
