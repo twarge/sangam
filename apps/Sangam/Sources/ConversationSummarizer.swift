@@ -150,7 +150,12 @@
       let response = try await session.respond(
         to: "SOURCE:\n\(source)\nEND SOURCE",
         generating: ConversationDigest.self,
-        options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 900))
+        // `sampling:` rather than the `samplingMode:` that replaced it: the
+        // rename landed in the 27.0 SDK, and CI builds on the newest Xcode its
+        // runner image has, which is still 26.6. The old label exists in both
+        // — deprecated in 27, the only one that resolves in 26.5 — so it is
+        // what compiles everywhere. Flip it once the runners carry Xcode 27.
+        options: GenerationOptions(sampling: .greedy, maximumResponseTokens: 900))
       return response.content
     }
 
