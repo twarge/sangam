@@ -44,6 +44,8 @@ targets:
         product: JitsiMedia
       - package: JitsiNativeCore
         product: JitsiConference
+      - package: JitsiNativeCore
+        product: JitsiMeetingNotes
       - target: SangamBroadcastExtension
         embed: true
         destinationFilters: [iOS]

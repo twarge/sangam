@@ -30,6 +30,29 @@ public enum XMPPNegotiationError: Error, Equatable, Sendable {
   case streamError
 }
 
+// Without this, a negotiation failure that reaches a person reads as
+// "The operation couldn't be completed. (JitsiXMPP.XMPPNegotiationError
+// error 2.)" — Foundation's fallback for an untyped Swift error. Callers
+// map the cases they can act on; this is what the rest say.
+extension XMPPNegotiationError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .invalidState:
+      return "The connection to the Jitsi server got out of step."
+    case .missingMechanism(let mechanism):
+      return "The Jitsi server does not offer the \(mechanism) sign-in method."
+    case .authenticationFailed:
+      return "The Jitsi server refused the sign-in."
+    case .resourceBindingUnavailable, .resourceBindingFailed:
+      return "The Jitsi server would not open a session."
+    case .missingBoundJID:
+      return "The Jitsi server opened a session without an address."
+    case .streamError:
+      return "The connection to the Jitsi server ended unexpectedly."
+    }
+  }
+}
+
 public struct XMPPStreamNegotiator: Sendable {
   public private(set) var state: XMPPStreamState = .idle
 

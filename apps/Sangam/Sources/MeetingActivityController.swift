@@ -2,39 +2,22 @@
   import ActivityKit
   import Foundation
 
-  /// Drives the ongoing-meeting Live Activity: started on join, microphone
-  /// state kept current, ended on leave.
+  /// The meeting no longer runs a Live Activity. CallKit already reports the
+  /// call to the system — the lock screen, the Dynamic Island, mute and hang
+  /// up all come from it — so the card only ever said the same thing a second
+  /// time, and cost a battery-backed timer to say it.
+  ///
+  /// This remains to clear cards a previous build left behind. ActivityKit
+  /// keeps an activity alive across launches, so one stranded by a crash or a
+  /// force-quit would otherwise sit on the lock screen for hours with no
+  /// meeting behind it and nothing left that could end it.
   @MainActor
   final class MeetingActivityController {
     static let shared = MeetingActivityController()
 
-    /// Activities are not Sendable; background work looks the activity up
-    /// by this id in its own isolation region.
-    private var activityID: String?
-
-    func begin(room: String) {
-      guard activityID == nil, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-      let activity = try? Activity.request(
-        attributes: MeetingActivityAttributes(roomName: room, startedAt: Date()),
-        content: .init(state: .init(muted: false), staleDate: nil)
-      )
-      activityID = activity?.id
-    }
-
-    func update(muted: Bool) {
-      guard let id = activityID else { return }
-      Task.detached {
-        for activity in Activity<MeetingActivityAttributes>.activities where activity.id == id {
-          await activity.update(.init(state: .init(muted: muted), staleDate: nil))
-        }
-      }
-    }
-
     func end() {
-      guard let id = activityID else { return }
-      activityID = nil
       Task.detached {
-        for activity in Activity<MeetingActivityAttributes>.activities where activity.id == id {
+        for activity in Activity<MeetingActivityAttributes>.activities {
           await activity.end(nil, dismissalPolicy: .immediate)
         }
       }

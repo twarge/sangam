@@ -34,6 +34,34 @@ public enum XMPPParsingError: Error, Equatable, Sendable {
   case multipleRootElements
 }
 
+// The transport parses every frame it reads, so these reach a join that got
+// far enough to be answered by something that is not a Jitsi server — a proxy
+// error page served where the XMPP WebSocket should be, most often.
+extension XMPPParsingError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .emptyDocument:
+      return "The Jitsi server sent an empty response."
+    case .documentTooLarge(let limit):
+      return "The Jitsi server's response exceeded the \(limit)-byte safety limit."
+    case .documentTypeNotAllowed:
+      return "The Jitsi server's response carried a document type, which is not allowed."
+    case .malformedXML:
+      return "The Jitsi server's response is not valid XMPP."
+    case .nestingTooDeep(let limit):
+      return "The Jitsi server's response nested deeper than the limit of \(limit)."
+    case .tooManyElements(let limit):
+      return "The Jitsi server's response held more than \(limit) elements."
+    case .tooManyAttributes(let limit):
+      return "The Jitsi server's response held more than \(limit) attributes on one element."
+    case .textTooLarge(let limit):
+      return "The Jitsi server's response held more than \(limit) bytes of text."
+    case .multipleRootElements:
+      return "The Jitsi server sent more than one document in a single frame."
+    }
+  }
+}
+
 public struct XMPPParser: Sendable {
   public var bounds: XMLBounds
 

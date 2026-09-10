@@ -17,6 +17,7 @@ let package = Package(
     .library(name: "JitsiJingle", targets: ["JitsiJingle"]),
     .library(name: "JitsiBridge", targets: ["JitsiBridge"]),
     .library(name: "JitsiDiscovery", targets: ["JitsiDiscovery"]),
+    .library(name: "JitsiMeetingNotes", targets: ["JitsiMeetingNotes"]),
   ],
   dependencies: [
     .package(url: "https://github.com/jitsi/webrtc", exact: "124.0.2")
@@ -27,9 +28,22 @@ let package = Package(
     .target(name: "JitsiJingle", dependencies: ["JitsiXMPP"]),
     .target(name: "JitsiBridge"),
     .target(name: "JitsiDiscovery"),
+    .target(name: "JitsiMeetingNotes"),
+    .target(
+      name: "JitsiAudioBridge",
+      dependencies: [.product(name: "WebRTC", package: "webrtc")],
+      exclude: ["Vendor/LICENSE", "Vendor/PATENTS", "Vendor/ABSEIL_LICENSE", "README.md"],
+      publicHeadersPath: "include",
+      cxxSettings: [
+        .headerSearchPath("Vendor"),
+        .define("WEBRTC_POSIX"), .define("NDEBUG"),
+      ]
+    ),
     .target(
       name: "JitsiMedia",
-      dependencies: ["JitsiConcurrency", .product(name: "WebRTC", package: "webrtc")]
+      dependencies: [
+        "JitsiConcurrency", "JitsiAudioBridge", .product(name: "WebRTC", package: "webrtc"),
+      ]
     ),
     .target(
       name: "JitsiNativeCore",
@@ -53,6 +67,9 @@ let package = Package(
     .testTarget(name: "JitsiJingleTests", dependencies: ["JitsiJingle", "JitsiXMPP"]),
     .testTarget(name: "JitsiBridgeTests", dependencies: ["JitsiBridge"]),
     .testTarget(name: "JitsiDiscoveryTests", dependencies: ["JitsiDiscovery"]),
+    .testTarget(name: "JitsiMediaTests", dependencies: ["JitsiMedia"]),
     .testTarget(name: "JitsiNativeCoreTests", dependencies: ["JitsiNativeCore"]),
-  ]
+    .testTarget(name: "JitsiMeetingNotesTests", dependencies: ["JitsiMeetingNotes"]),
+  ],
+  cxxLanguageStandard: .cxx17
 )

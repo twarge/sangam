@@ -115,3 +115,14 @@ public enum FocusConferenceError: Error, Equatable, Sendable {
   case notSuccessfulIQ
   case missingConference
 }
+
+extension FocusConferenceError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .notSuccessfulIQ:
+      return "The Jitsi conference focus refused to allocate the meeting."
+    case .missingConference:
+      return "The Jitsi conference focus did not name a meeting to join."
+    }
+  }
+}

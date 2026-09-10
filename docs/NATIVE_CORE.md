@@ -136,8 +136,11 @@ small `VideoRendererRegistry`; tracks never leak into SwiftUI state.
 - Lobby rooms are supported (wait, admit, deny); switching the lobby on or off
   from the client is not.
 - No password-protected rooms, breakout rooms, recording, livestreaming,
-  transcription, remote control, or end-to-end encryption in the first
+  server-side transcription, remote control, or end-to-end encryption in the first
   release.
+
+macOS also offers local Apple transcription and Markdown meeting notes;
+see [MEETING_NOTES.md](MEETING_NOTES.md) for availability and limitations.
 
 Unsupported server features must fail explicitly or remain absent. They must
 not be silently approximated in the UI.

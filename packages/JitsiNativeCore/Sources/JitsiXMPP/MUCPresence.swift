@@ -389,3 +389,22 @@ public enum MUCPresenceError: Error, Equatable, Sendable {
   case sourceInfoTooLarge(limit: Int)
   case tooManySources(limit: Int)
 }
+
+// The room's answer to our own join is parsed here, so these can end a join
+// rather than only spoiling one participant's tile.
+extension MUCPresenceError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .notPresence:
+      return "The meeting room sent something other than a presence update."
+    case .missingEndpointID:
+      return "A participant's presence arrived without an endpoint id."
+    case .invalidSourceInfo:
+      return "A participant's media description could not be read."
+    case .sourceInfoTooLarge(let limit):
+      return "A participant's media description exceeded the \(limit)-byte safety limit."
+    case .tooManySources(let limit):
+      return "A participant announced more than \(limit) media sources."
+    }
+  }
+}

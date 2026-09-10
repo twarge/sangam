@@ -68,6 +68,21 @@ public enum XMPPTransportError: Error, Equatable, Sendable {
   case frameTooLarge(limit: Int)
 }
 
+extension XMPPTransportError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .notConnected:
+      return "The connection to the Jitsi server is not open."
+    case .alreadyConnected:
+      return "The connection to the Jitsi server is already open."
+    case .unsupportedFrame:
+      return "The Jitsi server sent a frame that is not XMPP."
+    case .frameTooLarge(let limit):
+      return "A message to the Jitsi server exceeded the \(limit)-byte limit."
+    }
+  }
+}
+
 public actor XMPPWebSocketTransport {
   private let socket: any XMPPTextSocket
   private let parser: XMPPParser

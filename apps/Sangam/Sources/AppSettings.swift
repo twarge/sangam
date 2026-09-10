@@ -27,12 +27,28 @@ final class AppSettings: ObservableObject {
     didSet { UserDefaults.standard.set(panelsPushStage, forKey: "panelsPushStage") }
   }
 
+  /// Whether a call starts transcribing itself, without waiting for
+  /// Transcribe in the conversation sidebar. On by default.
+  @Published var transcribeOnJoin: Bool {
+    didSet { UserDefaults.standard.set(transcribeOnJoin, forKey: "transcribeOnJoin") }
+  }
+
+  /// Whether the last line or two of transcription is captioned over the
+  /// video. On by default.
+  @Published var showsCaptions: Bool {
+    didSet { UserDefaults.standard.set(showsCaptions, forKey: "showsCaptions") }
+  }
+
   private init() {
     let defaults = UserDefaults.standard
     let storedQuality = defaults.integer(forKey: "receiveQuality")
     receiveQuality = storedQuality == 0 ? 720 : storedQuality
     backgroundBlur = defaults.bool(forKey: "backgroundBlur")
     panelsPushStage = defaults.bool(forKey: "panelsPushStage")
+    // Absent, not false: these two default on, so an untouched preference
+    // has to read as on rather than as the Bool zero value.
+    transcribeOnJoin = defaults.object(forKey: "transcribeOnJoin") as? Bool ?? true
+    showsCaptions = defaults.object(forKey: "showsCaptions") as? Bool ?? true
   }
 }
 
@@ -40,6 +56,14 @@ final class AppSettings: ObservableObject {
 /// iOS. Everything here also lives in the toolbar's More menu.
 struct SettingsView: View {
   @ObservedObject private var settings = AppSettings.shared
+
+  #if os(macOS)
+    static let transcriptionFootnote =
+      "Transcription runs entirely on this device and needs macOS 26. Let the room know when you transcribe a call."
+  #else
+    static let transcriptionFootnote =
+      "Transcription runs entirely on this device and needs iOS 26. Let the room know when you transcribe a call."
+  #endif
 
   static let qualities: [(label: String, height: Int)] = [
     ("Low (180p)", 180), ("Standard (360p)", 360),
@@ -55,6 +79,16 @@ struct SettingsView: View {
           }
         }
         Toggle("Blur my background", isOn: $settings.backgroundBlur)
+      }
+      Section {
+        Toggle("Transcribe from the start of a call", isOn: $settings.transcribeOnJoin)
+        Toggle("Show captions over the video", isOn: $settings.showsCaptions)
+      } header: {
+        Text("Transcription")
+      } footer: {
+        Text(Self.transcriptionFootnote)
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
       Section("Layout") {
         Picker("Sidebar and chat", selection: $settings.panelsPushStage) {

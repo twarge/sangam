@@ -83,6 +83,16 @@ public struct RemoteParticipant: Identifiable, Equatable, Sendable {
   public var realJID: String?
 }
 
+public struct RemoteAudioStream: Identifiable, Sendable {
+  public var id: String { track.id }
+  public let track: RemoteAudioTrack
+  public let endpointID: String
+  public let sourceName: String
+  /// A receive slot may carry a different source later. Recognition sessions
+  /// must never carry acoustic context across that ownership boundary.
+  public let generation: UUID
+}
+
 /// A group chat message in the meeting.
 public struct ChatMessage: Identifiable, Equatable, Sendable {
   public var id: String
@@ -91,6 +101,18 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
   public var text: String
   public var isLocal: Bool
   public var timestamp: Date
+
+  public init(
+    id: String, senderEndpointID: String, senderDisplayName: String, text: String,
+    isLocal: Bool, timestamp: Date
+  ) {
+    self.id = id
+    self.senderEndpointID = senderEndpointID
+    self.senderDisplayName = senderDisplayName
+    self.text = text
+    self.isLocal = isLocal
+    self.timestamp = timestamp
+  }
 }
 
 public enum NativeJingleEvent: Sendable {
@@ -99,6 +121,8 @@ public enum NativeJingleEvent: Sendable {
   case peerConnectionState(NativePeerConnectionState)
   case remoteVideoTrackAdded(RemoteVideoStream)
   case remoteVideoTrackRemoved(id: String)
+  case remoteAudioTrackChanged(RemoteAudioStream)
+  case remoteAudioTrackRemoved(id: String)
   /// The media session ended. Like the reference client, this does NOT end the
   /// conference: the client stays in the room — Jicofo tears the session down
   /// whenever fewer than two participants remain and re-invites when someone
@@ -359,6 +383,14 @@ public actor NativeJingleCoordinator {
   /// Remote audio SSRCs already present in the remote description, so an
   /// `AudioSourcesMap` only renegotiates for genuinely new ones.
   private var remoteAudioSSRCs: Set<UInt32> = []
+  private struct AudioSourceIdentity {
+    let owner: String
+    let name: String
+    let generation: UUID
+  }
+  private var audioIdentityBySSRC: [UInt32: AudioSourceIdentity] = [:]
+  private var audioSSRCByTrackID: [String: UInt32] = [:]
+  private var remoteAudioTracks: [String: RemoteAudioTrack] = [:]
   /// Last known per-source video mute state from presence `SourceInfo`, by
   /// source name. Under SSRC rewriting no Jingle source-remove is signalled;
   /// a stopped share only flips its source to muted here, so transitions
@@ -882,6 +914,12 @@ public actor NativeJingleCoordinator {
   /// tiles' connection indicators.
   public func inboundVideoStatistics() async -> [InboundVideoStatistic] {
     await peerConnection.inboundVideoStatistics()
+  }
+
+  /// How loud the microphone is right now, 0…1, for the meter in the mute
+  /// button. Nil before there is an audio sender to measure.
+  public func localAudioLevel() async -> Double? {
+    await peerConnection.localAudioLevel()
   }
 
   /// The number of remote ICE candidates WebRTC has accepted. Exposed for tests
@@ -1863,6 +1901,10 @@ public actor NativeJingleCoordinator {
   /// and the receive-slot numbering an SSRC-rewriting bridge restarts per
   /// session.
   private func clearRemoteSourceState() {
+    for id in remoteAudioTracks.keys { emit(.remoteAudioTrackRemoved(id: id)) }
+    remoteAudioTracks.removeAll()
+    audioIdentityBySSRC.removeAll()
+    audioSSRCByTrackID.removeAll()
     videoSourceByTrackID.removeAll()
     remoteVideoTracks.removeAll()
     trackIDByVideoSSRC.removeAll()
@@ -2146,8 +2188,17 @@ public actor NativeJingleCoordinator {
     var newGroups: [RTPSourceGroup] = []
     for mapped in sources {
       // The bridge names owners by endpoint id; tolerate a full occupant JID.
-      let owner = mapped.owner.map { XMPPJID.resource($0) ?? $0 }
+      let owner =
+        mapped.owner.map { XMPPJID.resource($0) ?? $0 }
+        ?? Self.endpointID(fromSourceName: mapped.sourceName)
       guard media == "video" else {
+        if media == "audio" {
+          if let owner {
+            registerAudioIdentity(ssrc: mapped.ssrc, owner: owner, name: mapped.sourceName)
+          } else {
+            unregisterAudioIdentity(ssrc: mapped.ssrc)
+          }
+        }
         // Audio drives no tile; a new SSRC only has to enter the remote
         // description so WebRTC decodes it at all.
         guard media == "audio", !remoteAudioSSRCs.contains(mapped.ssrc) else { continue }
@@ -2294,6 +2345,43 @@ public actor NativeJingleCoordinator {
     )
   }
 
+  private func registerAudioIdentity(ssrc: UInt32, owner: String, name: String) {
+    guard owner != configuration.nickname, owner != "jvb", !name.hasPrefix("jvb-") else {
+      unregisterAudioIdentity(ssrc: ssrc)
+      return
+    }
+    let old = audioIdentityBySSRC[ssrc]
+    guard old?.owner != owner || old?.name != name else { return }
+    // When a source moves to another slot, stop attributing its old slot.
+    for (otherSSRC, identity) in audioIdentityBySSRC
+    where otherSSRC != ssrc && identity.name == name {
+      audioIdentityBySSRC.removeValue(forKey: otherSSRC)
+      for (id, value) in audioSSRCByTrackID where value == otherSSRC {
+        emit(.remoteAudioTrackRemoved(id: id))
+      }
+    }
+    audioIdentityBySSRC[ssrc] = AudioSourceIdentity(owner: owner, name: name, generation: UUID())
+    for (id, value) in audioSSRCByTrackID where value == ssrc { announceRemoteAudioTrack(id: id) }
+  }
+
+  private func unregisterAudioIdentity(ssrc: UInt32) {
+    guard audioIdentityBySSRC.removeValue(forKey: ssrc) != nil else { return }
+    for (id, value) in audioSSRCByTrackID where value == ssrc {
+      emit(.remoteAudioTrackRemoved(id: id))
+    }
+  }
+
+  private func announceRemoteAudioTrack(id: String) {
+    guard let track = remoteAudioTracks[id], let ssrc = audioSSRCByTrackID[id],
+      let identity = audioIdentityBySSRC[ssrc]
+    else { return }
+    emit(
+      .remoteAudioTrackChanged(
+        RemoteAudioStream(
+          track: track, endpointID: identity.owner,
+          sourceName: identity.name, generation: identity.generation)))
+  }
+
   /// Records the remote video source names carried by a session or source
   /// update, so receiver constraints can name them. Our own camera/screen
   /// sources are excluded — the bridge does not forward our video back to us.
@@ -2324,8 +2412,21 @@ public actor NativeJingleCoordinator {
         if media == "audio" {
           if session.action == .sourceRemove {
             remoteAudioSSRCs.remove(source.ssrc)
+            audioIdentityBySSRC.removeValue(forKey: source.ssrc)
+            for (id, ssrc) in audioSSRCByTrackID where ssrc == source.ssrc {
+              emit(.remoteAudioTrackRemoved(id: id))
+            }
           } else {
             remoteAudioSSRCs.insert(source.ssrc)
+            if let msid = source.parameters["msid"], let id = msid.split(separator: " ").last {
+              audioSSRCByTrackID[String(id)] = source.ssrc
+            }
+            if let name = source.sourceName,
+              let owner = source.owner.map({ XMPPJID.resource($0) ?? $0 })
+                ?? Self.endpointID(fromSourceName: name)
+            {
+              registerAudioIdentity(ssrc: source.ssrc, owner: owner, name: name)
+            }
           }
           continue
         }
@@ -2525,6 +2626,14 @@ public actor NativeJingleCoordinator {
           emit(.peerConnectionState(state))
         case .localCandidate(let candidate):
           try await send(candidate)
+        case .remoteAudioTrackAdded(let track, let ssrc):
+          remoteAudioTracks[track.id] = track
+          if let ssrc { audioSSRCByTrackID[track.id] = ssrc }
+          announceRemoteAudioTrack(id: track.id)
+        case .remoteAudioTrackRemoved(let id):
+          remoteAudioTracks.removeValue(forKey: id)
+          audioSSRCByTrackID.removeValue(forKey: id)
+          emit(.remoteAudioTrackRemoved(id: id))
         case .remoteVideoTrackAdded(let track, let ssrc):
           remoteVideoTracks[track.id] = track
           // Attribute by SSRC: WebRTC keeps signaled msid track ids only for

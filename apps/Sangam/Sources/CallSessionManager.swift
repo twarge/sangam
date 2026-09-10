@@ -3,6 +3,7 @@
   import CallKit
   import Foundation
   import JitsiMedia
+  import UIKit
 
   /// Reports the active meeting to CallKit so it behaves like a call:
   /// call-priority audio that survives backgrounding, mute from system
@@ -15,6 +16,15 @@
 
     private let provider: CXProvider
     private let callController = CXCallController()
+    /// CallKit's callbacks arrive here rather than on the main thread.
+    /// `didActivate` hands the session straight to WebRTC, which starts its
+    /// audio units and calls `AVAudioSession.setActive` — a call that blocks
+    /// for long enough that, on the main thread, UIKit's system gesture gate
+    /// times out and drops the touches that arrive during it (taps on the
+    /// control bar and its menu simply do nothing). RTCAudioSession takes its
+    /// own lock, and every other delegate method hops to the main actor
+    /// explicitly, so none of them need this queue to be the main one.
+    private let providerQueue = DispatchQueue(label: "com.twarge.sangam.callkit")
     fileprivate var currentCallID: UUID?
     fileprivate var endRequestedLocally = false
 
@@ -26,8 +36,30 @@
       configuration.supportedHandleTypes = [.generic]
       provider = CXProvider(configuration: configuration)
       super.init()
-      // A nil queue delivers delegate callbacks on the main thread.
-      provider.setDelegate(self, queue: nil)
+      provider.setDelegate(self, queue: providerQueue)
+      // Closing the window is not a call failure, but CallKit reports one if
+      // the call is still up when the scene or the process goes. The view's
+      // own teardown does not reliably run for a window being closed, so the
+      // end is taken from the system's own notices instead.
+      for name in [UIScene.didDisconnectNotification, UIApplication.willTerminateNotification] {
+        NotificationCenter.default.addObserver(
+          forName: name, object: nil, queue: .main
+        ) { [weak self] _ in
+          MainActor.assumeIsolated { self?.endImmediately() }
+        }
+      }
+    }
+
+    /// Ends the call through the provider rather than a transaction. A
+    /// transaction is a round trip through the call controller, and a
+    /// teardown does not always last long enough for one; reporting the end
+    /// straight to the provider lands in the time there is.
+    private func endImmediately() {
+      guard let callID = currentCallID else { return }
+      SangamLog.event("callkit: ending on teardown")
+      currentCallID = nil
+      endRequestedLocally = false
+      provider.reportCall(with: callID, endedAt: nil, reason: .remoteEnded)
     }
 
     /// Puts WebRTC's audio into CallKit's hands. Called at app launch,
@@ -58,7 +90,16 @@
     func end() {
       guard let callID = currentCallID else { return }
       endRequestedLocally = true
-      callController.request(CXTransaction(action: CXEndCallAction(call: callID))) { _ in }
+      callController.request(CXTransaction(action: CXEndCallAction(call: callID))) { error in
+        guard let error else { return }
+        Task { @MainActor in
+          // A swallowed failure here left the system call — and its lock
+          // screen entry — running after the meeting was over. Report the
+          // end straight to the provider so nothing outlives the meeting.
+          SangamLog.event("callkit: end refused, reporting directly: \(error)")
+          CallSessionManager.shared.reportEnded(callID)
+        }
+      }
     }
 
     /// Mirrors an in-app mute into the system call UI.
@@ -67,6 +108,12 @@
       callController.request(
         CXTransaction(action: CXSetMutedCallAction(call: callID, muted: muted))
       ) { _ in }
+    }
+
+    private func reportEnded(_ callID: UUID) {
+      provider.reportCall(with: callID, endedAt: nil, reason: .remoteEnded)
+      currentCallID = nil
+      endRequestedLocally = false
     }
 
     fileprivate func reportConnected(_ callID: UUID) {

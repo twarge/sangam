@@ -25,6 +25,13 @@ private func copyMeetingLink(_ link: URL) {
 
 struct MeetingControlBar: View {
   @ObservedObject var controller: MeetingController
+  /// Held, not observed. The session republishes on every partial
+  /// transcription result and on the caption ticker, and the bar shows none
+  /// of that — observing it rebuilt the More menu mid-sentence, which UIKit
+  /// reloads, dropping the tap that was on its way. The one thing the bar
+  /// does show is passed in as a value.
+  let conversation: ConversationSession
+  let notesOpen: Bool
   /// True while one of the bar's popovers is open, so an auto-hiding host
   /// can keep the bar on screen underneath it.
   @Binding var popoverPinned: Bool
@@ -38,6 +45,7 @@ struct MeetingControlBar: View {
     case raiseHand
     case reactions
     case chat
+    case notes
     case layout
     case invite
   }
@@ -45,9 +53,10 @@ struct MeetingControlBar: View {
   /// Which optional controls keep their own button. Ordered by how much
   /// they are worth keeping inline; the rest go to the More menu.
   private var inlineControls: Set<OverflowControl> {
-    let keepOrder: [OverflowControl] = [
+    var keepOrder: [OverflowControl] = [
       .screenShare, .chat, .raiseHand, .reactions, .layout, .invite,
     ]
+    keepOrder.insert(.notes, at: 1)
     guard availableWidth.isFinite else { return Set(keepOrder) }
     // Microphone, camera (+ flip on iOS), More, and Leave always stay.
     #if os(iOS)
@@ -65,10 +74,21 @@ struct MeetingControlBar: View {
     return OverflowControl.allCases.filter { !inline.contains($0) }
   }
 
+  private var notesButtonTitle: String {
+    #if os(macOS)
+      notesOpen ? "Hide Notes" : "Notes"
+    #else
+      notesOpen ? "Hide Transcript" : "Transcript"
+    #endif
+  }
+
   /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
   /// chat panel is open so typing a message never toggles the microphone.
   private func shortcut(_ key: Character) -> KeyboardShortcut? {
-    controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
+    #if os(macOS)
+      if notesOpen { return nil }
+    #endif
+    return controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
   }
 
   var body: some View {
@@ -78,6 +98,9 @@ struct MeetingControlBar: View {
         title: controller.isAudioMuted ? "Unmute" : "Mute",
         symbol: controller.isAudioMuted ? "mic.slash.fill" : "mic.fill",
         isActive: controller.isAudioMuted,
+        // Muted there is no level worth drawing, and the slashed symbol says
+        // the only thing that matters.
+        meter: controller.isAudioMuted ? nil : controller.microphoneMeter,
         action: controller.toggleAudio
       )
       .keyboardShortcut(shortcut("m"))
@@ -162,11 +185,28 @@ struct MeetingControlBar: View {
         .keyboardShortcut(shortcut("w"))
       }
 
+      if inline.contains(.notes) {
+        ControlButton(
+          // The Mac opens the editable document; iOS slides the transcript
+          // up over the stage.
+          title: notesButtonTitle,
+          symbol: "note.text",
+          isActive: notesOpen
+        ) {
+          controller.isChatOpen = false
+          conversation.toggleSidebar()
+        }
+        .help("Conversation notes and transcription")
+        .keyboardShortcut("n", modifiers: [.command, .option])
+      }
+
       if inline.contains(.invite) {
         InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
       }
 
-      MoreMenu(controller: controller, overflow: overflowControls)
+      MoreMenu(
+        controller: controller, conversation: conversation, notesOpen: notesOpen,
+        overflow: overflowControls)
 
       ControlButton(
         title: "Leave",
@@ -182,15 +222,74 @@ struct MeetingControlBar: View {
     }
     .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
     .animation(.snappy, value: inline)
+    #if os(iOS)
+      // A SwiftUI Menu refuses to present while a text field holds first
+      // responder — the tap on More is swallowed whole, leaving the console
+      // with a keyboard-snapshot warning and a timed-out system gesture
+      // gate. Reaching for the controls means the message is finished, so
+      // the keyboard goes away on touch-down, before the menu presents.
+      .simultaneousGesture(
+        DragGesture(minimumDistance: 0).onChanged { _ in dismissKeyboard() }
+      )
+    #endif
   }
+
+  #if os(iOS)
+    private func dismissKeyboard() {
+      UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+  #endif
 }
 
 /// The junk drawer: overflowed toolbar controls first, then the settings
 /// that never earn their own button (quality, moderation).
 private struct MoreMenu: View {
   @ObservedObject var controller: MeetingController
+  /// Held, not observed — see `MeetingControlBar.conversation`.
+  let conversation: ConversationSession
+  let notesOpen: Bool
   @ObservedObject private var settings = AppSettings.shared
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
   var overflow: [MeetingControlBar.OverflowControl] = []
+
+  /// The preferences that also live in the Settings window, inline for
+  /// reach where the menu has the room for them.
+  @ViewBuilder private var settingsSection: some View {
+    Section("Settings") {
+      Picker("Incoming Video Quality", selection: $settings.receiveQuality) {
+        ForEach(SettingsView.qualities, id: \.height) { quality in
+          Text(quality.label).tag(quality.height)
+        }
+      }
+      Toggle("Blur My Background", isOn: $settings.backgroundBlur)
+      Toggle("Transcribe From the Start", isOn: $settings.transcribeOnJoin)
+      Toggle("Show Captions", isOn: $settings.showsCaptions)
+      Picker("Sidebar & Chat", selection: $settings.panelsPushStage) {
+        Text("Float Over Video").tag(false)
+        Text("Push Video Aside").tag(true)
+      }
+      #if os(macOS)
+        SettingsLink {
+          Text("All Settings…")
+        }
+      #else
+        Button("All Settings…") { controller.showsSettingsPane = true }
+      #endif
+    }
+  }
+
+  /// Whether the settings are a single entry that opens the sheet instead
+  /// of a section of pickers: a phone, where the menu has no room.
+  private var compactSettings: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
 
   var body: some View {
     Menu {
@@ -201,26 +300,20 @@ private struct MoreMenu: View {
         Divider()
       }
       // The settings live here for reach, and identically in the Settings
-      // window (⌘, on macOS) — both edit the same stored preferences.
-      Section("Settings") {
-        Picker("Incoming Video Quality", selection: $settings.receiveQuality) {
-          ForEach(SettingsView.qualities, id: \.height) { quality in
-            Text(quality.label).tag(quality.height)
-          }
+      // window (⌘, on macOS) — both edit the same stored preferences. On a
+      // phone they do not fit: each picker expands to a row per choice, and
+      // the menu runs off the top of the screen taking the items above it
+      // with it. There they are one entry that opens the settings sheet.
+      if compactSettings {
+        Button {
+          controller.showsSettingsPane = true
+        } label: {
+          Label("Settings…", systemImage: "gearshape")
         }
-        Toggle("Blur My Background", isOn: $settings.backgroundBlur)
-        Picker("Sidebar & Chat", selection: $settings.panelsPushStage) {
-          Text("Float Over Video").tag(false)
-          Text("Push Video Aside").tag(true)
-        }
-        #if os(macOS)
-          SettingsLink {
-            Text("All Settings…")
-          }
-        #else
-          Button("All Settings…") { controller.showsSettingsPane = true }
-        #endif
+      } else {
+        settingsSection
       }
+      Divider()
       Divider()
       if controller.pipAvailable {
         Button {
@@ -389,6 +482,21 @@ private struct MoreMenu: View {
           systemImage: controller.usesTileGrid
             ? "person.crop.rectangle" : "square.grid.2x2")
       }
+    case .notes:
+      Button {
+        controller.isChatOpen = false
+        conversation.toggleSidebar()
+      } label: {
+        #if os(macOS)
+          Label(
+            notesOpen ? "Hide Conversation Notes" : "Conversation Notes & Transcription",
+            systemImage: "note.text")
+        #else
+          // iOS has the transcript, not the editable document behind it.
+          Label(notesOpen ? "Hide Transcript" : "Transcript", systemImage: "text.quote")
+        #endif
+      }
+      .keyboardShortcut("n", modifiers: [.command, .option])
     case .invite:
       if let link = controller.meetingLink {
         Button {
@@ -401,6 +509,49 @@ private struct MoreMenu: View {
         }
       }
     }
+  }
+}
+
+/// The microphone symbol with its body — the capsule the whole glyph is
+/// built around — filling from the bottom in proportion to the level coming
+/// in, so the button shows at a glance that the room can hear you.
+///
+/// The fill is masked by the symbol itself rather than drawn over it, so it
+/// is the glyph's own ink that lights up, and the band it is confined to
+/// covers the capsule alone: the cradle and stem below it never fill.
+private struct MicrophoneMeterSymbol: View {
+  /// Observed here and nowhere above: this is the only view that has to
+  /// redraw ten times a second.
+  @ObservedObject var meter: MicrophoneMeter
+
+  /// Where the capsule ends inside the symbol's box, as a fraction of its
+  /// height. `mic.fill` draws the body from the top down to about half way,
+  /// then the cradle and the stem; measured against the rendered glyph so
+  /// the fill stops before the tips of the cradle.
+  private static let capsuleBottom = 0.52
+  private static let size: CGFloat = 19
+
+  var body: some View {
+    let level = meter.level
+    let symbol = Image(systemName: "mic.fill").resizable().scaledToFit()
+    symbol
+      .overlay {
+        symbol
+          .foregroundStyle(Color.accentColor)
+          .mask(alignment: .top) {
+            GeometryReader { geometry in
+              let bottom = geometry.size.height * Self.capsuleBottom
+              let filled = bottom * min(1, max(0, level))
+              Rectangle()
+                .frame(height: filled)
+                .offset(y: bottom - filled)
+            }
+          }
+      }
+      .frame(width: Self.size, height: Self.size)
+      // Ten readings a second glide into one another instead of stepping.
+      .animation(.linear(duration: 0.1), value: level)
+      .accessibilityHidden(true)
   }
 }
 
@@ -489,14 +640,25 @@ private struct ControlButton: View {
   var isActive = false
   var badge = 0
   var role: Role = .normal
+  /// When set, the symbol is drawn as a microphone whose body fills to the
+  /// current level. The meter is passed as the object, not the number, so
+  /// its ten readings a second stay inside `MicrophoneMeterSymbol` instead
+  /// of rebuilding this button and everything alongside it.
+  var meter: MicrophoneMeter?
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
-      Image(systemName: symbol)
-        .font(.system(size: 17, weight: .semibold))
-        .frame(width: 42, height: 42)
-        .contentShape(.circle)
+      Group {
+        if let meter {
+          MicrophoneMeterSymbol(meter: meter)
+        } else {
+          Image(systemName: symbol)
+            .font(.system(size: 17, weight: .semibold))
+        }
+      }
+      .frame(width: 42, height: 42)
+      .contentShape(.circle)
     }
     .buttonStyle(.plain)
     .foregroundStyle(.white)

@@ -8,6 +8,17 @@
   {
     let view: MTKView
 
+    /// Whether frames are cropped to cover the view or fitted whole inside
+    /// it. Set from the main actor, read while drawing.
+    var videoContentMode: VideoContentMode = .fill {
+      didSet {
+        guard videoContentMode != oldValue else { return }
+        // The view is main-actor bound and this class is not, so the redraw
+        // hops the same way a decoded frame's does.
+        DispatchQueue.main.async { [weak view] in view?.needsDisplay = true }
+      }
+    }
+
     private let store = MacVideoFrameStore()
     private let commandQueue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
@@ -33,7 +44,15 @@
       view.delegate = self
     }
 
-    func setSize(_ size: CGSize) {}
+    /// WebRTC reports the stream's own dimensions here, on its decode
+    /// thread. The view above uses them to take the picture's shape rather
+    /// than letterboxing it.
+    nonisolated(unsafe) var onVideoSize: (@MainActor @Sendable (CGSize) -> Void)?
+
+    func setSize(_ size: CGSize) {
+      guard size.width > 0, size.height > 0, let onVideoSize else { return }
+      Task { @MainActor in onVideoSize(size) }
+    }
 
     func renderFrame(_ frame: RTCVideoFrame?) {
       store.update(frame)
@@ -42,7 +61,11 @@
       }
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+      // The fitted quad depends on the view's aspect ratio, so redraw the
+      // frame already on screen instead of waiting for the next one.
+      view.needsDisplay = true
+    }
 
     func draw(in view: MTKView) {
       guard
@@ -76,7 +99,8 @@
         videoWidth: packet.width,
         videoHeight: packet.height,
         rotation: packet.rotation,
-        drawableSize: view.drawableSize
+        drawableSize: view.drawableSize,
+        contentMode: videoContentMode
       )
       encoder.setRenderPipelineState(pipeline)
       vertices.withUnsafeBytes { storage in
@@ -130,29 +154,48 @@
       return texture
     }
 
-    private static func vertices(
+    static func vertices(
       videoWidth: Int,
       videoHeight: Int,
       rotation: RTCVideoRotation,
-      drawableSize: CGSize
+      drawableSize: CGSize,
+      contentMode: VideoContentMode
     ) -> [MacVideoVertex] {
       let rotated = rotation == ._90 || rotation == ._270
       let width = rotated ? videoHeight : videoWidth
       let height = rotated ? videoWidth : videoHeight
       let videoRatio = Float(width) / Float(max(height, 1))
       let viewRatio = Float(drawableSize.width / max(drawableSize.height, 1))
+      // The slice of the frame that is sampled…
       var left: Float = 0
       var right: Float = 1
       var top: Float = 0
       var bottom: Float = 1
-      if videoRatio > viewRatio {
-        let visible = viewRatio / videoRatio
-        left = (1 - visible) / 2
-        right = 1 - left
-      } else {
-        let visible = videoRatio / max(viewRatio, 0.0001)
-        top = (1 - visible) / 2
-        bottom = 1 - top
+      // …and the slice of the view it is drawn into, in normalized device
+      // coordinates where the whole view is the square from -1 to 1.
+      var quadX: Float = 1
+      var quadY: Float = 1
+      switch contentMode {
+      case .fill:
+        // Trim the frame down to the view's shape: the drawn quad stays
+        // edge to edge and the overhanging side is cropped away.
+        if videoRatio > viewRatio {
+          let visible = viewRatio / videoRatio
+          left = (1 - visible) / 2
+          right = 1 - left
+        } else {
+          let visible = videoRatio / max(viewRatio, 0.0001)
+          top = (1 - visible) / 2
+          bottom = 1 - top
+        }
+      case .fit:
+        // Shrink the quad instead of the frame: every pixel the sender put
+        // on the wire is drawn, and the black clear color fills the rest.
+        if videoRatio > viewRatio {
+          quadY = viewRatio / max(videoRatio, 0.0001)
+        } else {
+          quadX = videoRatio / max(viewRatio, 0.0001)
+        }
       }
 
       func rotate(_ point: SIMD2<Float>) -> SIMD2<Float> {
@@ -164,10 +207,10 @@
         }
       }
       return [
-        MacVideoVertex(position: SIMD2(-1, -1), texture: rotate(SIMD2(left, bottom))),
-        MacVideoVertex(position: SIMD2(1, -1), texture: rotate(SIMD2(right, bottom))),
-        MacVideoVertex(position: SIMD2(-1, 1), texture: rotate(SIMD2(left, top))),
-        MacVideoVertex(position: SIMD2(1, 1), texture: rotate(SIMD2(right, top))),
+        MacVideoVertex(position: SIMD2(-quadX, -quadY), texture: rotate(SIMD2(left, bottom))),
+        MacVideoVertex(position: SIMD2(quadX, -quadY), texture: rotate(SIMD2(right, bottom))),
+        MacVideoVertex(position: SIMD2(-quadX, quadY), texture: rotate(SIMD2(left, top))),
+        MacVideoVertex(position: SIMD2(quadX, quadY), texture: rotate(SIMD2(right, top))),
       ]
     }
 
@@ -205,7 +248,7 @@
       """
   }
 
-  private struct MacVideoVertex {
+  struct MacVideoVertex {
     var position: SIMD2<Float>
     var texture: SIMD2<Float>
   }

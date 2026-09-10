@@ -272,6 +272,34 @@ public actor PeerConnectionNegotiator {
     }
   }
 
+  /// How loud the microphone is right now, 0…1, read from the local audio
+  /// source's own statistics — the level WebRTC measures after its own
+  /// processing, which is what the room actually hears. Scoped to the audio
+  /// sender rather than the whole connection: this is polled often enough to
+  /// drive a meter, and a full report would collect every stream in the call
+  /// each time. Nil while there is no audio sender or no level yet.
+  public func localAudioLevel() async -> Double? {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
+      guard
+        let sender = connection.senders.first(where: {
+          $0.track?.kind == kRTCMediaStreamTrackKindAudio
+        })
+      else {
+        continuation.resume(returning: nil)
+        return
+      }
+      connection.statistics(for: sender) { report in
+        for statistics in report.statistics.values where statistics.type == "media-source" {
+          let values = statistics.values
+          guard values["kind"] as? String == "audio" else { continue }
+          continuation.resume(returning: (values["audioLevel"] as? NSNumber)?.doubleValue)
+          return
+        }
+        continuation.resume(returning: nil)
+      }
+    }
+  }
+
   /// A concise one-line summary of media flow, for the opt-in `SANGAM_LOG`
   /// bring-up log: ICE state and the video/audio send and receive rates. Reads
   /// the live `RTCStatisticsReport`, extracting only Sendable primitives so no

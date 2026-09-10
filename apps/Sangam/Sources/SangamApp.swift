@@ -2,11 +2,42 @@ import SwiftUI
 
 @main
 struct SangamApp: App {
+  #if os(macOS)
+    @NSApplicationDelegateAdaptor(ConversationApplicationDelegate.self) private
+      var conversationDelegate
+  #endif
   init() {
+    #if os(macOS) && DEBUG
+      let arguments = ProcessInfo.processInfo.arguments
+      if #available(macOS 26, *), let index = arguments.firstIndex(of: "--conversation-self-test"),
+        index + 2 < arguments.count
+      {
+        Task { @MainActor in
+          let success = await ConversationSession.runSpeechSelfTest(
+            URL(fileURLWithPath: arguments[index + 1]), URL(fileURLWithPath: arguments[index + 2]))
+          exit(success ? 0 : 1)
+        }
+      }
+      if #available(macOS 26, *), let index = arguments.firstIndex(of: "--microphone-check") {
+        let seconds =
+          index + 1 < arguments.count ? Double(arguments[index + 1]) ?? 10 : 10
+        Task { @MainActor in
+          let success = await AppleMeetingTranscriber.runMicrophoneCheck(seconds: seconds)
+          exit(success ? 0 : 1)
+        }
+      }
+    #endif
     #if os(iOS)
       // CallKit owns audio activation; WebRTC must be in manual-audio mode
       // before the first call's audio units exist.
       CallSessionManager.prepareAudio()
+      // The meeting's Live Activity is gone — CallKit already puts the call
+      // on the lock screen and in the Dynamic Island, so the card said it all
+      // twice. An activity outlives the process that started it, though, so a
+      // build that still ran one can have left a card behind. Nothing is
+      // running yet at launch, which makes any card still up stale by
+      // definition.
+      MeetingActivityController.shared.end()
     #endif
   }
 

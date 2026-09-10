@@ -1,7 +1,6 @@
+@preconcurrency import AVFoundation
 import Foundation
 import JitsiConcurrency
-
-@preconcurrency import AVFoundation
 @preconcurrency import WebRTC
 
 public struct PeerConnectionPolicy: Equatable, Sendable {
@@ -233,6 +232,22 @@ public enum CameraCaptureError: Error, Equatable, Sendable {
   case noCamera
   case noSupportedFormat
   case startFailed(String)
+}
+
+// The camera starts before the room is entered, so a refused or missing camera
+// ends the join and this is what the person joining is told.
+extension CameraCaptureError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case .noCamera:
+      return "No camera is available."
+    case .noSupportedFormat:
+      return "The camera offers no video format this app can capture."
+    case .startFailed(let reason):
+      // Already a localized sentence: it comes from the capturer's own error.
+      return "The camera could not start: \(reason)"
+    }
+  }
 }
 
 /// A camera attached to the machine, for device pickers.
@@ -493,8 +508,27 @@ public final class LocalCameraTrack: @unchecked Sendable {
         }
       }
     }
+    enableMultitaskingCameraAccess()
     currentDeviceID = device.uniqueID
     isRunning = true
     wantsResume = false
+  }
+
+  /// Lets the camera keep running once the app is backgrounded, which is what
+  /// Picture in Picture for video calls needs: without it AVFoundation
+  /// interrupts capture the moment the app leaves the foreground
+  /// (`videoDeviceNotAvailableInBackground`) and the floating window freezes
+  /// on its last frame.
+  ///
+  /// Set after `startCapture`, not before: the session has no camera input
+  /// until then, and support is reported against the configured session.
+  private func enableMultitaskingCameraAccess() {
+    #if os(iOS)
+      let session = capturer.captureSession
+      guard session.isMultitaskingCameraAccessSupported else { return }
+      session.beginConfiguration()
+      session.isMultitaskingCameraAccessEnabled = true
+      session.commitConfiguration()
+    #endif
   }
 }

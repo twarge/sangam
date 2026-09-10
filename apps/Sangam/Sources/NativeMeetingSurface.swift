@@ -9,11 +9,38 @@ import SwiftUI
   import AppKit
 #endif
 
-struct NativeMeetingSurface: View {
+/// The gap between grid tiles, and the margin around the whole grid.
+private let gridSpacing: CGFloat = 4
+
+/// The trailing column chat and the conversation share when the window is
+/// wide enough for one. A generic view cannot hold these as statics.
+enum MeetingSidePanel {
+  static let width: CGFloat = 300
+  /// The width plus its inset: what the stage gives up in push mode, and what
+  /// the control bar shifts by to stay centered on the stage that is left.
+  static let inset: CGFloat = 312
+}
+
+struct NativeMeetingSurface<Controls: View>: View {
   let configuration: MeetingConfiguration
   @ObservedObject var controller: MeetingController
+  @ObservedObject var conversation: ConversationSession
+  @ViewBuilder var controls: Controls
+
+  private enum SidebarSelection: Hashable {
+    case meeting
+    case stream(String)
+  }
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  #endif
 
   @StateObject private var model = NativeMeetingModel()
+  /// The camera's shape, for the self view shown alone on the stage.
+  @State private var selfVideoAspect: CGFloat?
   @Environment(\.openWindow) private var openWindow
   /// The floating sidebar's width, draggable at its trailing edge and
   /// remembered across meetings.
@@ -21,11 +48,28 @@ struct NativeMeetingSurface: View {
   /// Whether the sidebar and chat panel push the stage aside instead of
   /// floating over it; the same key AppSettings writes.
   @AppStorage("panelsPushStage") private var panelsPushStage = false
+  /// Whether the window is wide enough for chat and the conversation to sit
+  /// beside the stage instead of sliding up over it. A phone is not, nor is
+  /// an iPad in a narrow split: a 300pt panel would leave the stage a sliver
+  /// and put the message field under the keyboard.
+  private var usesSidePanels: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .regular
+    #else
+      true
+    #endif
+  }
+
+  private var usesChatSheet: Bool { !usesSidePanels }
 
   var body: some View {
     Group {
       if controller.connectionState == .joined {
-        meetingRoot
+        #if os(iOS)
+          meetingRootWithSidebar
+        #else
+          meetingRoot
+        #endif
       } else {
         // The surface stays mounted so the join task below keeps running,
         // but none of the meeting chrome (sidebar, toolbar, stage) shows
@@ -33,24 +77,80 @@ struct NativeMeetingSurface: View {
         Color.clear
       }
     }
-    .overlay(alignment: .bottomTrailing) {
-      // AVKit needs the PiP content layer in a window; it hides in the
-      // corner while the system window does the real rendering.
-      PiPLayerHost(layer: model.pictureInPicture.bridge.layer) {
-        model.pictureInPicture.prepareIfNeeded()
-        controller.didChangePictureInPicture(
-          available: model.pictureInPicture.isSupported,
-          active: model.pictureInPicture.isActive
-        )
+    #if os(macOS)
+      .overlay(alignment: .bottom) {
+        if controller.connectionState == .joined { controls }
       }
-      .frame(width: 64, height: 36)
-      .opacity(0.02)
-      .allowsHitTesting(false)
-    }
+    #endif
+    #if os(iOS)
+      // The view AVKit animates the floating window out of and back into. It
+      // draws nothing — the stage underneath is what is on screen — and the
+      // video itself lives in the PiP view controller, not here.
+      .overlay {
+        PiPSourceHost(manager: model.pictureInPicture)
+        .allowsHitTesting(false)
+        .onAppear {
+          controller.didChangePictureInPicture(
+            available: model.pictureInPicture.isSupported,
+            active: model.pictureInPicture.isActive
+          )
+        }
+      }
+    #else
+      .overlay(alignment: .bottomTrailing) {
+        // The sample-buffer route needs its content layer in a window; it
+        // hides in the corner while the system window does the real
+        // rendering.
+        PiPLayerHost(layer: model.pictureInPicture.bridge.layer) {
+          model.pictureInPicture.prepareIfNeeded()
+          controller.didChangePictureInPicture(
+            available: model.pictureInPicture.isSupported,
+            active: model.pictureInPicture.isActive
+          )
+        }
+        .frame(width: 64, height: 36)
+        .opacity(0.02)
+        .allowsHitTesting(false)
+      }
+    #endif
     .onChange(of: model.featuredRemoteStream?.id) { _, _ in
       model.pictureInPicture.showRemote(
         model.featuredRemoteStream, localFallback: model.localCameraTrack)
     }
+    // Alone in the room the self view is the only thing to float, and it
+    // arrives after the join rather than with it.
+    .onChange(of: model.localCameraTrack == nil) { _, _ in
+      model.pictureInPicture.showRemote(
+        model.featuredRemoteStream, localFallback: model.localCameraTrack)
+    }
+    #if os(iOS)
+      .onChange(of: scenePhase) { _, phase in
+        // The system floats the meeting on the way out on its own; coming
+        // back, the window has nothing left to show that the app isn't.
+        if phase == .active {
+          model.pictureInPicture.stopIfActive()
+        } else {
+          // On the way out is when automatic PiP starts, so this is the last
+          // chance to make sure the window floats what is featured now.
+          model.pictureInPicture.followCurrent()
+        }
+      }
+      // And again on the notification, because the phase does not always
+      // change: on an iPad the app can be alongside its own floating window
+      // without ever having been backgrounded, so `.active` never arrives as
+      // a change and the window outstays the app.
+      .onReceive(
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+      ) { _ in
+        model.pictureInPicture.stopIfActive()
+      }
+      // The scene-level one as well: this is a multi-scene app, and on iPad
+      // the app-level notification does not necessarily arrive for the scene
+      // the user actually came back to.
+      .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
+        model.pictureInPicture.stopIfActive()
+      }
+    #endif
     // The stats panel ticks once a second while open, so the current
     // speaker's time counts up live.
     .task(id: controller.showsSpeakerStats) {
@@ -60,7 +160,67 @@ struct NativeMeetingSurface: View {
         try? await Task.sleep(for: .seconds(1))
       }
     }
+    // The mute button's meter follows the microphone ten times a second
+    // while the call is live and unmuted. Muted, there is nothing to draw
+    // and the poll stops with the task.
+    .task(id: controller.connectionState == .joined && !controller.isAudioMuted) {
+      guard controller.connectionState == .joined, !controller.isAudioMuted else {
+        controller.didChangeMicrophoneLevel(0)
+        return
+      }
+      while !Task.isCancelled {
+        await model.refreshMicrophoneLevel(controller: controller)
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+    }
     .task {
+      #if DEBUG
+        if let preview = MeetingLayoutPreviewMode.current {
+          controller.didChangeAudioMuted(true)
+          controller.didChangeVideoMuted(true)
+          controller.attach { command in
+            switch command {
+            case .authenticate:
+              controller.report(error: "Preview: admin login submitted.")
+            case .joinWithMeetingPassword:
+              controller.report(error: "Preview: meeting password submitted.")
+            case .hangUp:
+              controller.didEnd()
+            default: break
+            }
+          }
+          switch preview {
+          case .access: controller.requireAccess()
+          case .password: controller.requireMeetingPassword()
+          case .meeting, .chat, .notes, .lobby:
+            controller.didJoin()
+            model.loadChatPreview()
+            controller.isChatOpen = preview == .chat
+            conversation.isOpen = preview == .notes
+            if preview == .lobby {
+              controller.didChangeLobbyRequests([
+                .init(id: "guest-1", displayName: "Priya Raman"),
+                .init(id: "guest-2", displayName: "Jonas Weber"),
+              ])
+            }
+            // Nothing is captured in a preview, so the mute button's meter
+            // gets a voice-shaped level to follow instead.
+            controller.didChangeAudioMuted(false)
+            Task {
+              var phase = 0.0
+              while !Task.isCancelled {
+                phase += 0.35
+                let syllables = 0.55 + 0.45 * sin(phase * 3.1)
+                controller.didChangeMicrophoneLevel(max(0, sin(phase)) * syllables)
+                try? await Task.sleep(for: .milliseconds(100))
+              }
+            }
+          }
+          return
+        }
+      #endif
+      model.conversation = conversation
+      conversation.setLocalMuted(controller.isAudioMuted)
       await model.join(configuration: configuration, controller: controller)
     }
     .onDisappear {
@@ -150,133 +310,223 @@ struct NativeMeetingSurface: View {
     private func reportSidebarInset() {
       controller.didChangeSidebarInset(model.sidebarCollapsed ? 0 : sidebarWidth)
     }
+  #else
+    /// SwiftUI supplies the compact back button and interactive edge swipe.
+    /// The media model belongs to this container, so navigating back to the
+    /// roster never leaves or recreates the call.
+    private var meetingRoot: some View {
+      NavigationSplitView(
+        columnVisibility: $columnVisibility,
+        preferredCompactColumn: $preferredCompactColumn
+      ) {
+        sidebarRoster
+          .navigationTitle("Participants")
+          .navigationBarTitleDisplayMode(.inline)
+          .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 320)
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            // In a split iPad layout the controls belong to the wider stage.
+            // Keep them reachable while viewing the full-width phone roster.
+            if horizontalSizeClass == .compact { controls }
+          }
+      } detail: {
+        detailContent
+          .navigationTitle(configuration.normalizedRoom)
+          .navigationBarTitleDisplayMode(.inline)
+          .safeAreaInset(edge: .bottom, spacing: 0) { controls }
+      }
+      .navigationSplitViewStyle(.balanced)
+    }
 
-    private var sidebarRoster: some View {
-      List(selection: $model.pinnedTileID) {
-        // Hosts see who is knocking at the top of the roster and let them
-        // in, or not, one at a time.
-        if !controller.lobbyRequests.isEmpty {
+    /// The meeting beside its trailing sidebar.
+    ///
+    /// `inspector` is the platform's own trailing column: it supplies the
+    /// sidebar material, runs to the window edges without being told about
+    /// safe areas, is resizable, and narrows the stage rather than floating
+    /// over it. Hand-rolling the same thing out of an HStack and a Divider
+    /// got the geometry nearly right and the edges wrong.
+    private var meetingRootWithSidebar: some View {
+      meetingRoot
+        .inspector(isPresented: inspectorPresented) {
+          trailingPanelContent
+            .inspectorColumnWidth(min: 280, ideal: MeetingSidePanel.width, max: 460)
+        }
+    }
+
+    /// The inspector is open when either panel is; dismissing it — by its own
+    /// control or by dragging it shut — closes whichever one that was.
+    private var inspectorPresented: Binding<Bool> {
+      Binding(
+        get: { hasTrailingPanel },
+        set: { open in
+          guard !open else { return }
+          controller.isChatOpen = false
+          conversation.isOpen = false
+        }
+      )
+    }
+  #endif
+
+  private var sidebarSelection: Binding<SidebarSelection?> {
+    Binding(
+      get: { model.pinnedTileID.map(SidebarSelection.stream) ?? .meeting },
+      set: { selection in
+        if case .stream(let id) = selection {
+          model.pinnedTileID = id
+        } else {
+          model.pinnedTileID = nil
+        }
+      }
+    )
+  }
+
+  private var sidebarRoster: some View {
+    List(selection: sidebarSelection) {
+      #if os(iOS)
+        // Only when the stage is somewhere else. Side by side with it, this
+        // is a link to what the user is already looking at.
+        if horizontalSizeClass == .compact {
           Section {
-            ForEach(controller.lobbyRequests) { request in
-              LobbyRequestRow(
-                displayName: request.displayName,
-                admit: { controller.admitLobbyParticipant(request.id) },
-                deny: { controller.denyLobbyParticipant(request.id) }
-              )
+            NavigationLink(value: SidebarSelection.meeting) {
+              Label("Meeting", systemImage: "video")
             }
-          } header: {
-            Label(
-              controller.lobbyRequests.count == 1
-                ? "Waiting to join" : "Waiting to join (\(controller.lobbyRequests.count))",
-              systemImage: "person.crop.circle.badge.clock"
-            )
-            .font(.subheadline.weight(.semibold))
           }
         }
-
+      #endif
+      // Hosts see who is knocking at the top of the roster and let them
+      // in, or not, one at a time.
+      if !controller.lobbyRequests.isEmpty {
         Section {
-          if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
-            SidebarThumbnail(
-              isPinned: false,
-              videoType: nil,
-              handRaised: controller.isHandRaised,
-              reaction: model.tileReactions["self"]?.emoji
-            ) {
-              LocalVideoSurface(track: localCameraTrack)
-            }
-            .accessibilityLabel("Your camera")
-          }
-          // A live preview of the outgoing share, straight from capture.
-          if controller.isScreenSharing, let localScreenTrack = model.localScreenTrack {
-            SidebarThumbnail(isPinned: false, videoType: "desktop") {
-              LocalVideoSurface(track: localScreenTrack)
-            }
-            .accessibilityLabel("Your screen share")
+          ForEach(controller.lobbyRequests) { request in
+            LobbyRequestRow(
+              displayName: request.displayName,
+              admit: { controller.admitLobbyParticipant(request.id) },
+              deny: { controller.denyLobbyParticipant(request.id) }
+            )
           }
         } header: {
-          RosterHeader(
-            name: "You",
-            audioMuted: controller.isAudioMuted,
-            handRaised: controller.isHandRaised,
-            isSpeaking: false
+          Label(
+            controller.lobbyRequests.count == 1
+              ? "Waiting to join" : "Waiting to join (\(controller.lobbyRequests.count))",
+            systemImage: "person.crop.circle.badge.clock"
           )
+          .font(.subheadline.weight(.semibold))
         }
+      }
 
-        ForEach(model.roster) { entry in
-          Section {
-            ForEach(entry.streams) { stream in
-              SidebarThumbnail(
-                isPinned: model.pinnedTileID == stream.id,
-                videoType: stream.videoType,
-                handRaised: entry.handRaised,
-                reaction: entry.endpointID.flatMap { model.tileReactions[$0]?.emoji }
-              ) {
-                NativeVideoSurface(track: stream.track)
-              }
-              .tag(stream.id)
-              // A double-click floats the feed in its own window; a single
-              // click still selects (pins) through the List.
-              .onTapGesture(count: 2) {
-                openWindow(id: "feed", value: stream.id)
+      Section {
+        if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
+          SidebarThumbnail(
+            isPinned: false,
+            videoType: nil,
+            handRaised: controller.isHandRaised,
+            reaction: model.tileReactions["self"]?.emoji
+          ) {
+            LocalVideoSurface(track: localCameraTrack)
+          }
+          .accessibilityLabel("Your camera")
+        }
+        // A live preview of the outgoing share, straight from capture.
+        if controller.isScreenSharing, let localScreenTrack = model.localScreenTrack {
+          SidebarThumbnail(isPinned: false, videoType: "desktop") {
+            LocalVideoSurface(track: localScreenTrack)
+          }
+          .accessibilityLabel("Your screen share")
+        }
+      } header: {
+        RosterHeader(
+          name: "You",
+          audioMuted: controller.isAudioMuted,
+          handRaised: controller.isHandRaised,
+          isSpeaking: false
+        )
+      }
+
+      ForEach(model.roster) { entry in
+        Section {
+          ForEach(entry.streams) { stream in
+            let thumbnail = SidebarThumbnail(
+              isPinned: model.pinnedTileID == stream.id,
+              videoType: stream.videoType,
+              handRaised: entry.handRaised,
+              reaction: entry.endpointID.flatMap { model.tileReactions[$0]?.emoji }
+            ) {
+              NativeVideoSurface(track: stream.track)
+            }
+            #if os(macOS)
+              thumbnail
+                .tag(SidebarSelection.stream(stream.id))
+                // A double-click floats the feed in its own window; a single
+                // click still selects (pins) through the List.
+                .onTapGesture(count: 2) {
+                  openWindow(id: "feed", value: stream.id)
+                }
+                .contextMenu { rosterMenu(for: entry, stream: stream) }
+                .accessibilityLabel(Text("\(entry.displayName) video"))
+            #else
+              NavigationLink(value: SidebarSelection.stream(stream.id)) {
+                thumbnail
               }
               .contextMenu { rosterMenu(for: entry, stream: stream) }
               .accessibilityLabel(Text("\(entry.displayName) video"))
-            }
-          } header: {
-            RosterHeader(
-              name: entry.displayName,
-              audioMuted: entry.audioMuted,
-              handRaised: entry.handRaised,
-              isSpeaking: entry.endpointID != nil
-                && entry.endpointID == model.dominantSpeakerID
-            )
-            .contextMenu { rosterMenu(for: entry, stream: nil) }
+            #endif
           }
+        } header: {
+          RosterHeader(
+            name: entry.displayName,
+            audioMuted: entry.audioMuted,
+            handRaised: entry.handRaised,
+            isSpeaking: entry.endpointID != nil
+              && entry.endpointID == model.dominantSpeakerID
+          )
+          .contextMenu { rosterMenu(for: entry, stream: nil) }
         }
       }
-      .listStyle(.sidebar)
     }
+    .listStyle(.sidebar)
+  }
 
-    @ViewBuilder
-    private func rosterMenu(for entry: NativeMeetingModel.RosterEntry, stream: RemoteVideoStream?)
-      -> some View
-    {
-      if let stream {
-        if model.pinnedTileID == stream.id {
-          Button("Unpin") { model.pinnedTileID = nil }
-        } else {
-          Button("Pin to stage") { model.pinnedTileID = stream.id }
+  @ViewBuilder
+  private func rosterMenu(for entry: NativeMeetingModel.RosterEntry, stream: RemoteVideoStream?)
+    -> some View
+  {
+    if let stream {
+      #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+          Button("Open in New Window") { openWindow(id: "feed", value: stream.id) }
         }
+      #endif
+      if model.pinnedTileID == stream.id {
+        Button("Unpin") { model.pinnedTileID = nil }
+      } else {
+        Button("Pin to stage") { model.pinnedTileID = stream.id }
       }
-      if model.isModerator, let endpointID = entry.endpointID,
-        let participant = model.participants.first(where: { $0.id == endpointID })
-      {
-        if !participant.audioMuted {
-          Button("Mute microphone") { controller.muteParticipant(participant.id) }
-        }
-        if controller.audioModerationOn {
-          Button("Allow to speak") { controller.allowToSpeak(participant.id) }
-        }
-        if controller.breakoutRooms.count > 1 {
-          Menu("Send to") {
-            ForEach(controller.breakoutRooms) { room in
-              Button(room.name) {
-                controller.sendParticipantToBreakoutRoom(participant.id, roomJID: room.id)
-              }
+    }
+    if model.isModerator, let endpointID = entry.endpointID,
+      let participant = model.participants.first(where: { $0.id == endpointID })
+    {
+      if !participant.audioMuted {
+        Button("Mute microphone") { controller.muteParticipant(participant.id) }
+      }
+      if controller.audioModerationOn {
+        Button("Allow to speak") { controller.allowToSpeak(participant.id) }
+      }
+      if controller.breakoutRooms.count > 1 {
+        Menu("Send to") {
+          ForEach(controller.breakoutRooms) { room in
+            Button(room.name) {
+              controller.sendParticipantToBreakoutRoom(participant.id, roomJID: room.id)
             }
           }
         }
-        if !participant.isModerator, participant.realJID != nil {
-          Button("Make moderator") { controller.grantModerator(participant.id) }
-        }
-        Button("Remove from meeting", role: .destructive) {
-          controller.kickParticipant(participant.id)
-        }
+      }
+      if !participant.isModerator, participant.realJID != nil {
+        Button("Make moderator") { controller.grantModerator(participant.id) }
+      }
+      Button("Remove from meeting", role: .destructive) {
+        controller.kickParticipant(participant.id)
       }
     }
-  #else
-    private var meetingRoot: some View { detailContent }
-  #endif
+  }
 
   @ViewBuilder
   private var detailContent: some View {
@@ -287,23 +537,29 @@ struct NativeMeetingSurface: View {
         // web app waiting for others to arrive.
         ZStack {
           if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
-            LocalVideoSurface(track: localCameraTrack)
+            // The only feed on the stage, and framed like any other: its own
+            // shape, the same corner, the same margin.
+            LocalVideoSurface(track: localCameraTrack, contentMode: .fit) { size in
+              guard size.width > 0, size.height > 0 else { return }
+              selfVideoAspect = size.width / size.height
+            }
+            .aspectRatio(selfVideoAspect, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: MeetingTileView.cornerRadius))
+            .overlay {
+              RoundedRectangle(cornerRadius: MeetingTileView.cornerRadius)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            }
+            .padding(gridSpacing * 2)
           }
-          if controller.connectionState == .joined {
+          // The knock at the door has its own notice over the stage, whether
+          // or not anyone is on it, so this one is only about the quiet.
+          if controller.connectionState == .joined, controller.lobbyRequests.isEmpty {
             VStack(spacing: 6) {
-              if controller.lobbyRequests.isEmpty {
-                Text("You’re the only one in the meeting")
-                  .font(.headline)
-                Text("Others will appear here when they join.")
-                  .font(.subheadline)
-                  .foregroundStyle(.secondary)
-              } else {
-                Text("There are guests in the lobby waiting to be admitted")
-                  .font(.headline)
-                Text("Admit them in the sidebar.")
-                  .font(.subheadline)
-                  .foregroundStyle(.secondary)
-              }
+              Text("You’re the only one in the meeting")
+                .font(.headline)
+              Text("Others will appear here when they join.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
             .padding(16)
             .background(.regularMaterial, in: .rect(cornerRadius: 14))
@@ -314,17 +570,14 @@ struct NativeMeetingSurface: View {
       } else if controller.usesTileGrid {
         gridView(tiles: tiles)
       } else {
-        #if os(macOS)
-          // The sources live in the floating sidebar; the stage is the whole
-          // window, borderless and edge to edge.
-          tileView(
-            for: Self.featuredTile(
-              in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID),
-            flat: true
-          )
-        #else
-          sidebarStageView(tiles: tiles)
-        #endif
+        tileView(
+          for: Self.featuredTile(
+            in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID),
+          fitsVideoAspect: true
+        )
+        // A margin, so the feed's rounded corner reads as a corner rather
+        // than running into whichever sidebar is beside it.
+        .padding(gridSpacing * 2)
       }
     }
     // Before any video exists the stage has no intrinsic size; without an
@@ -339,8 +592,28 @@ struct NativeMeetingSurface: View {
     }
     // In push mode the open chat carves its width out of the stage instead
     // of covering it; the panel overlay then sits in the carved-out gap.
-    .padding(.trailing, panelsPushStage && controller.isChatOpen ? 312 : 0)
-    .background(.black)
+    #if os(macOS)
+      .padding(.trailing, panelsPushStage && hasTrailingPanel ? MeetingSidePanel.inset : 0)
+    #endif
+    // The video is black; the surround it sits in is chrome, and follows the
+    // system's appearance like the rest of the window.
+    #if os(iOS)
+      .background(.background)
+    #else
+      .background(.black)
+    #endif
+    .overlay(alignment: .top) {
+      if controller.connectionState == .joined, !controller.lobbyRequests.isEmpty {
+        LobbyNotice(
+          requests: controller.lobbyRequests,
+          admitAll: controller.admitAllLobbyParticipants
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .animation(.snappy, value: controller.lobbyRequests)
     .overlay(alignment: .topTrailing) {
       // A corner self-preview for the grid layout only: the other layouts show
       // the local camera in the sidebar, and when nobody else is in the
@@ -366,129 +639,134 @@ struct NativeMeetingSurface: View {
           .accessibilityLabel("Your camera")
       }
     }
-    .overlay(alignment: .trailing) {
-      if controller.isChatOpen {
-        ChatPanel(messages: model.chatMessages, send: controller.sendChatMessage)
-          .frame(width: 300)
+    #if os(iOS)
+      // The stage is the split view's detail column here: captions belong to
+      // it, above the controls it carries as a safe-area inset.
+      .overlay(alignment: .bottom) {
+        if controller.connectionState == .joined {
+          CaptionOverlay(feed: conversation.captionFeed)
+          .padding(.horizontal, 16)
+          .padding(.bottom, 12)
+        }
+      }
+    #endif
+    // One trailing column, whichever panel is open. They are mutually
+    // exclusive by the state that opens them, so there is never a second one
+    // to stack beside this.
+    #if os(macOS)
+      .overlay(alignment: .trailing) {
+        if hasTrailingPanel {
+          trailingPanelContent
+          .frame(width: MeetingSidePanel.width)
           .padding(12)
           .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
       }
-    }
+    #endif
     .animation(.snappy, value: controller.isChatOpen)
+    .animation(.snappy, value: conversation.isOpen)
+    #if os(iOS)
+      // Narrow enough that the conversation slides up over the stage rather
+      // than sitting beside it. The same state drives both, and the Mac's
+      // sidebar besides.
+      .sheet(
+        isPresented: Binding(
+          get: { conversation.isOpen && !usesSidePanels },
+          set: { conversation.isOpen = $0 }
+        )
+      ) {
+        TranscriptSheet(session: conversation)
+      }
+      // A 300pt panel over a phone leaves the stage a sliver and puts the
+      // message field under the keyboard. A sheet is the platform's answer:
+      // it carries its own dismissal, and the keyboard moves it rather than
+      // covering it.
+      .sheet(
+        isPresented: Binding(
+          get: { controller.isChatOpen && usesChatSheet },
+          set: { controller.isChatOpen = $0 }
+        )
+      ) {
+        ChatPanel(
+          messages: model.chatMessages, send: controller.sendChatMessage, floating: false
+        )
+        .meetingSheetChrome()
+      }
+    #endif
+  }
+
+  /// Whether the trailing column has something to show. The two panels are
+  /// mutually exclusive by the state that opens them, so there is never a
+  /// second one to stack beside the first.
+  private var hasTrailingPanel: Bool {
+    guard usesSidePanels else { return false }
+    #if os(iOS)
+      return controller.isChatOpen || conversation.isOpen
+    #else
+      // The Mac's conversation sidebar hangs from the meeting window instead,
+      // beside the whole stage rather than over it.
+      return controller.isChatOpen
+    #endif
+  }
+
+  @ViewBuilder private var trailingPanelContent: some View {
+    if controller.isChatOpen {
+      #if os(iOS)
+        ChatPanel(
+          messages: model.chatMessages, send: controller.sendChatMessage,
+          floating: false, close: { controller.isChatOpen = false })
+      #else
+        ChatPanel(messages: model.chatMessages, send: controller.sendChatMessage)
+      #endif
+    } else {
+      #if os(iOS)
+        if conversation.isOpen {
+          ConversationPane(session: conversation, isSidebar: true)
+        }
+      #endif
+    }
   }
 
   private func gridView(tiles: [NativeMeetingModel.MeetingTile]) -> some View {
     GeometryReader { geometry in
-      let columns = Self.columnCount(for: tiles.count)
-      let rows = Int(ceil(Double(tiles.count) / Double(columns)))
+      let layout = VideoGridLayout.packing(
+        tiles.count,
+        into: CGSize(
+          width: geometry.size.width - gridSpacing * 2,
+          height: geometry.size.height - gridSpacing * 2
+        ),
+        spacing: gridSpacing
+      )
+      // One ForEach over every tile, so a participant keeps their view — and
+      // its running renderer — when a resize changes the column count.
+      let columns = max(layout.columns, 1)
       LazyVGrid(
-        columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns),
-        spacing: 4
+        // The gap belongs between columns, so the last one carries none: the
+        // grid is then exactly as wide as the frame below claims it is.
+        columns: (0..<columns).map { column in
+          GridItem(
+            .fixed(layout.tile.width),
+            spacing: column == columns - 1 ? 0 : gridSpacing
+          )
+        },
+        spacing: gridSpacing
       ) {
         ForEach(tiles) { tile in
           tileView(for: tile)
-            .frame(height: max(120, (geometry.size.height - 8) / CGFloat(rows)) - 4)
+            .frame(width: layout.tile.width, height: layout.tile.height)
         }
       }
-      .padding(4)
+      // The grid is exactly as wide as its columns; the outer frame then
+      // centers that block in whatever the stage has left over, which is
+      // where a tall window's slack goes.
+      .frame(width: layout.width)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-  }
-
-  /// The default layout: a collapsible left sidebar of video sources — the
-  /// local camera on top — beside a stage featuring the pinned tile, a screen
-  /// share, or the dominant speaker, in that order of preference.
-  private func sidebarStageView(tiles: [NativeMeetingModel.MeetingTile]) -> some View {
-    let featured = Self.featuredTile(
-      in: tiles,
-      pinned: model.pinnedTileID,
-      dominantSpeakerID: model.dominantSpeakerID
-    )
-    return HStack(spacing: 4) {
-      if !model.sidebarCollapsed {
-        VStack(spacing: 6) {
-          selfSidebarTile
-          ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 6) {
-              ForEach(tiles) { tile in
-                tileView(for: tile)
-                  .frame(height: 100)
-                  #if os(iOS)
-                    // iPad multiwindow: a double-tap floats the feed in
-                    // its own scene (iPhone has no additional windows).
-                    .highPriorityGesture(
-                      TapGesture(count: 2).onEnded {
-                        guard UIDevice.current.userInterfaceIdiom == .pad,
-                          let stream = tile.stream
-                        else { return }
-                        openWindow(id: "feed", value: stream.id)
-                      }
-                    )
-                  #endif
-              }
-            }
-          }
-        }
-        .frame(width: 172)
-        .transition(.move(edge: .leading).combined(with: .opacity))
-      }
-      tileView(for: featured)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    .padding(4)
-    .overlay(alignment: .topLeading) {
-      Button {
-        model.sidebarCollapsed.toggle()
-      } label: {
-        Image(systemName: model.sidebarCollapsed ? "chevron.right" : "chevron.left")
-          .font(.system(size: 13, weight: .semibold))
-          .frame(width: 26, height: 26)
-          .background(.black.opacity(0.55), in: .circle)
-          .foregroundStyle(.white)
-      }
-      .buttonStyle(.plain)
-      .help(model.sidebarCollapsed ? "Show participants" : "Hide participants")
-      .padding(10)
-    }
-    .animation(.snappy, value: model.sidebarCollapsed)
-  }
-
-  /// The local camera at the top of the sidebar.
-  private var selfSidebarTile: some View {
-    ZStack {
-      if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
-        LocalVideoSurface(track: localCameraTrack)
-      } else {
-        Color(white: 0.14)
-        Image(systemName: "video.slash.fill")
-          .foregroundStyle(.white.opacity(0.6))
-      }
-    }
-    .frame(height: 100)
-    .clipShape(.rect(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12))
-    }
-    .overlay(alignment: .bottomLeading) {
-      HStack(spacing: 5) {
-        if controller.isAudioMuted {
-          Image(systemName: "mic.slash.fill")
-            .font(.caption2)
-            .foregroundStyle(.red)
-        }
-        Text("You")
-          .font(.caption)
-      }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(.black.opacity(0.55), in: .capsule)
-      .padding(6)
-    }
-    .accessibilityLabel("Your camera")
   }
 
   private func tileView(
     for tile: NativeMeetingModel.MeetingTile,
-    flat: Bool = false
+    fitsVideoAspect: Bool = false
   ) -> some View {
     let participant = tile.endpointID.flatMap { id in
       model.participants.first { $0.id == id }
@@ -498,7 +776,7 @@ struct NativeMeetingSurface: View {
       isDominantSpeaker: tile.endpointID != nil
         && tile.endpointID == model.dominantSpeakerID,
       isPinned: tile.id == model.pinnedTileID,
-      flat: flat,
+      fitsVideoAspect: fitsVideoAspect,
       stat: tile.stream.flatMap { model.streamStats[$0.id] },
       reaction: tile.endpointID.flatMap { model.tileReactions[$0]?.emoji }
     )
@@ -534,15 +812,6 @@ struct NativeMeetingSurface: View {
           controller.kickParticipant(participant.id)
         }
       }
-    }
-  }
-
-  private static func columnCount(for tiles: Int) -> Int {
-    switch tiles {
-    case ...1: 1
-    case ...4: 2
-    case ...9: 3
-    default: 4
     }
   }
 
@@ -630,123 +899,175 @@ struct NativeMeetingSurface: View {
     }
   }
 
-  /// A participant's name line in the sidebar, with their live state beside
-  /// it: a speaking indicator while they are the dominant speaker, a raised
-  /// hand, and their microphone state.
-  private struct RosterHeader: View {
-    let name: String
-    let audioMuted: Bool
-    let handRaised: Bool
-    let isSpeaking: Bool
+#endif
 
-    var body: some View {
-      HStack(spacing: 6) {
-        Text(name)
-          .font(.body.bold())
-          .foregroundStyle(.white)
-          .lineLimit(1)
-          .truncationMode(.tail)
-        if isSpeaking {
-          Image(systemName: "speaker.wave.2.fill")
-            .foregroundStyle(Color.accentColor)
-        }
-        Spacer(minLength: 4)
-        if handRaised {
-          Image(systemName: "hand.raised.fill")
-            .foregroundStyle(.yellow)
-        }
-        if audioMuted {
-          Image(systemName: "mic.slash.fill")
-            .foregroundStyle(.red)
-        }
+/// A participant's name line in the sidebar, with their live state beside
+/// it: a speaking indicator while they are the dominant speaker, a raised
+/// hand, and their microphone state.
+private struct RosterHeader: View {
+  let name: String
+  let audioMuted: Bool
+  let handRaised: Bool
+  let isSpeaking: Bool
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Text(name)
+        .font(.body.bold())
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      if isSpeaking {
+        Image(systemName: "speaker.wave.2.fill")
+          .foregroundStyle(Color.accentColor)
       }
-      .font(.subheadline)
+      Spacer(minLength: 4)
+      if handRaised {
+        Image(systemName: "hand.raised.fill")
+          .foregroundStyle(.yellow)
+      }
+      if audioMuted {
+        Image(systemName: "mic.slash.fill")
+          .foregroundStyle(.red)
+      }
     }
+    .font(.subheadline)
+  }
+}
+
+/// One feed's thumbnail row under its owner's name.
+/// The knock at the door, over the stage: who is waiting, and the one
+/// button that lets them in. The roster still carries admit and deny per
+/// person; this is the version that can be acted on without opening it,
+/// which on a phone means without leaving the video at all.
+private struct LobbyNotice: View {
+  let requests: [MeetingController.LobbyRequest]
+  let admitAll: () -> Void
+
+  private var names: String {
+    requests.map(\.displayName).formatted(.list(type: .and))
   }
 
-  /// One feed's thumbnail row under its owner's name.
-  /// One person waiting in the lobby: their name with inline admit and
-  /// deny controls, compact enough for the narrow roster column.
-  private struct LobbyRequestRow: View {
-    let displayName: String
-    let admit: () -> Void
-    let deny: () -> Void
+  var body: some View {
+    VStack(spacing: 6) {
+      Text(
+        requests.count == 1
+          ? "Someone is waiting to join"
+          : "\(requests.count) people are waiting to join"
+      )
+      .font(.headline)
+      Text(names)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .lineLimit(3)
+      Button(requests.count == 1 ? "Admit" : "Admit All", action: admitAll)
+        .buttonStyle(.borderedProminent)
+        .padding(.top, 4)
+    }
+    .padding(16)
+    .frame(maxWidth: 420)
+    .background(.regularMaterial, in: .rect(cornerRadius: 14))
+    .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+    .accessibilityElement(children: .contain)
+  }
+}
 
-    var body: some View {
-      HStack(spacing: 8) {
-        Text(displayName)
-          .lineLimit(1)
-          .truncationMode(.tail)
-        Spacer(minLength: 8)
-        Button(action: deny) {
-          Image(systemName: "xmark.circle.fill")
-            .font(.title3)
-            .foregroundStyle(.secondary)
+/// One person waiting in the lobby: their name with inline admit and
+/// deny controls, compact enough for the narrow roster column.
+private struct LobbyRequestRow: View {
+  let displayName: String
+  let admit: () -> Void
+  let deny: () -> Void
+
+  /// A finger wants the whole 44 points Apple asks for. A pointer does not,
+  /// and the Mac's roster column is narrow enough that two of them would
+  /// crowd out the name.
+  #if os(iOS)
+    private static let hitTarget: CGFloat = 44
+  #else
+    private static let hitTarget: CGFloat = 28
+  #endif
+
+  var body: some View {
+    HStack(spacing: 0) {
+      Text(displayName)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      Spacer(minLength: 4)
+      Button(action: deny) {
+        Image(systemName: "xmark.circle.fill")
+          .font(.title3)
+          .foregroundStyle(.secondary)
+          // The glyph is a third of this; the frame around it is what the
+          // finger actually gets.
+          .frame(width: Self.hitTarget, height: Self.hitTarget)
+          .contentShape(.rect)
+      }
+      .buttonStyle(.plain)
+      .help("Deny")
+      .accessibilityLabel(Text("Deny \(displayName)"))
+      Button(action: admit) {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.title3)
+          .foregroundStyle(.green)
+          .frame(width: Self.hitTarget, height: Self.hitTarget)
+          .contentShape(.rect)
+      }
+      .buttonStyle(.plain)
+      .help("Admit")
+      .accessibilityLabel(Text("Admit \(displayName)"))
+    }
+  }
+}
+
+private struct SidebarThumbnail<Surface: View>: View {
+  let isPinned: Bool
+  let videoType: String?
+  var handRaised = false
+  var reaction: String?
+  @ViewBuilder var surface: Surface
+
+  var body: some View {
+    surface
+      .frame(maxWidth: .infinity)
+      .frame(height: 92)
+      .clipShape(.rect(cornerRadius: 7))
+      .overlay {
+        RoundedRectangle(cornerRadius: 7)
+          .strokeBorder(
+            isPinned ? Color.accentColor : .white.opacity(0.1),
+            lineWidth: isPinned ? 2 : 1
+          )
+      }
+      .overlay(alignment: .bottomTrailing) {
+        // Deliberately large for the thumbnail's 92-point height, so the
+        // state reads at sidebar size.
+        TileBadges(handRaised: handRaised, reaction: reaction, size: 30)
+      }
+      .overlay(alignment: .topTrailing) {
+        HStack(spacing: 4) {
+          if videoType == "desktop" {
+            Image(systemName: "rectangle.inset.filled.and.person.filled")
+              .font(.caption2)
+          }
+          if isPinned {
+            Image(systemName: "pin.fill")
+              .font(.caption2)
+          }
         }
-        .buttonStyle(.plain)
-        .help("Deny")
-        .accessibilityLabel(Text("Deny \(displayName)"))
-        Button(action: admit) {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.title3)
-            .foregroundStyle(.green)
-        }
-        .buttonStyle(.plain)
-        .help("Admit")
-        .accessibilityLabel(Text("Admit \(displayName)"))
+        .padding(4)
+        .background(
+          videoType == "desktop" || isPinned
+            ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear),
+          in: .capsule
+        )
+        .foregroundStyle(.white)
+        .padding(5)
       }
       .padding(.vertical, 2)
-    }
   }
-
-  private struct SidebarThumbnail<Surface: View>: View {
-    let isPinned: Bool
-    let videoType: String?
-    var handRaised = false
-    var reaction: String?
-    @ViewBuilder var surface: Surface
-
-    var body: some View {
-      surface
-        .frame(maxWidth: .infinity)
-        .frame(height: 92)
-        .clipShape(.rect(cornerRadius: 7))
-        .overlay {
-          RoundedRectangle(cornerRadius: 7)
-            .strokeBorder(
-              isPinned ? Color.accentColor : .white.opacity(0.1),
-              lineWidth: isPinned ? 2 : 1
-            )
-        }
-        .overlay(alignment: .bottomTrailing) {
-          // Deliberately large for the thumbnail's 92-point height, so the
-          // state reads at sidebar size.
-          TileBadges(handRaised: handRaised, reaction: reaction, size: 30)
-        }
-        .overlay(alignment: .topTrailing) {
-          HStack(spacing: 4) {
-            if videoType == "desktop" {
-              Image(systemName: "rectangle.inset.filled.and.person.filled")
-                .font(.caption2)
-            }
-            if isPinned {
-              Image(systemName: "pin.fill")
-                .font(.caption2)
-            }
-          }
-          .padding(4)
-          .background(
-            videoType == "desktop" || isPinned
-              ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear),
-            in: .capsule
-          )
-          .foregroundStyle(.white)
-          .padding(5)
-        }
-        .padding(.vertical, 2)
-    }
-  }
-#endif
+}
 
 /// The in-meeting group chat, in the zephyr style: an avatar and a bold
 /// sender name head each run of consecutive messages from one person, with
@@ -754,6 +1075,12 @@ struct NativeMeetingSurface: View {
 private struct ChatPanel: View {
   let messages: [ChatMessage]
   let send: (String) -> Void
+  /// A floating panel draws its own card over the stage. Presented as a
+  /// sheet on a phone it fills the sheet, which supplies the surface.
+  var floating = true
+  /// Given a way to close, the panel carries its own toolbar row. A sheet
+  /// has its own dismissal and passes nothing.
+  var close: (() -> Void)?
 
   @State private var draft = ""
   @FocusState private var inputFocused: Bool
@@ -791,6 +1118,19 @@ private struct ChatPanel: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      if let close {
+        HStack(spacing: 12) {
+          Text("Chat").font(.headline)
+          Spacer(minLength: 8)
+          Button(action: close) { Image(systemName: "xmark") }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Close")
+        }
+        .font(.body.weight(.medium))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        Divider()
+      }
       ScrollViewReader { proxy in
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 14) {
@@ -833,19 +1173,30 @@ private struct ChatPanel: View {
       }
       .padding(10)
     }
-    .background(.regularMaterial, in: .rect(cornerRadius: 14))
-    .overlay {
-      RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.12))
-    }
-    .onAppear {
-      // Opening the panel means typing; focus lands without a click. The
-      // retry covers macOS applying focus only once the window is key.
-      inputFocused = true
-      Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(200))
-        if !inputFocused { inputFocused = true }
+    .background {
+      if floating {
+        RoundedRectangle(cornerRadius: 14)
+          .fill(.regularMaterial)
+          .strokeBorder(.white.opacity(0.12))
       }
     }
+    #if os(macOS)
+      // Opening the panel means typing; focus lands without a click. The
+      // retry covers macOS applying focus only once the window is key.
+      //
+      // iOS gets no such focus: the keyboard would take half the screen the
+      // moment chat opens — on a phone that snaps the sheet to full height
+      // and hides the meeting behind it — and while it is up the control
+      // bar's More menu cannot present at all. Tapping the field still
+      // raises it, when there is something to say.
+      .onAppear {
+        inputFocused = true
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(200))
+          if !inputFocused { inputFocused = true }
+        }
+      }
+    #endif
   }
 
   private func submit() {
@@ -918,21 +1269,36 @@ struct TileBadges: View {
 }
 
 private struct MeetingTileView: View {
+  /// One radius for the feed, its highlight border, and the margin that
+  /// keeps them clear of the sidebars.
+  static let cornerRadius: CGFloat = 12
+
   let tile: NativeMeetingModel.MeetingTile
   let isDominantSpeaker: Bool
   let isPinned: Bool
-  /// A stage tile fills the window edge to edge: no rounding, and a border
-  /// only while its owner is the dominant speaker.
-  var flat = false
+  /// Whether the tile takes the stream's shape rather than filling the space
+  /// it is given. The stage does; a grid cell keeps its slot, so the grid
+  /// stays a grid.
+  var fitsVideoAspect = false
   /// Receive health for the tile's stream, shown as a colored dot.
   var stat: InboundVideoStatistic?
   /// The owner's latest reaction, shown next to their raised hand.
   var reaction: String?
 
+  /// The stream's shape, once it has told us. Nil until the first frame, and
+  /// for a participant with no video at all — either way the tile falls back
+  /// to filling the space it is given.
+  @State private var videoAspect: CGFloat?
+
   var body: some View {
     ZStack {
       if let stream = tile.stream {
-        NativeVideoSurface(track: stream.track)
+        // Whatever shape the sender is pushing — a 16:9 camera, a portrait
+        // phone, a whole desktop — the tile shows all of it rather than
+        // cropping the sides to fill.
+        NativeVideoSurface(track: stream.track, contentMode: .fit) { size in
+          videoAspect = size.width / size.height
+        }
       } else {
         Color(white: 0.14)
         Text(initials)
@@ -942,12 +1308,18 @@ private struct MeetingTileView: View {
           .background(.white.opacity(0.12), in: .circle)
       }
     }
-    .clipShape(.rect(cornerRadius: flat ? 0 : 10))
+    // The frame becomes the picture's shape, so the black the renderer would
+    // letterbox with never gets drawn — and the border lands on the edge of
+    // the video rather than out in the bars.
+    .aspectRatio(fitsVideoAspect ? videoAspect : nil, contentMode: .fit)
+    // One shape for the feed and the border that highlights it, so the
+    // speaker outline follows the corner instead of cutting across it.
+    .clipShape(.rect(cornerRadius: Self.cornerRadius))
     .overlay {
-      RoundedRectangle(cornerRadius: flat ? 0 : 10)
+      RoundedRectangle(cornerRadius: Self.cornerRadius)
         .strokeBorder(
-          isDominantSpeaker ? Color.accentColor : .white.opacity(flat ? 0 : 0.12),
-          lineWidth: isDominantSpeaker ? 2.5 : (flat ? 0 : 1)
+          isDominantSpeaker ? Color.accentColor : .white.opacity(0.12),
+          lineWidth: isDominantSpeaker ? 2.5 : 1
         )
     }
     .overlay(alignment: .topLeading) {
@@ -964,7 +1336,7 @@ private struct MeetingTileView: View {
       TileBadges(
         handRaised: tile.handRaised,
         reaction: reaction,
-        size: flat ? 34 : 24
+        size: 24
       )
     }
     .overlay(alignment: .bottomLeading) {
@@ -1039,6 +1411,7 @@ final class NativeMeetingModel: ObservableObject {
   /// seconds for the tiles' connection indicators.
   @Published private(set) var streamStats: [String: InboundVideoStatistic] = [:]
   @Published private(set) var participants: [RemoteParticipant] = []
+  weak var conversation: ConversationSession?
   @Published private(set) var dominantSpeakerID: String?
   @Published private(set) var isModerator = false
   @Published private(set) var chatMessages: [ChatMessage] = []
@@ -1086,6 +1459,25 @@ final class NativeMeetingModel: ObservableObject {
   ]
   #if os(iOS)
     @Published var showsBroadcastPicker = false
+  #endif
+
+  #if DEBUG
+    /// A short exchange for the layout preview, so the chat panel can be
+    /// looked at — on a phone especially — without a meeting behind it.
+    func loadChatPreview() {
+      chatMessages = [
+        ChatMessage(
+          id: "1", senderEndpointID: "alex", senderDisplayName: "Alex",
+          text: "Are we still on for the release review?", isLocal: false, timestamp: .now),
+        ChatMessage(
+          id: "2", senderEndpointID: "self", senderDisplayName: "You",
+          text: "Yes — starting now.", isLocal: true, timestamp: .now),
+        ChatMessage(
+          id: "3", senderEndpointID: "sam", senderDisplayName: "Sam",
+          text: "I'll paste the dependency list here once I have it.", isLocal: false,
+          timestamp: .now),
+      ]
+    }
   #endif
 
   /// One sidebar section: a participant and whatever they're sending. A
@@ -1199,7 +1591,38 @@ final class NativeMeetingModel: ObservableObject {
       guard let self, let controller else { return }
       Task { @MainActor in await self.execute(command, controller: controller) }
     }
+    // Once, here rather than in the toggle command: PiP now also starts on
+    // its own when the app is backgrounded, and nobody may ever have used
+    // the menu item to install these.
+    pictureInPicture.currentVideo = { [weak self] in
+      (self?.featuredRemoteStream, self?.localCameraTrack)
+    }
+    pictureInPicture.onActiveChanged = { [weak self, weak controller] active in
+      guard let self, let controller else { return }
+      controller.didChangePictureInPicture(
+        available: self.pictureInPicture.isSupported, active: active)
+    }
+    pictureInPicture.onError = { [weak controller] message in
+      controller?.report(error: message)
+    }
     await startJoin(configuration: configuration, controller: controller)
+  }
+
+  /// One tick of the mute button's level meter.
+  ///
+  /// WebRTC reports the source's amplitude, where ordinary speech sits near
+  /// the bottom of the range and a linear meter would barely twitch, so the
+  /// reading is converted to decibels across the 50 dB that carry a voice.
+  /// It rises with the sound and falls back gently, so syllables read as a
+  /// level rather than as a flicker.
+  func refreshMicrophoneLevel(controller: MeetingController) async {
+    guard let handle else { return }
+    let amplitude = await handle.coordinator.localAudioLevel() ?? 0
+    let decibels = amplitude > 0 ? 20 * log10(amplitude) : -.infinity
+    let normalized = min(1, max(0, (decibels + 50) / 50))
+    let previous = controller.microphoneMeter.level
+    controller.didChangeMicrophoneLevel(
+      normalized > previous ? normalized : previous * 0.72 + normalized * 0.28)
   }
 
   /// One tick of the speaker-stats panel: a fresh snapshot from the
@@ -1320,6 +1743,15 @@ final class NativeMeetingModel: ObservableObject {
       } catch NativeConferenceBootstrapError.invalidCredentials {
         SangamLog.event("join: invalidCredentials")
         controller.requireAccess(message: "That username or password wasn’t accepted.")
+      } catch NativeConferenceBootstrapError.guestAccessUnavailable {
+        // The server will not take a guest at all, so waiting for a host
+        // cannot help: the sign-in card is the only way forward.
+        SangamLog.event("join: guestAccessUnavailable")
+        controller.requireAccess(message: "This meeting needs an account. Sign in to join.")
+      } catch NativeConferenceBootstrapError.passwordLoginUnavailable {
+        SangamLog.event("join: passwordLoginUnavailable")
+        controller.requireAccess(
+          message: "This server doesn’t accept username and password sign-in.")
       } catch NativeConferenceBootstrapError.passwordRequired {
         SangamLog.event("join: passwordRequired")
         controller.requireMeetingPassword()
@@ -1338,6 +1770,7 @@ final class NativeMeetingModel: ObservableObject {
 
   func leave(controller: MeetingController) {
     MeetingHub.shared.unregisterModel(self)
+    pictureInPicture.endFollowing()
     controller.detach()
     joinTask?.cancel()
     joinTask = nil
@@ -1395,6 +1828,10 @@ final class NativeMeetingModel: ObservableObject {
           if state == .failed {
             controller.report(error: "The native media connection failed.")
           }
+        case .remoteAudioTrackChanged(let stream):
+          conversation?.updateAudio(stream)
+        case .remoteAudioTrackRemoved(let id):
+          conversation?.removeAudio(id)
         case .remoteVideoTrackAdded(let stream):
           SangamLog.event(
             "event: remoteVideoTrackAdded id=\(stream.id) source=\(stream.sourceName ?? "?") "
@@ -1409,6 +1846,7 @@ final class NativeMeetingModel: ObservableObject {
           SangamLog.event(
             "event: remoteVideoTrackRemoved id=\(id) (remote video sources: \(streams.count))")
         case .remoteSessionEnded(let reason):
+          conversation?.removeAllAudio()
           SangamLog.event("event: remoteSessionEnded reason=\(reason ?? "nil")")
           // Like the web client, a Jingle session ending does not end the
           // conference: Jicofo tears the media session down whenever this
@@ -1448,6 +1886,7 @@ final class NativeMeetingModel: ObservableObject {
             MeetingSounds.participantLeft()
           }
           participants = updated
+          conversation?.updateParticipants(updated)
         case .dominantSpeakerChanged(let endpointID):
           dominantSpeakerID = endpointID
         case .moderatorStatusChanged(let moderator):
@@ -1752,15 +2191,6 @@ final class NativeMeetingModel: ObservableObject {
         controller.report(error: error.localizedDescription)
       }
     case .togglePictureInPicture:
-      pictureInPicture.onActiveChanged = { [weak controller, weak self] active in
-        guard let self, let controller else { return }
-        controller.didChangePictureInPicture(
-          available: self.pictureInPicture.isSupported, active: active)
-        if !active { self.pictureInPicture.bridge.detach() }
-      }
-      pictureInPicture.onError = { [weak controller] message in
-        controller?.report(error: message)
-      }
       pictureInPicture.toggle(remote: featuredRemoteStream, localFallback: localCameraTrack)
     case .setScreenSharing(let enabled):
       if enabled {
@@ -1910,12 +2340,18 @@ final class NativeMeetingModel: ObservableObject {
 
   struct NativeVideoSurface: UIViewRepresentable {
     let track: RemoteVideoTrack?
+    var contentMode: VideoContentMode = .fill
+    /// The stream's own dimensions, for a caller that wants to take the
+    /// picture's shape instead of framing bars around it.
+    var onVideoSize: ((CGSize) -> Void)?
 
     func makeUIView(context: Context) -> NativeVideoRendererView {
       NativeVideoRendererView(frame: .zero)
     }
 
     func updateUIView(_ view: NativeVideoRendererView, context: Context) {
+      view.videoContentMode = contentMode
+      view.onVideoSize = onVideoSize
       view.display(track)
     }
 
@@ -1926,12 +2362,17 @@ final class NativeMeetingModel: ObservableObject {
 
   private struct LocalVideoSurface: UIViewRepresentable {
     let track: LocalVideoTrack?
+    var contentMode: VideoContentMode = .fill
+    /// The camera's own dimensions, so a self view can take its shape.
+    var onVideoSize: ((CGSize) -> Void)?
 
     func makeUIView(context: Context) -> NativeVideoRendererView {
       NativeVideoRendererView(frame: .zero)
     }
 
     func updateUIView(_ view: NativeVideoRendererView, context: Context) {
+      view.videoContentMode = contentMode
+      view.onVideoSize = onVideoSize
       view.display(local: track)
     }
 
@@ -1942,12 +2383,17 @@ final class NativeMeetingModel: ObservableObject {
 #elseif os(macOS)
   struct NativeVideoSurface: NSViewRepresentable {
     let track: RemoteVideoTrack?
+    var contentMode: VideoContentMode = .fill
+    /// The stream's own dimensions, for a caller that wants to take the
+    /// picture's shape instead of framing bars around it.
+    var onVideoSize: ((CGSize) -> Void)?
 
     func makeNSView(context: Context) -> NativeVideoRendererView {
       NativeVideoRendererView(frame: .zero)
     }
 
     func updateNSView(_ view: NativeVideoRendererView, context: Context) {
+      view.videoContentMode = contentMode
       view.display(track)
     }
 
@@ -1958,12 +2404,17 @@ final class NativeMeetingModel: ObservableObject {
 
   private struct LocalVideoSurface: NSViewRepresentable {
     let track: LocalVideoTrack?
+    var contentMode: VideoContentMode = .fill
+    /// The camera's own dimensions, so a self view can take its shape.
+    var onVideoSize: ((CGSize) -> Void)?
 
     func makeNSView(context: Context) -> NativeVideoRendererView {
       NativeVideoRendererView(frame: .zero)
     }
 
     func updateNSView(_ view: NativeVideoRendererView, context: Context) {
+      view.videoContentMode = contentMode
+      view.onVideoSize = onVideoSize
       view.display(local: track)
     }
 

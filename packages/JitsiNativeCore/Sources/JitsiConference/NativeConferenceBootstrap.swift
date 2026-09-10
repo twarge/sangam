@@ -87,6 +87,12 @@ public enum NativeConferenceBootstrapError: Error, Equatable, Sendable {
   /// The room requires a meeting password (and none, or a wrong one, was
   /// given).
   case passwordRequired
+  /// The server refuses guest connections outright: an account is needed to
+  /// get as far as the meeting.
+  case guestAccessUnavailable
+  /// The server offers no username-and-password sign-in, so the credentials
+  /// were never even tried.
+  case passwordLoginUnavailable
 }
 
 extension NativeConferenceBootstrapError: LocalizedError {
@@ -107,6 +113,10 @@ extension NativeConferenceBootstrapError: LocalizedError {
       return "The meeting ended before you were admitted."
     case .passwordRequired:
       return "This meeting requires a password."
+    case .guestAccessUnavailable:
+      return "This server requires an account to join a meeting."
+    case .passwordLoginUnavailable:
+      return "This server does not accept username and password sign-in."
     }
   }
 }
@@ -159,14 +169,23 @@ public struct NativeConferenceBootstrap: Sendable {
         .anonymous
       }
     progress(.stage(.openingConnection))
-    let (connection, boundJID) = try await openConnection(
-      deployment: deployment,
-      room: room,
-      domain: xmppConnectionDomain,
-      credential: credential,
-      endpointID: endpointID,
-      token: options.token
-    )
+    let connection: XMPPConnection
+    let boundJID: String
+    do {
+      // The SASL exchange happens here, so this is where a refused password is
+      // answered — before there is a connection to tear down, and outside the
+      // join's own error handling below.
+      (connection, boundJID) = try await openConnection(
+        deployment: deployment,
+        room: room,
+        domain: xmppConnectionDomain,
+        credential: credential,
+        endpointID: endpointID,
+        token: options.token
+      )
+    } catch {
+      throw Self.joinError(from: error, hasCredentials: hasCredentials)
+    }
 
     do {
       progress(.stage(.allocatingFocus))
@@ -264,12 +283,31 @@ public struct NativeConferenceBootstrap: Sendable {
         occupantJID: "\(roomJID)/\(endpointID)",
         focus: focus
       )
-    } catch XMPPNegotiationError.authenticationFailed where hasCredentials {
-      Self.tearDown(connection)
-      throw NativeConferenceBootstrapError.invalidCredentials
     } catch {
       Self.tearDown(connection)
-      throw error
+      throw Self.joinError(from: error, hasCredentials: hasCredentials)
+    }
+  }
+
+  /// Translates a stream-level refusal into the join error the sign-in card
+  /// knows how to act on, so the person joining is told which of the things
+  /// they can change is wrong. Anything that is not a negotiation failure —
+  /// a cancellation, a transport error — passes through untouched.
+  static func joinError(from error: any Error, hasCredentials: Bool) -> any Error {
+    guard let negotiation = error as? XMPPNegotiationError else { return error }
+    switch negotiation {
+    case .authenticationFailed:
+      // Anonymous binding is refused by deployments that require an account;
+      // with credentials in hand the same refusal is about those credentials.
+      return hasCredentials
+        ? NativeConferenceBootstrapError.invalidCredentials
+        : NativeConferenceBootstrapError.guestAccessUnavailable
+    case .missingMechanism("ANONYMOUS"):
+      return NativeConferenceBootstrapError.guestAccessUnavailable
+    case .missingMechanism("PLAIN"):
+      return NativeConferenceBootstrapError.passwordLoginUnavailable
+    default:
+      return negotiation
     }
   }
 
@@ -350,12 +388,14 @@ public struct NativeConferenceBootstrap: Sendable {
       )
       do {
         return (connection, try await connection.connect())
-      } catch let error where Self.isTransportFailure(error) {
-        // The endpoint is unusable; try the next one. Anything else — a
-        // rejected password, say — is the deployment's real answer and must
-        // not be retried against a different transport.
-        lastError = error
+      } catch {
         Self.tearDown(connection)
+        // Anything that is not the endpoint's own fault — a rejected password,
+        // say — is the deployment's real answer, and must be reported rather
+        // than retried against a different transport.
+        guard Self.isTransportFailure(error) else { throw error }
+        // The endpoint is unusable; try the next one.
+        lastError = error
       }
     }
     throw lastError ?? DiscoveryError.invalidResponse

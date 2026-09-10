@@ -226,6 +226,63 @@ struct CoordinatorSourceMapTests {
     }
     #expect(failures.isEmpty, "the audio slot renegotiation failed: \(failures)")
   }
+
+  @Test
+  func audioTapFollowsReceiveSlotOwnership() async throws {
+    let harness = try await SourceMapHarness()
+    defer { harness.tearDown() }
+    try await harness.establishSession()
+    await harness.coordinator.handleBridgeChannelEvent(
+      .message(
+        .sourcesRemapped(
+          media: "audio",
+          sources: [MappedSource(sourceName: "alice-a0", owner: "alice", ssrc: 666_101)])))
+    let arrived = await eventually {
+      await harness.events.contains {
+        if case .remoteAudioTrackChanged(let stream) = $0 { return stream.endpointID == "alice" }
+        return false
+      }
+    }
+    #expect(arrived)
+    let initial = await harness.events.filter {
+      if case .remoteAudioTrackChanged = $0 { return true }
+      return false
+    }
+    guard case .remoteAudioTrackChanged(let alice) = try #require(initial.last) else { return }
+    let tap = try #require(
+      alice.track.makeTap(), "the pinned binary must accept its native audio sink")
+    #expect(tap.drain().isEmpty)
+    tap.stop()
+    tap.stop()  // Teardown is idempotent, including after a media session ends.
+
+    await harness.coordinator.handleBridgeChannelEvent(
+      .message(
+        .sourcesRemapped(
+          media: "audio",
+          sources: [MappedSource(sourceName: "bob-a0", owner: "bob", ssrc: 666_101)])))
+    let remapped = await eventually {
+      await harness.events.contains {
+        if case .remoteAudioTrackChanged(let stream) = $0 {
+          return stream.id == alice.id && stream.endpointID == "bob"
+            && stream.generation != alice.generation
+        }
+        return false
+      }
+    }
+    #expect(remapped, "a known audio SSRC must be reattributed, not ignored")
+    await harness.coordinator.handleBridgeChannelEvent(
+      .message(
+        .sourcesRemapped(
+          media: "audio",
+          sources: [MappedSource(sourceName: "jvb-a0", owner: "jvb", ssrc: 666_101)])))
+    let retired = await eventually {
+      await harness.events.contains {
+        if case .remoteAudioTrackRemoved(let id) = $0 { return id == alice.id }
+        return false
+      }
+    }
+    #expect(retired, "an unattributable source must not retain the previous speaker's name")
+  }
 }
 
 /// 32 bytes of SHA-256-shaped digest; structure is what WebRTC validates.

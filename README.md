@@ -2,7 +2,9 @@
 
 A deliberately small Apple-native Jitsi client for iOS and macOS. The meeting
 video owns the window; the native interface is a compact bottom toolbar for
-microphone, camera, screen sharing, and hangup. The product target uses a shared
+microphone, camera, screen sharing, and hangup. The mute button doubles as the
+input meter: the microphone symbol's body fills with the accent color in
+proportion to the level WebRTC reads from the audio it is sending. The product target uses a shared
 Swift conference core and native WebRTC rendering with no WebKit, Chromium, or
 React Native meeting surface.
 
@@ -40,6 +42,9 @@ THIRD_PARTY_NOTICES.md               redistribution notes
 - iOS uses `JitsiMeetSDK` and the official ReplayKit socket protocol. Camera,
   microphone, camera switching, hangup, and device screen sharing are connected
   to the native toolbar.
+- Transcription and captions run on both platforms; on iOS the other
+  participants are transcribed and captioned, while the notes document, its
+  editor and the summary stay on macOS. See `docs/MEETING_NOTES.md`.
 - macOS has no fallback transport. The `WKWebView` iframe adapter has been
   removed, so macOS always runs the native core.
 
@@ -61,3 +66,20 @@ renegotiation. Reconnect and production interoperability hardening remain.
 
 The default server is `https://meet.jit.si`; self-hosted HTTPS Jitsi servers can
 be entered on the join screen. Plain HTTP is accepted only for `localhost`.
+
+## Conversation notes
+
+On macOS, the Notes toolbar button opens an editable Markdown conversation
+sidebar. **Transcribe** uses Apple's on-device Speech model for named audio
+streams; Apple Intelligence generates a running title, summary and actions.
+Both AI features require macOS 26 or later and available models. Personal
+notes and transcript corrections remain editable as speech arrives. Hangup
+leaves the document open, and unsaved notes require Save, Discard or Cancel
+before closing. See [meeting notes](docs/MEETING_NOTES.md) for architecture,
+current limits and verification.
+
+Debug builds also accept `--layout-preview access`, `--layout-preview password`,
+or `--layout-preview meeting` to inspect the real connection forms and meeting
+navigation without connecting to a server or starting media capture. Credential
+submission displays a local fixture confirmation. Use these to check small
+windows, keyboard clearance, and navigation without entering a real call.

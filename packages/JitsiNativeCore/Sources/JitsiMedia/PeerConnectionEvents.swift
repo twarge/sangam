@@ -1,4 +1,5 @@
 import Foundation
+import JitsiAudioBridge
 @preconcurrency import WebRTC
 
 public enum NativePeerConnectionState: String, Sendable {
@@ -37,6 +38,52 @@ public final class RemoteVideoTrack: @unchecked Sendable, Identifiable {
   }
 }
 
+public struct AudioPCMFrame: Sendable {
+  public let samples: Data
+  public let sampleRate: Int
+  public let channels: Int
+  public let frameCount: Int
+  public let startTime: TimeInterval
+  public let discontinuity: Bool
+}
+
+public final class RemoteAudioTrack: @unchecked Sendable, Identifiable {
+  public let id: String
+  private let track: RTCAudioTrack
+  fileprivate init(track: RTCAudioTrack) {
+    self.track = track
+    id = track.trackId
+  }
+  public func makeTap() -> RemoteAudioTap? {
+    guard let tap = SGAudioTrackTap(track: track) else { return nil }
+    return RemoteAudioTap(tap: tap)
+  }
+}
+
+/// Synchronization is outside the real-time callback, between the polling
+/// consumer and teardown. WebRTC's callback uses its own nonblocking ring.
+public final class RemoteAudioTap: @unchecked Sendable {
+  private let lock = NSLock()
+  private let tap: SGAudioTrackTap
+  fileprivate init(tap: SGAudioTrackTap) { self.tap = tap }
+  public func drain() -> [AudioPCMFrame] {
+    lock.lock()
+    defer { lock.unlock() }
+    return tap.drain().map {
+      AudioPCMFrame(
+        samples: $0.samples, sampleRate: $0.sampleRate,
+        channels: $0.channels, frameCount: $0.frames,
+        startTime: $0.startTime, discontinuity: $0.discontinuity)
+    }
+  }
+  public func stop() {
+    lock.lock()
+    defer { lock.unlock() }
+    tap.stop()
+  }
+  deinit { tap.stop() }
+}
+
 public enum NativePeerConnectionEvent: Sendable {
   case connectionStateChanged(NativePeerConnectionState)
   case localCandidate(NativeICECandidate)
@@ -46,6 +93,8 @@ public enum NativePeerConnectionEvent: Sendable {
   /// lines added by renegotiation (every screen share arrives that way).
   case remoteVideoTrackAdded(RemoteVideoTrack, ssrc: UInt32?)
   case remoteVideoTrackRemoved(id: String)
+  case remoteAudioTrackAdded(RemoteAudioTrack, ssrc: UInt32?)
+  case remoteAudioTrackRemoved(id: String)
   case negotiationNeeded
 }
 
@@ -165,6 +214,13 @@ extension PeerConnectionEventBridge: RTCPeerConnectionDelegate {
     didAdd rtpReceiver: RTCRtpReceiver,
     streams mediaStreams: [RTCMediaStream]
   ) {
+    if let audio = rtpReceiver.track as? RTCAudioTrack {
+      emit(
+        .remoteAudioTrackAdded(
+          RemoteAudioTrack(track: audio),
+          ssrc: rtpReceiver.parameters.encodings.first?.ssrc?.uint32Value))
+      return
+    }
     guard let track = rtpReceiver.track as? RTCVideoTrack else { return }
     let ssrc = rtpReceiver.parameters.encodings.first?.ssrc?.uint32Value
     emit(.remoteVideoTrackAdded(RemoteVideoTrack(track: track), ssrc: ssrc))
@@ -174,6 +230,10 @@ extension PeerConnectionEventBridge: RTCPeerConnectionDelegate {
     _ peerConnection: RTCPeerConnection,
     didRemove rtpReceiver: RTCRtpReceiver
   ) {
+    if let audio = rtpReceiver.track as? RTCAudioTrack {
+      emit(.remoteAudioTrackRemoved(id: audio.trackId))
+      return
+    }
     guard let track = rtpReceiver.track as? RTCVideoTrack else { return }
     emit(.remoteVideoTrackRemoved(id: track.trackId))
   }

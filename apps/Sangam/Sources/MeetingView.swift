@@ -1,7 +1,12 @@
 import SwiftUI
 
+#if os(macOS)
+  import AppKit
+#endif
+
 struct MeetingView: View {
   let configuration: MeetingConfiguration
+  @ObservedObject var conversation: ConversationSession
   let dismiss: () -> Void
 
   @StateObject private var controller = MeetingController()
@@ -12,7 +17,11 @@ struct MeetingView: View {
   @State private var toolbarVisible = true
   @State private var toolbarHideTask: Task<Void, Never>?
   @State private var windowWidth: CGFloat = 0
+  @State private var notesResizeStart: CGFloat?
   @State private var roomPasswordDraft = ""
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
   /// Once the conference has been entered, later passes through the
   /// pre-join states are room switches, not first joins.
   @State private var hasJoinedOnce = false
@@ -21,6 +30,14 @@ struct MeetingView: View {
   /// pre-join hold) rather than the conference.
   private var showsJoinForm: Bool {
     Self.preJoinStates.contains(controller.connectionState) && !hasJoinedOnce
+  }
+
+  private var isLayoutPreview: Bool {
+    #if DEBUG
+      MeetingLayoutPreviewMode.current != nil
+    #else
+      false
+    #endif
   }
 
   var body: some View {
@@ -34,15 +51,12 @@ struct MeetingView: View {
           Color.black
         }
       }
-      .ignoresSafeArea()
+      .ignoresSafeArea(.container)
 
       // On macOS the surface manages safe areas itself: the stage ignores
       // them (video runs under the titlebar), while the floating sidebar
       // must start below the toolbar.
       meetingSurface
-        #if os(iOS)
-          .ignoresSafeArea()
-        #endif
 
       // The whole pre-join journey stays on the first view's join form —
       // anything the join still needs (host sign-in, lobby wait, meeting
@@ -68,9 +82,6 @@ struct MeetingView: View {
         }
       }
 
-      if controller.connectionState == .joined {
-        meetingToolbar
-      }
     }
     .background {
       GeometryReader { geometry in
@@ -80,6 +91,44 @@ struct MeetingView: View {
       }
     }
     .background(showsJoinForm ? AnyShapeStyle(.background) : AnyShapeStyle(.black))
+    // The Mac's stage is the whole window with panels floating over it, so
+    // the captions are placed here, clear of them. On iOS the stage is the
+    // split view's detail column and the captions belong inside it, or they
+    // slide under the participants column.
+    #if os(macOS)
+      .overlay(alignment: .bottom) {
+        if controller.connectionState == .joined {
+          CaptionOverlay(feed: conversation.captionFeed)
+          .padding(.leading, controller.sidebarInset + 16)
+          .padding(.trailing, chatInset + 16)
+          .padding(.bottom, captionBottomInset)
+          .animation(.snappy, value: controller.sidebarInset)
+          .animation(.snappy, value: chatInset)
+        }
+      }
+      .overlay(alignment: .trailing) {
+        if conversation.isOpen {
+          ConversationSidebar(session: conversation)
+          .frame(width: min(conversation.sidebarWidth, max(280, windowWidth * 0.7)))
+          .overlay(alignment: .leading) {
+            Rectangle().fill(.clear).frame(width: 6).contentShape(Rectangle())
+            .onHover { if $0 { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+            .gesture(
+              DragGesture().onChanged { value in
+                if notesResizeStart == nil { notesResizeStart = conversation.sidebarWidth }
+                conversation.sidebarWidth = min(
+                  650, max(280, (notesResizeStart ?? 400) - value.translation.width))
+              }.onEnded { _ in notesResizeStart = nil })
+          }
+          .shadow(radius: 12)
+        }
+      }
+    #endif
+    // Chat and the conversation share the trailing column on a Mac and on a
+    // wide iPad, and on a phone they would be two sheets fighting over the
+    // same screen. Opening one closes the other everywhere.
+    .onChange(of: controller.isChatOpen) { _, open in if open { conversation.isOpen = false } }
+    .onChange(of: controller.isAudioMuted) { _, muted in conversation.setLocalMuted(muted) }
     .alert(
       "Meeting Error",
       isPresented: Binding(
@@ -97,6 +146,12 @@ struct MeetingView: View {
     }
     .onChange(of: controller.connectionState) { _, state in
       if state == .joined {
+        // Only the first join: a breakout-room switch passes back through
+        // this state, and must not restart a transcription somebody has
+        // since stopped.
+        if !hasJoinedOnce, !isLayoutPreview, AppSettings.shared.transcribeOnJoin {
+          conversation.startAutomatically()
+        }
         hasJoinedOnce = true
       }
       if state == .ended {
@@ -107,14 +162,16 @@ struct MeetingView: View {
     // the hub; Handoff advertises the meeting link so another device can
     // pick the call up.
     .onAppear {
+      guard !isLayoutPreview else { return }
       MeetingHub.shared.noteMeetingStarted(configuration, controller: controller)
     }
     .onDisappear {
+      guard !isLayoutPreview else { return }
       MeetingHub.shared.noteMeetingEnded(controller: controller)
     }
     .userActivity(
       MeetingHub.meetingActivityType,
-      isActive: controller.connectionState == .joined
+      isActive: controller.connectionState == .joined && !isLayoutPreview
     ) { activity in
       activity.title = "Meeting: \(configuration.normalizedRoom)"
       activity.webpageURL = configuration.meetingLink
@@ -124,24 +181,23 @@ struct MeetingView: View {
       // The meeting is a system call while joined: call-priority audio,
       // system mute, arbitration with phone calls.
       .onChange(of: controller.connectionState) { _, state in
+        guard !isLayoutPreview else { return }
         switch state {
         case .joined:
           CallSessionManager.shared.begin(room: configuration.normalizedRoom)
-          MeetingActivityController.shared.begin(room: configuration.normalizedRoom)
         case .ended, .failed:
           CallSessionManager.shared.end()
-          MeetingActivityController.shared.end()
         default:
           break
         }
       }
       .onChange(of: controller.isAudioMuted) { _, muted in
+        guard !isLayoutPreview else { return }
         CallSessionManager.shared.setMuted(muted)
-        MeetingActivityController.shared.update(muted: muted)
       }
       .onDisappear {
+        guard !isLayoutPreview else { return }
         CallSessionManager.shared.end()
-        MeetingActivityController.shared.end()
       }
     #endif
     .sheet(isPresented: $controller.showsPollsPane) {
@@ -179,8 +235,22 @@ struct MeetingView: View {
     return max(0, windowWidth - controller.sidebarInset - chatInset - 32)
   }
 
+  /// How far the captions sit above the bottom edge, clear of the floating
+  /// control bar.
+  private var captionBottomInset: CGFloat { 86 }
+
   private var chatInset: CGFloat {
-    controller.isChatOpen ? 312 : 0
+    #if os(macOS)
+      if conversation.isOpen { return min(conversation.sidebarWidth, max(280, windowWidth * 0.7)) }
+    #else
+      // A phone's panels are sheets over the stage, not columns beside it, so
+      // they take no width from the captions or the controls.
+      if horizontalSizeClass == .compact { return 0 }
+      // A wide iPad puts whichever is open in the trailing column.
+      return controller.isChatOpen || conversation.isOpen
+        ? MeetingSidePanel.inset : 0
+    #endif
+    return controller.isChatOpen ? 312 : 0
   }
 
   @ViewBuilder
@@ -192,6 +262,8 @@ struct MeetingView: View {
       ZStack {
         MeetingControlBar(
           controller: controller,
+          conversation: conversation,
+          notesOpen: conversation.isOpen,
           popoverPinned: $toolbarPinned,
           availableWidth: toolbarAvailableWidth
         )
@@ -222,13 +294,19 @@ struct MeetingView: View {
       }
       .onAppear { updateToolbarVisibility() }
     #else
-      // iOS has no pointer to hover with; the bar stays put.
-      MeetingControlBar(
-        controller: controller,
-        popoverPinned: $toolbarPinned,
-        availableWidth: toolbarAvailableWidth
-      )
-      .frame(maxWidth: .infinity)
+      // Measure the actual navigation column, including when iPad shows
+      // both columns. The inset reserves space for the controls and scrolling.
+      GeometryReader { geometry in
+        MeetingControlBar(
+          controller: controller,
+          conversation: conversation,
+          notesOpen: conversation.isOpen,
+          popoverPinned: $toolbarPinned,
+          availableWidth: geometry.size.width
+        )
+        .frame(maxWidth: .infinity)
+      }
+      .frame(height: 62)
       .padding(.horizontal, 16)
       .padding(.bottom, 14)
     #endif
@@ -237,7 +315,8 @@ struct MeetingView: View {
   #if os(macOS)
     private func updateToolbarVisibility() {
       toolbarHideTask?.cancel()
-      if toolbarHovered || toolbarPinned {
+      // A layout preview is for looking at the controls; they stay put.
+      if toolbarHovered || toolbarPinned || isLayoutPreview {
         toolbarVisible = true
         return
       }
@@ -252,9 +331,36 @@ struct MeetingView: View {
   #endif
 
   private var meetingSurface: some View {
-    NativeMeetingSurface(configuration: configuration, controller: controller)
+    #if os(macOS)
+      NativeMeetingSurface(
+        configuration: configuration, controller: controller, conversation: conversation
+      ) {
+        meetingToolbar
+      }
+    #else
+      NativeMeetingSurface(
+        configuration: configuration, controller: controller, conversation: conversation
+      ) {
+        meetingToolbar
+      }
+    #endif
   }
 }
+
+#if DEBUG
+  /// Local layout fixtures exercise the real meeting view without a network
+  /// connection, capture devices, CallKit, or credentials leaving the process.
+  enum MeetingLayoutPreviewMode: String {
+    case access, password, meeting, chat, notes, lobby
+
+    static var current: Self? {
+      let arguments = ProcessInfo.processInfo.arguments
+      guard let index = arguments.firstIndex(of: "--layout-preview"), index + 1 < arguments.count
+      else { return nil }
+      return Self(rawValue: arguments[index + 1])
+    }
+  }
+#endif
 
 /// The shared chrome for every pre-join card: a dark HUD over the black
 /// stage. Forcing the dark scheme is what makes these readable — with the
@@ -324,6 +430,9 @@ private struct PreJoinView: View {
   @State private var password = ""
   @State private var meetingPassword = ""
   @State private var submittedCredentials = false
+  /// Set once the join has asked for a credential, so a submit that puts the
+  /// state back to `.connecting` does not make the form disappear.
+  @State private var credentialsRevealed = false
   @FocusState private var focusedField: Field?
 
   private var state: MeetingController.ConnectionState {
@@ -331,74 +440,90 @@ private struct PreJoinView: View {
   }
 
   var body: some View {
-    VStack(spacing: 24) {
-      Spacer()
+    ConnectionFormContainer { proxy in
+      VStack(spacing: 24) {
+        Spacer()
 
-      Image(systemName: "video.fill")
-        .font(.system(size: 52, weight: .semibold))
-        .foregroundStyle(.tint)
+        Image(systemName: "video.fill")
+          .font(.system(size: 52, weight: .semibold))
+          .foregroundStyle(.tint)
 
-      VStack(spacing: 6) {
-        Text("Sangam")
-          .font(.largeTitle.bold())
-        Text("Join a Jitsi meeting")
-          .foregroundStyle(.secondary)
-      }
-
-      // The same labeled form the user just filled in, frozen while the
-      // join runs; Back returns to editing it.
-      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 12) {
-        GridRow {
-          fieldLabel("Server:")
-          frozenField(configuration.serverURL.absoluteString)
+        VStack(spacing: 6) {
+          Text("Sangam")
+            .font(.largeTitle.bold())
+          Text("Join a Jitsi meeting")
+            .foregroundStyle(.secondary)
         }
-        GridRow {
-          fieldLabel("Room:")
-          frozenField(configuration.normalizedRoom)
-        }
-        GridRow {
-          fieldLabel("Name:")
-          frozenField(configuration.displayName)
-        }
-      }
-      .frame(maxWidth: 420)
 
-      // The Join button's slot: joining is underway, so it cancels now.
-      Button(action: cancel) {
-        Text("Cancel")
-          .frame(maxWidth: .infinity)
-      }
-      .buttonStyle(.bordered)
-      .controlSize(.large)
-      .keyboardShortcut(.cancelAction)
-      .frame(maxWidth: 420)
-
-      expansion
+        // The same labeled form the user just filled in, frozen while the
+        // join runs; Back returns to editing it.
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 12) {
+          GridRow {
+            fieldLabel("Server:")
+            frozenField(configuration.serverURL.absoluteString)
+          }
+          GridRow {
+            fieldLabel("Room:")
+            frozenField(configuration.normalizedRoom)
+          }
+          GridRow {
+            fieldLabel("Name:")
+            frozenField(configuration.displayName)
+          }
+        }
         .frame(maxWidth: 420)
 
-      Spacer()
+        // The Join button's slot: joining is underway, so it cancels now.
+        Button(action: cancel) {
+          Text("Cancel")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .keyboardShortcut(.cancelAction)
+        .frame(maxWidth: 420)
+
+        expansion
+          .frame(maxWidth: 420)
+
+        Spacer()
+
+        // What the scroll chases when the fields appear or the keyboard
+        // comes up; the Log in button sits just above it.
+        Color.clear
+          .frame(height: 1)
+          .id(Self.bottomAnchor)
+      }
+      .onChange(of: showsCredentialFields) { _, shown in
+        guard shown else { return }
+        scrollToBottom(proxy)
+      }
+      .onChange(of: focusedField) { _, field in
+        guard field != nil else { return }
+        scrollToBottom(proxy)
+      }
     }
-    .padding(32)
     .animation(.snappy, value: state)
     .onAppear { adapt(to: state) }
     .onChange(of: state) { _, newState in adapt(to: newState) }
+  }
+
+  private static let bottomAnchor = "prejoin-bottom"
+
+  /// Brings the foot of the form — the Log in button and what follows it —
+  /// above the keyboard. The inset arrives a beat after the focus does, so
+  /// scrolling immediately would leave the button back underneath it.
+  private func scrollToBottom(_ proxy: ScrollViewProxy) {
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(300))
+      withAnimation(.snappy) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+    }
   }
 
   /// Whatever the join still needs, below the Join button.
   @ViewBuilder
   private var expansion: some View {
     VStack(spacing: 18) {
-      // Where the join stands, right under the Cancel button.
-      if let status = statusText {
-        HStack(spacing: 10) {
-          ProgressView()
-            .controlSize(.small)
-          Text(status)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-
       // Both unlock paths, offered together: a meeting password, or an
       // admin sign-in. One Log in button submits whichever is filled.
       if showsCredentialFields {
@@ -407,8 +532,10 @@ private struct PreJoinView: View {
             GridRow {
               fieldLabel("Meeting password:")
               SecureField("", text: $meetingPassword)
+                .accessibilityLabel("Meeting password")
                 .focused($focusedField, equals: .meetingPassword)
-                .onSubmit(submit)
+                .submitLabel(.join)
+                .onSubmit(submitMeetingPassword)
             }
             GridRow {
               Text("or")
@@ -419,16 +546,24 @@ private struct PreJoinView: View {
             GridRow {
               fieldLabel("Admin user:")
               TextField("", text: $username)
+                .accessibilityLabel("Admin user")
                 .textContentType(.username)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                  .textInputAutocapitalization(.never)
+                #endif
                 .focused($focusedField, equals: .username)
+                .submitLabel(.next)
                 .onSubmit { focusedField = .password }
             }
             GridRow {
               fieldLabel("Admin password:")
               SecureField("", text: $password)
+                .accessibilityLabel("Admin password")
                 .textContentType(.password)
                 .focused($focusedField, equals: .password)
-                .onSubmit(submit)
+                .submitLabel(.go)
+                .onSubmit(submitAdminCredentials)
             }
           }
           .textFieldStyle(.roundedBorder)
@@ -457,6 +592,18 @@ private struct PreJoinView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
 
+      // Where the join stands, at the foot of the form: under the Log in
+      // button when there is one, and on its own when the join needs
+      // nothing from the user.
+      if let status = statusText {
+        HStack(spacing: 10) {
+          ProgressView()
+            .controlSize(.small)
+          Text(status)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
     }
   }
 
@@ -481,6 +628,11 @@ private struct PreJoinView: View {
     switch state {
     case .waitingInLobby, .waitingForHost, .accessRequired, .passwordRequired:
       return true
+    case .connecting:
+      // Submitting does not take the form away. The attempt can come back
+      // refused, and the fields it was typed into should still be there
+      // when it does rather than being handed back a second time.
+      return credentialsRevealed
     default:
       return false
     }
@@ -511,6 +663,12 @@ private struct PreJoinView: View {
 
   private func adapt(to state: MeetingController.ConnectionState) {
     switch state {
+    case .waitingInLobby, .waitingForHost, .accessRequired, .passwordRequired:
+      credentialsRevealed = true
+    default:
+      break
+    }
+    switch state {
     case .accessRequired:
       submittedCredentials = false
       focus(.username)
@@ -535,10 +693,22 @@ private struct PreJoinView: View {
   /// when both are: signing in also joins, with the stronger role.
   private func submit() {
     if !trimmedUsername.isEmpty, !password.isEmpty {
-      submittedCredentials = true
-      controller.authenticate(username: trimmedUsername, password: password)
-    } else if !meetingPassword.isEmpty {
-      controller.joinWithMeetingPassword(meetingPassword)
+      submitAdminCredentials()
+    } else {
+      submitMeetingPassword()
     }
+  }
+
+  private func submitAdminCredentials() {
+    guard state != .connecting, !trimmedUsername.isEmpty, !password.isEmpty else { return }
+    focusedField = nil
+    submittedCredentials = true
+    controller.authenticate(username: trimmedUsername, password: password)
+  }
+
+  private func submitMeetingPassword() {
+    guard state != .connecting, !meetingPassword.isEmpty else { return }
+    focusedField = nil
+    controller.joinWithMeetingPassword(meetingPassword)
   }
 }

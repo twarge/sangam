@@ -142,6 +142,15 @@ final class MeetingController: ObservableObject {
   /// The meeting's polls, and the panel that shows them.
   @Published private(set) var polls: [PollDisplay] = []
   @Published var showsPollsPane = false
+  /// How loud the microphone is, 0…1, for the meter inside the mute button.
+  /// Smoothed and mapped to a usable range before it lands here; the button
+  /// draws it as-is. It sits on its own object rather than being published
+  /// here: the level arrives ten times a second, and every one of those
+  /// readings invalidated each view observing the controller — including the
+  /// More menu, whose content UIKit reloads on every rebuild, resetting its
+  /// scroll and swallowing the taps that land between reloads. Only the
+  /// meter drawn inside the button observes this.
+  let microphoneMeter = MicrophoneMeter()
   /// Who has held the floor for how long, and the panel that shows it.
   @Published private(set) var speakerStats: [SpeakerStatDisplay] = []
   @Published var showsSpeakerStats = false
@@ -378,6 +387,10 @@ final class MeetingController: ObservableObject {
     speakerStats = stats
   }
 
+  func didChangeMicrophoneLevel(_ level: Double) {
+    microphoneMeter.update(level)
+  }
+
   func hangUp() {
     send(.hangUp)
   }
@@ -435,6 +448,13 @@ final class MeetingController: ObservableObject {
 
   func denyLobbyParticipant(_ id: String) {
     send(.denyLobbyParticipant(id: id))
+  }
+
+  /// Lets in everyone currently knocking. Jicofo admits one at a time, so
+  /// this is that request repeated rather than a call of its own; the roster
+  /// empties as each is accepted.
+  func admitAllLobbyParticipants() {
+    for request in lobbyRequests { send(.admitLobbyParticipant(id: request.id)) }
   }
 
   func didEnd(error: String? = nil) {
@@ -502,6 +522,17 @@ final class MeetingController: ObservableObject {
 /// lifecycle events and error text only — never XMPP, SDP, or media payloads —
 /// which keeps it within the architecture's "no protocol payload logging"
 /// rule while still showing the sequence of events that led somewhere.
+/// The microphone level, kept off `MeetingController` so its ten readings a
+/// second redraw the meter and nothing else.
+@MainActor
+final class MicrophoneMeter: ObservableObject {
+  @Published private(set) var level: Double = 0
+
+  func update(_ level: Double) {
+    self.level = level
+  }
+}
+
 enum SangamLog {
   nonisolated static let isEnabled =
     ProcessInfo.processInfo.environment["SANGAM_LOG"].map { !$0.isEmpty && $0 != "0" } ?? false

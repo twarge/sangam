@@ -2,7 +2,6 @@ import AVFoundation
 import CoreMedia
 import CoreVideo
 import Foundation
-
 @preconcurrency import WebRTC
 
 /// Renders a remote WebRTC video track into an `AVSampleBufferDisplayLayer`
@@ -18,12 +17,55 @@ import Foundation
 public final class VideoSampleBufferBridge {
   public let layer = AVSampleBufferDisplayLayer()
 
+  /// The size of the frames arriving, whenever it changes. Picture in
+  /// Picture takes the floating window's shape from this; without it the
+  /// window keeps whatever aspect it was guessed into.
+  public var onVideoSize: (@MainActor @Sendable (CGSize) -> Void)? {
+    didSet {
+      forwarder.sizeHandler = { [weak self] size in
+        self?.rawSize = size
+        self?.publishSize()
+      }
+    }
+  }
+
   private let forwarder: FrameForwarder
   private weak var currentTrack: RTCVideoTrack?
+
+  /// The rotation WebRTC last asked for, and the frame size before it is
+  /// applied.
+  private var rotationDegrees = 0
+  private var rawSize: CGSize = .zero
 
   public init() {
     forwarder = FrameForwarder(renderer: layer.sampleBufferRenderer)
     layer.videoGravity = .resizeAspect
+    forwarder.rotationHandler = { [weak self] degrees in self?.apply(rotation: degrees) }
+  }
+
+  /// WebRTC hands over frames with their rotation still to apply — the
+  /// camera's sensor orientation, mostly, which is why the local self view
+  /// arrives upside down on a device held one way and not the other. WebRTC's
+  /// own renderers apply it; a sample-buffer layer does not, so the layer
+  /// carries it as a transform instead.
+  ///
+  /// A half turn is exact. A quarter turn comes out upright but fitted to the
+  /// unrotated frame, so it letterboxes; the window at least takes the right
+  /// shape, because the size published below is swapped to match.
+  private func apply(rotation degrees: Int) {
+    rotationDegrees = degrees
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.transform = CATransform3DMakeRotation(CGFloat(degrees) * .pi / 180, 0, 0, 1)
+    CATransaction.commit()
+    publishSize()
+  }
+
+  private func publishSize() {
+    guard let onVideoSize, rawSize.width > 0, rawSize.height > 0 else { return }
+    let quarterTurn = rotationDegrees == 90 || rotationDegrees == 270
+    onVideoSize(
+      quarterTurn ? CGSize(width: rawSize.height, height: rawSize.width) : rawSize)
   }
 
   public func attach(to track: RemoteVideoTrack) {
@@ -60,6 +102,12 @@ private final class FrameForwarder: NSObject, RTCVideoRenderer, @unchecked Senda
   private var pool: CVPixelBufferPool?
   private var poolWidth = 0
   private var poolHeight = 0
+  /// Written from the main actor when the bridge is wired, read on WebRTC's
+  /// decode thread. The closure itself only ever runs back on the main actor.
+  nonisolated(unsafe) var sizeHandler: (@MainActor @Sendable (CGSize) -> Void)?
+  nonisolated(unsafe) var rotationHandler: (@MainActor @Sendable (Int) -> Void)?
+  nonisolated(unsafe) private var lastSize: CGSize = .zero
+  nonisolated(unsafe) private var lastRotation = -1
 
   init(renderer: AVSampleBufferVideoRenderer) {
     self.renderer = renderer
@@ -69,9 +117,17 @@ private final class FrameForwarder: NSObject, RTCVideoRenderer, @unchecked Senda
     renderer.flush()
   }
 
-  func setSize(_ size: CGSize) {}
+  /// WebRTC calls this on the decode thread when the stream's dimensions
+  /// change — a resolution switch, or the first frame of a new track.
+  func setSize(_ size: CGSize) {
+    guard size.width > 0, size.height > 0, size != lastSize else { return }
+    lastSize = size
+    guard let sizeHandler else { return }
+    Task { @MainActor in sizeHandler(size) }
+  }
 
   func renderFrame(_ frame: RTCVideoFrame?) {
+    if let frame { note(rotation: Int(frame.rotation.rawValue)) }
     guard
       let frame,
       renderer.isReadyForMoreMediaData,
@@ -79,6 +135,13 @@ private final class FrameForwarder: NSObject, RTCVideoRenderer, @unchecked Senda
       let sample = sampleBuffer(for: pixelBuffer, timeStampNs: frame.timeStampNs)
     else { return }
     renderer.enqueue(sample)
+  }
+
+  private func note(rotation degrees: Int) {
+    guard degrees != lastRotation else { return }
+    lastRotation = degrees
+    guard let rotationHandler else { return }
+    Task { @MainActor in rotationHandler(degrees) }
   }
 
   private func pixelBuffer(from frame: RTCVideoFrame) -> CVPixelBuffer? {

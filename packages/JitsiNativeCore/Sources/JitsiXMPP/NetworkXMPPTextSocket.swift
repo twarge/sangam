@@ -232,6 +232,33 @@
     case frameTooLarge
   }
 
+  extension NetworkXMPPSocketError: LocalizedError {
+    public var errorDescription: String? {
+      switch self {
+      case .invalidURL:
+        return "The Jitsi server's XMPP WebSocket address is not valid."
+      case .cancelledBeforeOpen:
+        return "The connection to the Jitsi server was closed before it opened."
+      case .invalidUpgrade:
+        // The deployment advertises an XMPP WebSocket its reverse proxy does
+        // not route — a common half-finished state, and the one worth naming.
+        return "The Jitsi server did not accept a WebSocket connection at its XMPP address."
+      case .invalidText:
+        return "The Jitsi server sent text that could not be read."
+      case .remoteClosed(let code, let reason):
+        var detail: [String] = []
+        if let reason, !reason.isEmpty { detail.append(reason) }
+        if let code { detail.append("code \(code)") }
+        guard !detail.isEmpty else { return "The Jitsi server closed the connection." }
+        return "The Jitsi server closed the connection (\(detail.joined(separator: ", ")))."
+      case .unsupportedFrame(let opcode):
+        return "The Jitsi server sent an unsupported WebSocket frame (opcode \(opcode))."
+      case .frameTooLarge:
+        return "The Jitsi server sent a WebSocket message that was too large to read."
+      }
+    }
+  }
+
   private final class ContinuationGate: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, any Error>?
