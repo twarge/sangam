@@ -17,7 +17,6 @@ struct MeetingView: View {
   @State private var toolbarVisible = true
   @State private var toolbarHideTask: Task<Void, Never>?
   @State private var windowWidth: CGFloat = 0
-  @State private var notesResizeStart: CGFloat?
   @State private var roomPasswordDraft = ""
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -104,23 +103,6 @@ struct MeetingView: View {
           .padding(.bottom, captionBottomInset)
           .animation(.snappy, value: controller.sidebarInset)
           .animation(.snappy, value: chatInset)
-        }
-      }
-      .overlay(alignment: .trailing) {
-        if conversation.isOpen {
-          ConversationSidebar(session: conversation)
-          .frame(width: min(conversation.sidebarWidth, max(280, windowWidth * 0.7)))
-          .overlay(alignment: .leading) {
-            Rectangle().fill(.clear).frame(width: 6).contentShape(Rectangle())
-            .onHover { if $0 { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
-            .gesture(
-              DragGesture().onChanged { value in
-                if notesResizeStart == nil { notesResizeStart = conversation.sidebarWidth }
-                conversation.sidebarWidth = min(
-                  650, max(280, (notesResizeStart ?? 400) - value.translation.width))
-              }.onEnded { _ in notesResizeStart = nil })
-          }
-          .shadow(radius: 12)
         }
       }
     #endif
@@ -239,19 +221,11 @@ struct MeetingView: View {
   /// control bar.
   private var captionBottomInset: CGFloat { 86 }
 
-  private var chatInset: CGFloat {
-    #if os(macOS)
-      if conversation.isOpen { return min(conversation.sidebarWidth, max(280, windowWidth * 0.7)) }
-    #else
-      // A phone's panels are sheets over the stage, not columns beside it, so
-      // they take no width from the captions or the controls.
-      if horizontalSizeClass == .compact { return 0 }
-      // A wide iPad puts whichever is open in the trailing column.
-      return controller.isChatOpen || conversation.isOpen
-        ? MeetingSidePanel.inset : 0
-    #endif
-    return controller.isChatOpen ? 312 : 0
-  }
+  /// Nothing, now that the trailing panels are an inspector column: it takes
+  /// the width out of the stage itself, so the captions and the control bar
+  /// are already centered on what is left. Kept as a name rather than
+  /// threaded out of three call sites.
+  private var chatInset: CGFloat { 0 }
 
   @ViewBuilder
   private var meetingToolbar: some View {

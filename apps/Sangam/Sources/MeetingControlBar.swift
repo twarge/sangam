@@ -267,7 +267,9 @@ private struct MoreMenu: View {
       Toggle("Blur My Background", isOn: $settings.backgroundBlur)
       Toggle("Transcribe From the Start", isOn: $settings.transcribeOnJoin)
       Toggle("Show Captions", isOn: $settings.showsCaptions)
-      Picker("Sidebar & Chat", selection: $settings.panelsPushStage) {
+      // Only the participants column still has a choice: chat and the
+      // conversation are an inspector now, and an inspector always pushes.
+      Picker("Participants Sidebar", selection: $settings.panelsPushStage) {
         Text("Float Over Video").tag(false)
         Text("Push Video Aside").tag(true)
       }

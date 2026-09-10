@@ -65,11 +65,7 @@ struct NativeMeetingSurface<Controls: View>: View {
   var body: some View {
     Group {
       if controller.connectionState == .joined {
-        #if os(iOS)
-          meetingRootWithSidebar
-        #else
-          meetingRoot
-        #endif
+        meetingRootWithSidebar
       } else {
         // The surface stays mounted so the join task below keeps running,
         // but none of the meeting chrome (sidebar, toolbar, stage) shows
@@ -77,11 +73,6 @@ struct NativeMeetingSurface<Controls: View>: View {
         Color.clear
       }
     }
-    #if os(macOS)
-      .overlay(alignment: .bottom) {
-        if controller.connectionState == .joined { controls }
-      }
-    #endif
     #if os(iOS)
       // The view AVKit animates the floating window out of and back into. It
       // draws nothing — the stage underneath is what is on screen — and the
@@ -337,34 +328,42 @@ struct NativeMeetingSurface<Controls: View>: View {
       .navigationSplitViewStyle(.balanced)
     }
 
-    /// The meeting beside its trailing sidebar.
-    ///
-    /// `inspector` is the platform's own trailing column: it supplies the
-    /// sidebar material, runs to the window edges without being told about
-    /// safe areas, is resizable, and narrows the stage rather than floating
-    /// over it. Hand-rolling the same thing out of an HStack and a Divider
-    /// got the geometry nearly right and the edges wrong.
-    private var meetingRootWithSidebar: some View {
-      meetingRoot
-        .inspector(isPresented: inspectorPresented) {
-          trailingPanelContent
-            .inspectorColumnWidth(min: 280, ideal: MeetingSidePanel.width, max: 460)
-        }
-    }
-
-    /// The inspector is open when either panel is; dismissing it — by its own
-    /// control or by dragging it shut — closes whichever one that was.
-    private var inspectorPresented: Binding<Bool> {
-      Binding(
-        get: { hasTrailingPanel },
-        set: { open in
-          guard !open else { return }
-          controller.isChatOpen = false
-          conversation.isOpen = false
-        }
-      )
-    }
   #endif
+
+  /// The meeting beside its trailing sidebar.
+  ///
+  /// `inspector` is the platform's own trailing column: it supplies the
+  /// sidebar material, runs to the window edges without being told about
+  /// safe areas, is resizable, and narrows the stage rather than floating
+  /// over it. Hand-rolling the same thing out of an HStack and a Divider
+  /// got the geometry nearly right and the edges wrong.
+  private var meetingRootWithSidebar: some View {
+    meetingRoot
+      #if os(macOS)
+        // Inside the inspector's stage rather than over the whole window, so
+        // the control bar stays centered on the video that is left.
+        .overlay(alignment: .bottom) {
+          if controller.connectionState == .joined { controls }
+        }
+      #endif
+      .inspector(isPresented: inspectorPresented) {
+        trailingPanelContent
+          .inspectorColumnWidth(min: 280, ideal: MeetingSidePanel.width, max: 460)
+      }
+  }
+
+  /// The inspector is open when either panel is; dismissing it — by its own
+  /// control or by dragging it shut — closes whichever one that was.
+  private var inspectorPresented: Binding<Bool> {
+    Binding(
+      get: { hasTrailingPanel },
+      set: { open in
+        guard !open else { return }
+        controller.isChatOpen = false
+        conversation.isOpen = false
+      }
+    )
+  }
 
   private var sidebarSelection: Binding<SidebarSelection?> {
     Binding(
@@ -590,11 +589,6 @@ struct NativeMeetingSurface<Controls: View>: View {
     .onChange(of: fullQualitySourceNames) { _, names in
       controller.didChangeFeaturedVideoSources(names)
     }
-    // In push mode the open chat carves its width out of the stage instead
-    // of covering it; the panel overlay then sits in the carved-out gap.
-    #if os(macOS)
-      .padding(.trailing, panelsPushStage && hasTrailingPanel ? MeetingSidePanel.inset : 0)
-    #endif
     // The video is black; the surround it sits in is chrome, and follows the
     // system's appearance like the rest of the window.
     #if os(iOS)
@@ -650,19 +644,6 @@ struct NativeMeetingSurface<Controls: View>: View {
         }
       }
     #endif
-    // One trailing column, whichever panel is open. They are mutually
-    // exclusive by the state that opens them, so there is never a second one
-    // to stack beside this.
-    #if os(macOS)
-      .overlay(alignment: .trailing) {
-        if hasTrailingPanel {
-          trailingPanelContent
-          .frame(width: MeetingSidePanel.width)
-          .padding(12)
-          .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
-      }
-    #endif
     .animation(.snappy, value: controller.isChatOpen)
     .animation(.snappy, value: conversation.isOpen)
     #if os(iOS)
@@ -699,14 +680,7 @@ struct NativeMeetingSurface<Controls: View>: View {
   /// mutually exclusive by the state that opens them, so there is never a
   /// second one to stack beside the first.
   private var hasTrailingPanel: Bool {
-    guard usesSidePanels else { return false }
-    #if os(iOS)
-      return controller.isChatOpen || conversation.isOpen
-    #else
-      // The Mac's conversation sidebar hangs from the meeting window instead,
-      // beside the whole stage rather than over it.
-      return controller.isChatOpen
-    #endif
+    usesSidePanels && (controller.isChatOpen || conversation.isOpen)
   }
 
   @ViewBuilder private var trailingPanelContent: some View {
@@ -718,11 +692,13 @@ struct NativeMeetingSurface<Controls: View>: View {
       #else
         ChatPanel(messages: model.chatMessages, send: controller.sendChatMessage)
       #endif
-    } else {
+    } else if conversation.isOpen {
+      // The same document either way; the Mac edits it as rendered Markdown
+      // in an NSTextView, which suits a pointer and a wide column.
       #if os(iOS)
-        if conversation.isOpen {
-          ConversationPane(session: conversation, isSidebar: true)
-        }
+        ConversationPane(session: conversation, isSidebar: true)
+      #else
+        ConversationSidebar(session: conversation)
       #endif
     }
   }
