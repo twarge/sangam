@@ -70,6 +70,11 @@ public actor PeerConnectionNegotiator {
   /// The bridge's last SenderSourceConstraints height cap per local video
   /// track; -1 (unconstrained) until the bridge says otherwise.
   private var senderMaxHeights: [String: Int] = [:]
+  /// The sender carrying the microphone, kept from the moment it is added.
+  /// `connection.senders` builds fresh Objective-C wrappers for every sender
+  /// (and a DTMF sender each) on every read, which is too costly for the
+  /// level meter's 100 ms poll.
+  private var audioSender: RTCRtpSender?
 
   public init(connection: RTCPeerConnection) {
     self.connection = connection
@@ -274,20 +279,14 @@ public actor PeerConnectionNegotiator {
 
   /// How loud the microphone is right now, 0…1, read from the local audio
   /// source's own statistics — the level WebRTC measures after its own
-  /// processing, which is what the room actually hears. Scoped to the audio
-  /// sender rather than the whole connection: this is polled often enough to
-  /// drive a meter, and a full report would collect every stream in the call
-  /// each time. Nil while there is no audio sender or no level yet.
+  /// processing, which is what the room actually hears. Scoped to the cached
+  /// audio sender rather than the whole connection: this is polled often
+  /// enough to drive a meter, and a full report, or enumerating
+  /// `connection.senders`, would rebuild wrappers for every stream each time.
+  /// Nil while there is no audio sender or no level yet.
   public func localAudioLevel() async -> Double? {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
-      guard
-        let sender = connection.senders.first(where: {
-          $0.track?.kind == kRTCMediaStreamTrackKindAudio
-        })
-      else {
-        continuation.resume(returning: nil)
-        return
-      }
+    guard let sender = audioSender else { return nil }
+    return await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
       connection.statistics(for: sender) { report in
         for statistics in report.statistics.values where statistics.type == "media-source" {
           let values = statistics.values
@@ -533,9 +532,10 @@ public actor PeerConnectionNegotiator {
 
   private func addLocalTrackIfNeeded(_ track: RTCMediaStreamTrack, streamID: String) throws {
     if connection.senders.contains(where: { $0.track?.trackId == track.trackId }) { return }
-    guard connection.add(track, streamIds: [streamID]) != nil else {
+    guard let sender = connection.add(track, streamIds: [streamID]) else {
       throw PeerConnectionNegotiationError.addLocalTrackFailed(id: track.trackId)
     }
+    if track.kind == kRTCMediaStreamTrackKindAudio { audioSender = sender }
   }
 
   /// Binds `track` to the transceiver carrying `mid` and marks that media line
