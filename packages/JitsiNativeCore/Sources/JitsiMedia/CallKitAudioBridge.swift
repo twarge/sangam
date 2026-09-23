@@ -12,7 +12,17 @@
   public enum CallKitAudioBridge {
     /// Puts WebRTC's audio session into manual mode. Call once, before any
     /// call's audio units start.
+    ///
+    /// The session runs in `.videoChat` rather than WebRTC's default
+    /// `.voiceChat`: the same voice-processing unit, echo cancellation and
+    /// all, but routed to the speaker instead of the earpiece. On the
+    /// earpiece iOS treats the side button as End Call, so locking the phone
+    /// hung up the meeting; on the speaker it only locks the screen.
     public static func prepare() {
+      let configuration = RTCAudioSessionConfiguration.webRTC()
+      configuration.mode = AVAudioSession.Mode.videoChat.rawValue
+      configuration.categoryOptions.insert(.defaultToSpeaker)
+      RTCAudioSessionConfiguration.setWebRTC(configuration)
       let session = RTCAudioSession.sharedInstance()
       session.useManualAudio = true
       session.isAudioEnabled = false

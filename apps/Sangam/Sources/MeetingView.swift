@@ -177,6 +177,10 @@ struct MeetingView: View {
         guard !isLayoutPreview else { return }
         CallSessionManager.shared.setMuted(muted)
       }
+      .onChange(of: controller.isVideoMuted, initial: true) { _, muted in
+        guard !isLayoutPreview else { return }
+        CallSessionManager.shared.setSendsVideo(!muted)
+      }
       .onDisappear {
         guard !isLayoutPreview else { return }
         CallSessionManager.shared.end()

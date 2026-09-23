@@ -186,7 +186,7 @@
           // through the speakers, out of what is transcribed as your voice.
           try engine.inputNode.setVoiceProcessingEnabled(true)
         #else
-          // Not on iOS: the call has the session in .voiceChat already, so
+          // Not on iOS: the call has the session in .videoChat already, so
           // this input arrives echo-cancelled by the system's own unit, and
           // asking for voice processing here would stand a second one up
           // beside WebRTC's.

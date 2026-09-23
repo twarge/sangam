@@ -167,6 +167,9 @@ final class MeetingController {
   /// Whether a meeting password was already tried this join, so the retry
   /// card can say it was wrong.
   @ObservationIgnored private var meetingPasswordAttempted = false
+  /// Whether the camera is off because the app went to the background,
+  /// so coming back turns it on again. Cleared by any choice the user makes.
+  @ObservationIgnored private var videoPausedForBackground = false
 
   @ObservationIgnored private var commandHandler: ((Command) -> Void)?
   @ObservationIgnored private var pendingCommands: [Command] = []
@@ -204,7 +207,28 @@ final class MeetingController {
   }
 
   func toggleVideo() {
+    videoPausedForBackground = false
     send(.setVideoMuted(!isVideoMuted))
+  }
+
+  /// The camera stopped because the app went to the background with no
+  /// Picture in Picture window to keep it running — the phone was locked.
+  /// Audio carries on under CallKit; the video is muted so the room sees
+  /// the camera off rather than a frozen last frame.
+  func pauseVideoForBackground() {
+    guard !isVideoMuted else { return }
+    SangamLog.event("video: paused for background")
+    videoPausedForBackground = true
+    send(.setVideoMuted(true))
+  }
+
+  /// Back in the foreground: turns the camera on again if it was the
+  /// background, not the user, that turned it off.
+  func resumeVideoFromBackground() {
+    guard videoPausedForBackground else { return }
+    SangamLog.event("video: resumed from background")
+    videoPausedForBackground = false
+    if isVideoMuted { send(.setVideoMuted(false)) }
   }
 
   func toggleScreenSharing() {
@@ -479,6 +503,8 @@ final class MeetingController {
   }
 
   func didChangeVideoMuted(_ muted: Bool) {
+    // Muted from outside (a moderator, say): not the background's to undo.
+    videoPausedForBackground = false
     isVideoMuted = muted
   }
 

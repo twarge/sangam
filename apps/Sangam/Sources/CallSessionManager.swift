@@ -154,6 +154,25 @@
     fileprivate func reportConnected(_ callID: UUID) {
       provider.reportOutgoingCall(with: callID, startedConnectingAt: nil)
       provider.reportOutgoingCall(with: callID, connectedAt: nil)
+      reportVideo(callID)
+    }
+
+    /// Whether the call is carrying the camera, for the system's call UI.
+    /// A video call is one the side button locks rather than ends.
+    private var sendsVideo = true
+
+    /// Mirrors the camera state into the system call. Held until the call
+    /// is connected if it arrives before then.
+    func setSendsVideo(_ sends: Bool) {
+      sendsVideo = sends
+      guard let callID = currentCallID else { return }
+      reportVideo(callID)
+    }
+
+    private func reportVideo(_ callID: UUID) {
+      let update = CXCallUpdate()
+      update.hasVideo = sendsVideo
+      provider.reportCall(with: callID, updated: update)
     }
   }
 

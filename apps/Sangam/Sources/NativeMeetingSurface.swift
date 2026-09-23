@@ -3,6 +3,7 @@ import JitsiMedia
 import SwiftUI
 
 #if os(iOS)
+  import AVFoundation
   import ReplayKit
 #endif
 #if os(macOS)
@@ -120,6 +121,7 @@ struct NativeMeetingSurface<Controls: View>: View {
         // back, the window has nothing left to show that the app isn't.
         if phase == .active {
           model.pictureInPicture.stopIfActive()
+          controller.resumeVideoFromBackground()
         } else {
           // On the way out is when automatic PiP starts, so this is the last
           // chance to make sure the window floats what is featured now.
@@ -134,12 +136,30 @@ struct NativeMeetingSurface<Controls: View>: View {
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
       ) { _ in
         model.pictureInPicture.stopIfActive()
+        controller.resumeVideoFromBackground()
       }
       // The scene-level one as well: this is a multi-scene app, and on iPad
       // the app-level notification does not necessarily arrive for the scene
       // the user actually came back to.
       .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
         model.pictureInPicture.stopIfActive()
+        controller.resumeVideoFromBackground()
+      }
+      // Locked, or backgrounded with no Picture in Picture window to keep
+      // the camera running, the system interrupts capture. The call goes on
+      // as audio; the camera is turned off so the room does not watch the
+      // last frame hang there. The camera is the only capture session in
+      // the process — screen sharing runs in the broadcast extension — so
+      // any interruption with this reason is its.
+      .task {
+        let interruptions = NotificationCenter.default.notifications(
+          named: AVCaptureSession.wasInterruptedNotification)
+        let background = AVCaptureSession.InterruptionReason.videoDeviceNotAvailableInBackground
+        for await notification in interruptions {
+          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+          guard reason == background.rawValue else { continue }
+          controller.pauseVideoForBackground()
+        }
       }
     #endif
     // The stats panel ticks once a second while open, so the current
