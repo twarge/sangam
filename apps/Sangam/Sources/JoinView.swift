@@ -77,6 +77,15 @@ struct JoinView: View {
         .disabled(room.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .frame(maxWidth: 420)
 
+        // Where a meeting can live: the public server, or one of your own.
+        Text(
+          "Anyone can host meetings on [meet.jit.si](https://meet.jit.si), or [set up their own Jitsi server](https://jitsi.github.io/handbook/docs/devops-guide/) to host private conferences securely."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 420)
+
         Spacer()
       }
     }
