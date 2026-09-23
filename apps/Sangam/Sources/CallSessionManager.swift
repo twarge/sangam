@@ -87,7 +87,13 @@
     /// before the first call's audio units exist.
     static func prepareAudio() {
       CallKitAudioBridge.prepare()
-      if SangamLog.isEnabled { CallKitAudioBridge.enableVerboseLogging() }
+      // WebRTC's own logging is a firehose (every sender lookup, every ICE
+      // ping), so it has a switch of its own rather than riding on SANGAM_LOG.
+      if ProcessInfo.processInfo.environment["SANGAM_WEBRTC_LOG"].map({ !$0.isEmpty && $0 != "0" })
+        ?? false
+      {
+        CallKitAudioBridge.enableVerboseLogging()
+      }
       SangamLog.event("callkit: audio prepared — \(CallKitAudioBridge.diagnosticState)")
     }
 
