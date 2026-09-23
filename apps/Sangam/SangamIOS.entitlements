@@ -7,6 +7,21 @@
 	     applinks:<its-conference-domain> and hosts an
 	     apple-app-site-association file. The key is not present by default
 	     because it requires a provisioning profile even when empty. -->
+	<!-- Camera in Picture in Picture: iOS lets a video call's camera keep
+	     running after the app leaves the foreground only for apps that hold
+	     com.apple.developer.avfoundation.multitasking-camera-access, or that
+	     declare the voip background mode. Today the voip mode does that job,
+	     but App Review (2026-09) accepts voip only for PushKit incoming
+	     calls, which Sangam does not have, so the entitlement is to replace
+	     it. It is a managed capability requested from Apple at
+	     developer.apple.com/contact/request/multitasking-camera-access/.
+	     Once granted: enable it on the App ID under Certificates, Identifiers
+	     & Profiles, add
+	       <key>com.apple.developer.avfoundation.multitasking-camera-access</key>
+	       <true/>
+	     here, and remove voip from UIBackgroundModes in Info-iOS.plist.
+	     Adding the key before the App ID carries the capability fails every
+	     signed build. See WebRTCMediaFactory.enableMultitaskingCameraAccess. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.twarge.sangam</string>

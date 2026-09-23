@@ -154,8 +154,16 @@ whole device display using the system broadcast picker.
 
 iOS uses `AVPictureInPictureVideoCallViewController` and a video-call content
 source. The PiP renderer follows the session's selected remote source and can
-switch to the current presenter without rebuilding the peer connection. Camera
-multitasking remains enabled while PiP is active.
+switch to the current presenter without rebuilding the peer connection.
+
+Camera multitasking — the caller's camera continuing after the app leaves the
+foreground — is granted by iOS only to apps that hold the
+`com.apple.developer.avfoundation.multitasking-camera-access` entitlement or
+declare the `voip` background mode. The app declares `voip` for this today, but
+App Review accepts `voip` only for PushKit incoming calls, so the entitlement
+(a managed capability requested from Apple) is to replace it. Without either,
+the caller's video freezes while the meeting floats. The comment in
+`apps/Sangam/SangamIOS.entitlements` describes the switch once it is granted.
 
 On macOS, the meeting window uses native window management. A compact floating
 meeting window is an app feature rather than AVKit playback PiP.
