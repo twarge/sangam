@@ -224,11 +224,10 @@ struct MeetingControlBar: View {
     .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
     .animation(.snappy, value: inline)
     #if os(iOS)
-      // A SwiftUI Menu refuses to present while a text field holds first
-      // responder — the tap on More is swallowed whole, leaving the console
-      // with a keyboard-snapshot warning and a timed-out system gesture
-      // gate. Reaching for the controls means the message is finished, so
-      // the keyboard goes away on touch-down, before the menu presents.
+      // Reaching for the controls means the message is finished, so the
+      // keyboard goes away on touch-down, before any popover presents. (It
+      // began as a workaround: a SwiftUI Menu would not present at all while
+      // a text field held first responder, and swallowed the tap.)
       .simultaneousGesture(
         DragGesture(minimumDistance: 0).onChanged { _ in dismissKeyboard() }
       )
@@ -245,19 +244,196 @@ struct MeetingControlBar: View {
 
 /// The junk drawer: overflowed toolbar controls first, then the settings
 /// that never earn their own button (quality, moderation).
+///
+/// A system menu on the Mac; a popover on iOS. A UIKit menu rebuilt while
+/// open resets itself — submenus collapse, the list jumps back, the tap on
+/// its way is lost — and during a call something kept rebuilding it. A
+/// popover is an ordinary view that updates in place, and it has the room
+/// for the settings pickers that ran a phone menu off the top of the screen.
 private struct MoreMenu: View {
   let controller: MeetingController
   /// Only acted on, never read in the body — see `MeetingControlBar.conversation`.
   let conversation: ConversationSession
   let notesOpen: Bool
   @ObservedObject private var settings = AppSettings.shared
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
   var overflow: [MeetingControlBar.OverflowControl] = []
 
+  #if os(iOS)
+    @State private var showsPopover = false
+    /// The chosen item's action, held until the popover has gone: a sheet or
+    /// system picker presented while it is still dismissing never appears.
+    @State private var pendingAction: (() -> Void)?
+  #endif
+
+  var body: some View {
+    #if os(iOS)
+      Button {
+        showsPopover.toggle()
+      } label: {
+        label
+      }
+      .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
+        List {
+          items
+        }
+        .frame(minWidth: 320, idealWidth: 340, minHeight: 420, idealHeight: 560)
+        .presentationCompactAdaptation(.popover)
+        .onDisappear {
+          let action = pendingAction
+          pendingAction = nil
+          action?()
+        }
+      }
+      .buttonStyle(.plain)
+      .modifier(MoreButtonChrome())
+    #else
+      Menu {
+        items
+      } label: {
+        label
+      }
+      .menuIndicator(.hidden)
+      .buttonStyle(.plain)
+      .modifier(MoreButtonChrome())
+    #endif
+  }
+
+  private var label: some View {
+    // White on the symbol, not the button: set on the button it would carry
+    // into the popover's list and leave its rows white on white.
+    Image(systemName: "ellipsis")
+      .font(.system(size: 17, weight: .semibold))
+      .foregroundStyle(.white)
+      .frame(width: 42, height: 42)
+      .contentShape(.circle)
+      .overlay(alignment: .topTrailing) {
+        if overflow.contains(.chat), controller.unreadChatCount > 0 {
+          Circle().fill(.red).frame(width: 9, height: 9).offset(x: 1, y: -1)
+        }
+      }
+  }
+
+  /// Runs an item's action the way its container expects: at once from a
+  /// menu, which closes itself; after the popover has closed on iOS.
+  private func perform(_ action: @escaping () -> Void) {
+    #if os(iOS)
+      pendingAction = action
+      showsPopover = false
+    #else
+      action()
+    #endif
+  }
+
+  @ViewBuilder private var items: some View {
+    if !overflow.isEmpty {
+      Section {
+        ForEach(overflow, id: \.self) { control in
+          overflowEntry(for: control)
+        }
+      }
+    }
+    // The settings live here for reach, and identically in the Settings
+    // window (⌘, on macOS) or sheet (iOS) — both edit the same stored
+    // preferences.
+    settingsSection
+    Section {
+      if controller.pipAvailable {
+        Button {
+          perform { controller.togglePictureInPicture() }
+        } label: {
+          Label(
+            controller.isPiPActive ? "Exit Picture in Picture" : "Picture in Picture",
+            systemImage: "pip")
+        }
+      }
+      Button {
+        perform { controller.showsPollsPane = true }
+      } label: {
+        Label(
+          controller.polls.isEmpty ? "Polls…" : "Polls (\(controller.polls.count))…",
+          systemImage: "chart.bar.xaxis")
+      }
+      Button {
+        perform { controller.showsSpeakerStats = true }
+      } label: {
+        Label("Speaker Stats…", systemImage: "waveform")
+      }
+    }
+    if !controller.breakoutRooms.isEmpty || controller.isModerator {
+      Section {
+        Menu {
+          ForEach(controller.breakoutRooms) { room in
+            if controller.isModerator, !room.isMainRoom {
+              Menu("\(room.name) (\(room.participantCount))") {
+                Button("Join") { perform { controller.joinBreakoutRoom(room.id) } }
+                Button("Remove", role: .destructive) {
+                  perform { controller.removeBreakoutRoom(room.id) }
+                }
+              }
+            } else {
+              Button("\(room.name) (\(room.participantCount))") {
+                perform { controller.joinBreakoutRoom(room.id) }
+              }
+            }
+          }
+          if controller.isModerator {
+            if !controller.breakoutRooms.isEmpty { Divider() }
+            Button("Add Breakout Room") { perform { controller.createBreakoutRoom() } }
+          }
+        } label: {
+          Label("Breakout Rooms", systemImage: "square.split.2x1")
+        }
+      }
+    }
+    Section {
+      #if os(iOS)
+        // Apple's ML noise suppression (Voice Isolation) is a system
+        // microphone mode: only the user can switch it, from the picker
+        // this opens. It applies here because iOS capture runs through
+        // Apple's voice-processing unit.
+        Text("Microphone: \(Self.microphoneModeName)")
+        Button("Noise Suppression (Mic Mode)…") {
+          perform { AVCaptureDevice.showSystemUserInterface(.microphoneModes) }
+        }
+      #else
+        // macOS offers microphone modes only to apps capturing through
+        // Apple's voice-processing unit; this WebRTC build captures via
+        // the HAL, so the system picker would show nothing for Sangam.
+        // WebRTC's own suppression chain is always on instead.
+        Text("Noise Suppression: On (WebRTC)")
+      #endif
+    }
+    if controller.isModerator {
+      Section("Security") {
+        Toggle(
+          "Waiting Room",
+          isOn: Binding(
+            get: { controller.lobbyOn },
+            set: { controller.setLobbyEnabled($0) }
+          )
+        )
+        if controller.roomHasPassword {
+          Button("Remove Meeting Password") {
+            perform { controller.setRoomPassword(nil) }
+          }
+        } else {
+          Button("Set Meeting Password…") {
+            perform { controller.showsRoomPasswordPrompt = true }
+          }
+        }
+        Toggle(
+          "Require permission to speak",
+          isOn: Binding(
+            get: { controller.audioModerationOn },
+            set: { controller.setAudioModeration($0) }
+          )
+        )
+      }
+    }
+  }
+
   /// The preferences that also live in the Settings window, inline for
-  /// reach where the menu has the room for them.
+  /// reach.
   @ViewBuilder private var settingsSection: some View {
     Section("Settings") {
       Picker("Incoming Video Quality", selection: $settings.receiveQuality) {
@@ -279,150 +455,9 @@ private struct MoreMenu: View {
           Text("All Settings…")
         }
       #else
-        Button("All Settings…") { controller.showsSettingsPane = true }
+        Button("All Settings…") { perform { controller.showsSettingsPane = true } }
       #endif
     }
-  }
-
-  /// Whether the settings are a single entry that opens the sheet instead
-  /// of a section of pickers: a phone, where the menu has no room.
-  private var compactSettings: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
-  }
-
-  var body: some View {
-    Menu {
-      if !overflow.isEmpty {
-        ForEach(overflow, id: \.self) { control in
-          overflowEntry(for: control)
-        }
-        Divider()
-      }
-      // The settings live here for reach, and identically in the Settings
-      // window (⌘, on macOS) — both edit the same stored preferences. On a
-      // phone they do not fit: each picker expands to a row per choice, and
-      // the menu runs off the top of the screen taking the items above it
-      // with it. There they are one entry that opens the settings sheet.
-      if compactSettings {
-        Button {
-          controller.showsSettingsPane = true
-        } label: {
-          Label("Settings…", systemImage: "gearshape")
-        }
-      } else {
-        settingsSection
-      }
-      Divider()
-      Divider()
-      if controller.pipAvailable {
-        Button {
-          controller.togglePictureInPicture()
-        } label: {
-          Label(
-            controller.isPiPActive ? "Exit Picture in Picture" : "Picture in Picture",
-            systemImage: "pip")
-        }
-      }
-      Button {
-        controller.showsPollsPane = true
-      } label: {
-        Label(
-          controller.polls.isEmpty ? "Polls…" : "Polls (\(controller.polls.count))…",
-          systemImage: "chart.bar.xaxis")
-      }
-      Button {
-        controller.showsSpeakerStats = true
-      } label: {
-        Label("Speaker Stats…", systemImage: "waveform")
-      }
-      if !controller.breakoutRooms.isEmpty || controller.isModerator {
-        Divider()
-        Menu {
-          ForEach(controller.breakoutRooms) { room in
-            if controller.isModerator, !room.isMainRoom {
-              Menu("\(room.name) (\(room.participantCount))") {
-                Button("Join") { controller.joinBreakoutRoom(room.id) }
-                Button("Remove", role: .destructive) {
-                  controller.removeBreakoutRoom(room.id)
-                }
-              }
-            } else {
-              Button("\(room.name) (\(room.participantCount))") {
-                controller.joinBreakoutRoom(room.id)
-              }
-            }
-          }
-          if controller.isModerator {
-            if !controller.breakoutRooms.isEmpty { Divider() }
-            Button("Add Breakout Room") { controller.createBreakoutRoom() }
-          }
-        } label: {
-          Label("Breakout Rooms", systemImage: "square.split.2x1")
-        }
-      }
-      Divider()
-      #if os(iOS)
-        // Apple's ML noise suppression (Voice Isolation) is a system
-        // microphone mode: only the user can switch it, from the picker
-        // this opens. It applies here because iOS capture runs through
-        // Apple's voice-processing unit.
-        Text("Microphone: \(Self.microphoneModeName)")
-        Button("Noise Suppression (Mic Mode)…") {
-          AVCaptureDevice.showSystemUserInterface(.microphoneModes)
-        }
-      #else
-        // macOS offers microphone modes only to apps capturing through
-        // Apple's voice-processing unit; this WebRTC build captures via
-        // the HAL, so the system picker would show nothing for Sangam.
-        // WebRTC's own suppression chain is always on instead.
-        Text("Noise Suppression: On (WebRTC)")
-      #endif
-      if controller.isModerator {
-        Divider()
-        Section("Security") {
-          Toggle(
-            "Waiting Room",
-            isOn: Binding(
-              get: { controller.lobbyOn },
-              set: { controller.setLobbyEnabled($0) }
-            )
-          )
-          if controller.roomHasPassword {
-            Button("Remove Meeting Password") { controller.setRoomPassword(nil) }
-          } else {
-            Button("Set Meeting Password…") { controller.showsRoomPasswordPrompt = true }
-          }
-          Toggle(
-            "Require permission to speak",
-            isOn: Binding(
-              get: { controller.audioModerationOn },
-              set: { controller.setAudioModeration($0) }
-            )
-          )
-        }
-      }
-    } label: {
-      Image(systemName: "ellipsis")
-        .font(.system(size: 17, weight: .semibold))
-        .frame(width: 42, height: 42)
-        .contentShape(.circle)
-        .overlay(alignment: .topTrailing) {
-          if overflow.contains(.chat), controller.unreadChatCount > 0 {
-            Circle().fill(.red).frame(width: 9, height: 9).offset(x: 1, y: -1)
-          }
-        }
-    }
-    .menuIndicator(.hidden)
-    .buttonStyle(.plain)
-    .foregroundStyle(.white)
-    .background(.black.opacity(0.48), in: .circle)
-    .fixedSize()
-    .help("More options")
-    .accessibilityLabel("More options")
   }
 
   /// Menus rebuild their content on every open, so reading the live mode
@@ -441,7 +476,7 @@ private struct MoreMenu: View {
     switch control {
     case .screenShare:
       Button {
-        controller.toggleScreenSharing()
+        perform { controller.toggleScreenSharing() }
       } label: {
         Label(
           controller.isScreenSharing ? "Stop Sharing" : "Share Screen",
@@ -449,25 +484,42 @@ private struct MoreMenu: View {
       }
     case .raiseHand:
       Button {
-        controller.toggleHandRaised()
+        perform { controller.toggleHandRaised() }
       } label: {
         Label(
           controller.isHandRaised ? "Lower Hand" : "Raise Hand",
           systemImage: "hand.raised")
       }
     case .reactions:
-      Menu {
-        ForEach(meetingReactions, id: \.name) { reaction in
-          Button("\(reaction.emoji) \(reaction.name.capitalized)") {
-            controller.sendReaction(reaction.name)
+      #if os(iOS)
+        // A row of the reactions themselves: one tap, as on the palette.
+        HStack {
+          ForEach(meetingReactions, id: \.name) { reaction in
+            Button {
+              perform { controller.sendReaction(reaction.name) }
+            } label: {
+              Text(reaction.emoji)
+                .font(.system(size: 24))
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(reaction.name)
           }
         }
-      } label: {
-        Label("React", systemImage: "face.smiling")
-      }
+      #else
+        Menu {
+          ForEach(meetingReactions, id: \.name) { reaction in
+            Button("\(reaction.emoji) \(reaction.name.capitalized)") {
+              controller.sendReaction(reaction.name)
+            }
+          }
+        } label: {
+          Label("React", systemImage: "face.smiling")
+        }
+      #endif
     case .chat:
       Button {
-        controller.toggleChat()
+        perform { controller.toggleChat() }
       } label: {
         Label(
           controller.isChatOpen
@@ -478,7 +530,7 @@ private struct MoreMenu: View {
       }
     case .layout:
       Button {
-        controller.toggleLayout()
+        perform { controller.toggleLayout() }
       } label: {
         Label(
           controller.usesTileGrid ? "Speaker View" : "Grid View",
@@ -487,8 +539,10 @@ private struct MoreMenu: View {
       }
     case .notes:
       Button {
-        controller.isChatOpen = false
-        conversation.toggleSidebar()
+        perform {
+          controller.isChatOpen = false
+          conversation.toggleSidebar()
+        }
       } label: {
         #if os(macOS)
           Label(
@@ -503,7 +557,7 @@ private struct MoreMenu: View {
     case .invite:
       if let link = controller.meetingLink {
         Button {
-          copyMeetingLink(link)
+          perform { copyMeetingLink(link) }
         } label: {
           Label("Copy Invite Link", systemImage: "person.badge.plus")
         }
@@ -512,6 +566,17 @@ private struct MoreMenu: View {
         }
       }
     }
+  }
+}
+
+/// The More button's circle, shared by the menu and the popover button.
+private struct MoreButtonChrome: ViewModifier {
+  func body(content: Content) -> some View {
+    content
+      .background(.black.opacity(0.48), in: .circle)
+      .fixedSize()
+      .help("More options")
+      .accessibilityLabel("More options")
   }
 }
 
