@@ -520,12 +520,12 @@ public final class LocalCameraTrack: @unchecked Sendable {
   /// (`videoDeviceNotAvailableInBackground`) and the floating window freezes
   /// on its last frame.
   ///
-  /// On iPhone the session reports support only for apps that hold the
-  /// `com.apple.developer.avfoundation.multitasking-camera-access`
-  /// entitlement or declare the `voip` background mode; with neither this is
-  /// a no-op and the far end sees the caller freeze while the meeting
-  /// floats. Sangam relies on `voip` until Apple grants the entitlement
-  /// (see SangamIOS.entitlements), which is to replace it.
+  /// On iPhone the session reports support only for apps linked against
+  /// iOS 18 or later that declare the `voip` background mode; the older
+  /// multitasking-camera-access entitlement is deprecated, and Apple points
+  /// video-conferencing apps at `voip` instead. Without it this is a no-op
+  /// and the far end sees the caller freeze while the meeting floats, which
+  /// is why `voip` stays in Info-iOS.plist (its comment has the history).
   ///
   /// Set after `startCapture`, not before: the session has no camera input
   /// until then, and support is reported against the configured session.

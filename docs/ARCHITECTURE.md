@@ -157,13 +157,14 @@ source. The PiP renderer follows the session's selected remote source and can
 switch to the current presenter without rebuilding the peer connection.
 
 Camera multitasking — the caller's camera continuing after the app leaves the
-foreground — is granted by iOS only to apps that hold the
-`com.apple.developer.avfoundation.multitasking-camera-access` entitlement or
-declare the `voip` background mode. The app declares `voip` for this today, but
-App Review accepts `voip` only for PushKit incoming calls, so the entitlement
-(a managed capability requested from Apple) is to replace it. Without either,
-the caller's video freezes while the meeting floats. The comment in
-`apps/Sangam/SangamIOS.entitlements` describes the switch once it is granted.
+foreground — is granted by iOS only to apps linked against iOS 18 or later that
+declare the `voip` background mode. The older
+`com.apple.developer.avfoundation.multitasking-camera-access` entitlement is
+deprecated, and Apple directs video-conferencing apps to `voip` instead. That
+is why `voip` is among the iOS background modes although the app has no PushKit
+incoming calls, and what App Review is told when it asks. Without it, the
+caller's video freezes while the meeting floats. The comment on
+`UIBackgroundModes` in `apps/Sangam/Info-iOS.plist` carries the history.
 
 On macOS, the meeting window uses native window management. A compact floating
 meeting window is an app feature rather than AVKit playback PiP.

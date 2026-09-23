@@ -45,6 +45,16 @@
 	<string>group.com.twarge.sangam</string>
 	<key>RTCScreenSharingExtension</key>
 	<string>com.twarge.sangam.broadcast</string>
+	<!-- voip is here for camera multitasking, not PushKit. iOS keeps a video
+	     call's camera running after the app leaves the foreground, which
+	     Picture in Picture needs, only for apps linked against iOS 18 or later
+	     that declare voip (AVCaptureSession.isMultitaskingCameraAccessSupported).
+	     The former alternative, the multitasking-camera-access entitlement,
+	     is deprecated since iOS 18: Apple declined a request for it on
+	     2026-09-23 and pointed at voip. App Review questioned voip on
+	     2026-09-22 (guideline 2.5.4); the reply cites the above. Dropping voip
+	     freezes the caller's video the moment the meeting floats — see
+	     WebRTCMediaFactory.enableMultitaskingCameraAccess. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
