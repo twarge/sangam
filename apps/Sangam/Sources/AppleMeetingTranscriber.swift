@@ -212,11 +212,16 @@
               / buffer.format.sampleRate
           continuation.yield(MicrophonePacket(buffer: copy, time: start))
         }
+        SangamLog.event(
+          "transcriber: starting microphone engine \(Int(format.sampleRate))Hz x\(format.channelCount)"
+        )
         do { try engine.start() } catch {
+          SangamLog.event("transcriber: microphone engine failed: \(error)")
           engine.inputNode.removeTap(onBus: 0)
           await speech.cancel()
           throw error
         }
+        SangamLog.event("transcriber: microphone engine running")
         microphone = engine
         microphoneSpeech = speech
         microphonePump = Task.detached(priority: .utility) {

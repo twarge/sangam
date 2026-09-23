@@ -37,5 +37,24 @@
       rtcSession.audioSessionDidDeactivate(session)
       rtcSession.isAudioEnabled = false
     }
+
+    /// Turns on WebRTC's own logging, so the audio device's handling of the
+    /// session — configure, activate, audio unit start — lands in the
+    /// console beside the app's events.
+    public static func enableVerboseLogging() {
+      RTCSetMinDebugLogLevel(.info)
+    }
+
+    /// The audio session as WebRTC sees it, in one line.
+    public static var diagnosticState: String {
+      let rtc = RTCAudioSession.sharedInstance()
+      let session = AVAudioSession.sharedInstance()
+      let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: "+")
+      let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: "+")
+      return "manual=\(rtc.useManualAudio) enabled=\(rtc.isAudioEnabled) active=\(rtc.isActive)"
+        + " category=\(session.category.rawValue) mode=\(session.mode.rawValue)"
+        + " inputs=[\(inputs)] outputs=[\(outputs)] otherAudio=\(session.isOtherAudioPlaying)"
+        + " mic=\(AVAudioApplication.shared.recordPermission.rawValue)"
+    }
   }
 #endif

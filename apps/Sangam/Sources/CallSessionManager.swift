@@ -27,6 +27,14 @@
     private let providerQueue = DispatchQueue(label: "com.twarge.sangam.callkit")
     fileprivate var currentCallID: UUID?
     fileprivate var endRequestedLocally = false
+    /// The window scene the meeting was joined from. Scenes come and go for
+    /// other reasons — AVKit hosts video-call Picture in Picture in a scene
+    /// of its own, and rebuilding the PiP controller disconnects the old
+    /// one — so only this scene's disconnect means the meeting's window
+    /// closed. Ending the call on any disconnect reported the meeting over
+    /// moments after it began, and CallKit then took the audio session
+    /// away from WebRTC: a joined meeting with no audio either way.
+    fileprivate weak var meetingScene: UIWindowScene?
 
     private override init() {
       let configuration = CXProviderConfiguration()
@@ -41,13 +49,25 @@
       // the call is still up when the scene or the process goes. The view's
       // own teardown does not reliably run for a window being closed, so the
       // end is taken from the system's own notices instead.
-      for name in [UIScene.didDisconnectNotification, UIApplication.willTerminateNotification] {
-        NotificationCenter.default.addObserver(
-          forName: name, object: nil, queue: .main
-        ) { [weak self] _ in
-          MainActor.assumeIsolated { self?.endImmediately() }
-        }
-      }
+      // UIKit posts both on the main thread.
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(sceneDidDisconnect(_:)),
+        name: UIScene.didDisconnectNotification, object: nil)
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(applicationWillTerminate),
+        name: UIApplication.willTerminateNotification, object: nil)
+    }
+
+    @objc private func sceneDidDisconnect(_ notification: Notification) {
+      guard let scene = notification.object as? UIWindowScene else { return }
+      let isMeetingScene = scene === meetingScene
+      SangamLog.event(
+        "callkit: scene disconnected role=\(scene.session.role.rawValue) meeting=\(isMeetingScene)")
+      if isMeetingScene { endImmediately() }
+    }
+
+    @objc private func applicationWillTerminate() {
+      endImmediately()
     }
 
     /// Ends the call through the provider rather than a transaction. A
@@ -58,6 +78,7 @@
       guard let callID = currentCallID else { return }
       SangamLog.event("callkit: ending on teardown")
       currentCallID = nil
+      meetingScene = nil
       endRequestedLocally = false
       provider.reportCall(with: callID, endedAt: nil, reason: .remoteEnded)
     }
@@ -66,15 +87,19 @@
     /// before the first call's audio units exist.
     static func prepareAudio() {
       CallKitAudioBridge.prepare()
+      if SangamLog.isEnabled { CallKitAudioBridge.enableVerboseLogging() }
+      SangamLog.event("callkit: audio prepared — \(CallKitAudioBridge.diagnosticState)")
     }
 
     func begin(room: String) {
       guard currentCallID == nil else { return }
       let callID = UUID()
       currentCallID = callID
+      meetingScene = Self.keyWindowScene()
       let start = CXStartCallAction(
         call: callID, handle: CXHandle(type: .generic, value: room))
       start.isVideo = true
+      SangamLog.event("callkit: requesting start — \(CallKitAudioBridge.diagnosticState)")
       callController.request(CXTransaction(action: start)) { error in
         guard error != nil else { return }
         Task { @MainActor in
@@ -113,7 +138,17 @@
     private func reportEnded(_ callID: UUID) {
       provider.reportCall(with: callID, endedAt: nil, reason: .remoteEnded)
       currentCallID = nil
+      meetingScene = nil
       endRequestedLocally = false
+    }
+
+    /// The scene the user is acting in: the one holding the key window. With
+    /// a single window that is simply the app's window; on iPad it is the
+    /// window the Join button was tapped in.
+    private static func keyWindowScene() -> UIWindowScene? {
+      let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      return scenes.first { $0.windows.contains(where: \.isKeyWindow) }
+        ?? scenes.first { $0.activationState == .foregroundActive }
     }
 
     fileprivate func reportConnected(_ callID: UUID) {
@@ -126,6 +161,7 @@
     nonisolated func providerDidReset(_ provider: CXProvider) {}
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+      SangamLog.event("callkit: start action performed — \(CallKitAudioBridge.diagnosticState)")
       action.fulfill()
       Task { @MainActor in
         let manager = CallSessionManager.shared
@@ -136,12 +172,14 @@
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+      SangamLog.event("callkit: end action performed")
       action.fulfill()
       Task { @MainActor in
         let manager = CallSessionManager.shared
         let endedFromApp = manager.endRequestedLocally
         manager.endRequestedLocally = false
         manager.currentCallID = nil
+        manager.meetingScene = nil
         // Ended from the system call UI: leave the meeting too.
         if !endedFromApp {
           MeetingHub.shared.activeController?.hangUp()
@@ -161,10 +199,13 @@
     }
 
     nonisolated func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+      SangamLog.event("callkit: audio session activated — \(CallKitAudioBridge.diagnosticState)")
       CallKitAudioBridge.audioSessionDidActivate(audioSession)
+      SangamLog.event("callkit: audio handed to WebRTC — \(CallKitAudioBridge.diagnosticState)")
     }
 
     nonisolated func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+      SangamLog.event("callkit: audio session deactivated — \(CallKitAudioBridge.diagnosticState)")
       CallKitAudioBridge.audioSessionDidDeactivate(audioSession)
     }
   }
