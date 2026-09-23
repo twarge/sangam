@@ -4,7 +4,7 @@
   import SwiftUI
 
   struct ConversationSidebar: View {
-    @ObservedObject var session: ConversationSession
+    @Bindable var session: ConversationSession
     var allowsHiding = true
 
     var body: some View {
@@ -99,7 +99,7 @@
   }
 
   private struct ConversationEditor: NSViewRepresentable {
-    @ObservedObject var session: ConversationSession
+    let session: ConversationSession
 
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
@@ -315,7 +315,7 @@
   /// The root view installs this too, so a hidden sidebar still has the native
   /// dirty indicator and the same close protection.
   struct ConversationWindowGuard: NSViewRepresentable {
-    @ObservedObject var session: ConversationSession
+    let session: ConversationSession
     func makeNSView(context: Context) -> Host {
       let view = Host()
       view.session = session

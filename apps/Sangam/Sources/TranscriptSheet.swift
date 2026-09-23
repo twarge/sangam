@@ -16,7 +16,7 @@
   /// The transcript carries the whole room, your own side included: the
   /// local microphone is tapped beside the call rather than through it.
   struct ConversationPane: View {
-    @ObservedObject var session: ConversationSession
+    @Bindable var session: ConversationSession
     /// A sidebar carries its own title row and sits on the system's own
     /// surface. As a sheet it fills the sheet, which supplies both.
     var isSidebar = false
@@ -253,7 +253,7 @@
   /// The conversation as a bottom sheet, for a window too narrow to give it
   /// a column of its own.
   struct TranscriptSheet: View {
-    @ObservedObject var session: ConversationSession
+    let session: ConversationSession
 
     var body: some View {
       ConversationPane(session: session)

@@ -17,7 +17,7 @@
   }
 
   private struct ActiveMeetingMenu: View {
-    @ObservedObject var controller: MeetingController
+    let controller: MeetingController
     let configuration: MeetingConfiguration
 
     var body: some View {

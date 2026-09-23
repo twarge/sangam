@@ -6,10 +6,10 @@ import SwiftUI
 
 struct MeetingView: View {
   let configuration: MeetingConfiguration
-  @ObservedObject var conversation: ConversationSession
+  let conversation: ConversationSession
   let dismiss: () -> Void
 
-  @StateObject private var controller = MeetingController()
+  @State private var controller = MeetingController()
   // The control bar tucks away when the pointer is elsewhere (macOS). An
   // open popover pins it so it never fades under its own palette.
   @State private var toolbarHovered = false
@@ -391,7 +391,7 @@ private struct RoomSwitchCard: View {
 /// state change because the view itself does.
 private struct PreJoinView: View {
   let configuration: MeetingConfiguration
-  @ObservedObject var controller: MeetingController
+  let controller: MeetingController
   let cancel: () -> Void
 
   private enum Field {

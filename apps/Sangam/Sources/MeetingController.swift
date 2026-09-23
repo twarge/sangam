@@ -2,7 +2,8 @@ import Combine
 import Foundation
 
 @MainActor
-final class MeetingController: ObservableObject {
+@Observable
+final class MeetingController {
   enum Command: Sendable {
     case setAudioMuted(Bool)
     case setVideoMuted(Bool)
@@ -87,61 +88,61 @@ final class MeetingController: ObservableObject {
     let participantCount: Int
   }
 
-  @Published private(set) var connectionState: ConnectionState = .connecting {
+  private(set) var connectionState: ConnectionState = .connecting {
     didSet {
       if connectionState != oldValue {
         SangamLog.event("connectionState \(oldValue) -> \(connectionState)")
       }
     }
   }
-  @Published private(set) var isAudioMuted = false
-  @Published private(set) var isVideoMuted = false
-  @Published private(set) var isScreenSharing = false
-  @Published private(set) var isHandRaised = false
-  @Published var isChatOpen = false {
+  private(set) var isAudioMuted = false
+  private(set) var isVideoMuted = false
+  private(set) var isScreenSharing = false
+  private(set) var isHandRaised = false
+  var isChatOpen = false {
     didSet { if isChatOpen { unreadChatCount = 0 } }
   }
-  @Published private(set) var unreadChatCount = 0
+  private(set) var unreadChatCount = 0
   /// The default layout is a collapsible sidebar of video sources (self on
   /// top) beside a stage featuring the pinned or dominant speaker; this
   /// switches to the equal-tile grid instead.
-  @Published var usesTileGrid = false
-  @Published var errorMessage: String?
-  @Published private(set) var accessMessage: String?
+  var usesTileGrid = false
+  var errorMessage: String?
+  private(set) var accessMessage: String?
   /// Whether the lobby wait ends when a host arrives rather than when one
   /// decides; changes the wording of the waiting card.
-  @Published private(set) var lobbyWaitsForHost = false
-  @Published private(set) var lobbyRequests: [LobbyRequest] = []
-  @Published private(set) var cameras: [CameraOption] = []
+  private(set) var lobbyWaitsForHost = false
+  private(set) var lobbyRequests: [LobbyRequest] = []
+  private(set) var cameras: [CameraOption] = []
   /// The camera currently capturing; nil when none is (every camera gone).
-  @Published private(set) var currentCameraID: String?
+  private(set) var currentCameraID: String?
   /// The address other people join with, for the invite button.
-  @Published private(set) var meetingLink: URL?
+  private(set) var meetingLink: URL?
   /// Whether this client moderates the room; gates the moderation controls.
-  @Published private(set) var isModerator = false
+  private(set) var isModerator = false
   /// Room-wide audio moderation: while on, participants need approval to
   /// unmute.
-  @Published private(set) var audioModerationOn = false
+  private(set) var audioModerationOn = false
   /// How much of the window's left edge the floating sidebar occupies, so
   /// the toolbar can center itself over the visible stage.
-  @Published private(set) var sidebarInset: CGFloat = 0
+  private(set) var sidebarInset: CGFloat = 0
   /// The iOS settings pane; macOS uses the Settings window instead.
-  @Published var showsSettingsPane = false
+  var showsSettingsPane = false
   /// System Picture in Picture: availability and whether it is up.
-  @Published private(set) var pipAvailable = false
-  @Published private(set) var isPiPActive = false
+  private(set) var pipAvailable = false
+  private(set) var isPiPActive = false
   /// The deployment's breakout-room roster; empty when none exist (or the
   /// server runs no component).
-  @Published private(set) var breakoutRooms: [BreakoutRoomOption] = []
+  private(set) var breakoutRooms: [BreakoutRoomOption] = []
   /// Whether the meeting's waiting room (lobby) is on.
-  @Published private(set) var lobbyOn = false
+  private(set) var lobbyOn = false
   /// Whether the room currently requires a meeting password.
-  @Published private(set) var roomHasPassword = false
+  private(set) var roomHasPassword = false
   /// Drives the moderator's set-password prompt.
-  @Published var showsRoomPasswordPrompt = false
+  var showsRoomPasswordPrompt = false
   /// The meeting's polls, and the panel that shows them.
-  @Published private(set) var polls: [PollDisplay] = []
-  @Published var showsPollsPane = false
+  private(set) var polls: [PollDisplay] = []
+  var showsPollsPane = false
   /// How loud the microphone is, 0…1, for the meter inside the mute button.
   /// Smoothed and mapped to a usable range before it lands here; the button
   /// draws it as-is. It sits on its own object rather than being published
@@ -152,8 +153,8 @@ final class MeetingController: ObservableObject {
   /// meter drawn inside the button observes this.
   let microphoneMeter = MicrophoneMeter()
   /// Who has held the floor for how long, and the panel that shows it.
-  @Published private(set) var speakerStats: [SpeakerStatDisplay] = []
-  @Published var showsSpeakerStats = false
+  private(set) var speakerStats: [SpeakerStatDisplay] = []
+  var showsSpeakerStats = false
 
   /// One speaker-time row for the stats panel.
   struct SpeakerStatDisplay: Identifiable, Equatable {
@@ -165,12 +166,12 @@ final class MeetingController: ObservableObject {
   }
   /// Whether a meeting password was already tried this join, so the retry
   /// card can say it was wrong.
-  private var meetingPasswordAttempted = false
+  @ObservationIgnored private var meetingPasswordAttempted = false
 
-  private var commandHandler: ((Command) -> Void)?
-  private var pendingCommands: [Command] = []
+  @ObservationIgnored private var commandHandler: ((Command) -> Void)?
+  @ObservationIgnored private var pendingCommands: [Command] = []
   private let settings = AppSettings.shared
-  private var settingsObservers: Set<AnyCancellable> = []
+  @ObservationIgnored private var settingsObservers: Set<AnyCancellable> = []
 
   init() {
     // Preferences apply live: a change in the Settings window (or the More

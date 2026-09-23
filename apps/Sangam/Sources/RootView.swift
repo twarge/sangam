@@ -9,7 +9,7 @@ struct RootView: View {
   @ObservedObject private var hub = MeetingHub.shared
   /// Transcription lives here so it outlives the meeting view: on the Mac it
   /// is also the notes document, and on iOS it is what the captions read.
-  @StateObject private var conversation = ConversationSession()
+  @State private var conversation = ConversationSession()
 
   var body: some View {
     Group {

@@ -3,7 +3,7 @@ import SwiftUI
 /// Who has held the floor for how long — seeded from the deployment's
 /// speaker-stats history and ticking live for the current speaker.
 struct SpeakerStatsPanel: View {
-  @ObservedObject var controller: MeetingController
+  let controller: MeetingController
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {

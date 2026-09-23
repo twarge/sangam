@@ -23,8 +23,8 @@ enum MeetingSidePanel {
 
 struct NativeMeetingSurface<Controls: View>: View {
   let configuration: MeetingConfiguration
-  @ObservedObject var controller: MeetingController
-  @ObservedObject var conversation: ConversationSession
+  let controller: MeetingController
+  let conversation: ConversationSession
   @ViewBuilder var controls: Controls
 
   private enum SidebarSelection: Hashable {

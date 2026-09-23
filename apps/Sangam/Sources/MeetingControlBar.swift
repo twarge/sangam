@@ -24,12 +24,13 @@ private func copyMeetingLink(_ link: URL) {
 }
 
 struct MeetingControlBar: View {
-  @ObservedObject var controller: MeetingController
-  /// Held, not observed. The session republishes on every partial
-  /// transcription result and on the caption ticker, and the bar shows none
-  /// of that — observing it rebuilt the More menu mid-sentence, which UIKit
-  /// reloads, dropping the tap that was on its way. The one thing the bar
-  /// does show is passed in as a value.
+  let controller: MeetingController
+  /// Both objects are `@Observable`, so the bar redraws only for the
+  /// properties its body reads. That matters for the More menu: UIKit
+  /// reloads an open menu on every rebuild, collapsing submenus and dropping
+  /// the tap on its way. The session changes on every partial transcription
+  /// result, so the bar reads nothing from it here; the one thing it shows
+  /// is passed in as a value.
   let conversation: ConversationSession
   let notesOpen: Bool
   /// True while one of the bar's popovers is open, so an auto-hiding host
@@ -245,8 +246,8 @@ struct MeetingControlBar: View {
 /// The junk drawer: overflowed toolbar controls first, then the settings
 /// that never earn their own button (quality, moderation).
 private struct MoreMenu: View {
-  @ObservedObject var controller: MeetingController
-  /// Held, not observed — see `MeetingControlBar.conversation`.
+  let controller: MeetingController
+  /// Only acted on, never read in the body — see `MeetingControlBar.conversation`.
   let conversation: ConversationSession
   let notesOpen: Bool
   @ObservedObject private var settings = AppSettings.shared

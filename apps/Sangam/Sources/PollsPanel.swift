@@ -3,7 +3,7 @@ import SwiftUI
 /// The meeting's polls: vote by tapping answers (tap again to retract),
 /// and create new polls for the room. Votes and results update live.
 struct PollsPanel: View {
-  @ObservedObject var controller: MeetingController
+  let controller: MeetingController
   @Environment(\.dismiss) private var dismiss
 
   @State private var creating = false

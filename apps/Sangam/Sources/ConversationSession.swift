@@ -9,17 +9,18 @@
   #endif
 
   @MainActor
-  final class ConversationSession: ObservableObject {
-    @Published private(set) var document = ConversationDocument(title: "Conversation")
-    @Published var isOpen = false
-    @Published private(set) var hasDocument = false
-    @Published private(set) var isRecording = false
-    @Published private(set) var isPreparing = false
-    @Published private(set) var isFinishing = false
-    @Published private(set) var meetingActive = false
-    @Published private(set) var status = "Transcription is off."
-    @Published private(set) var transcriptionNotice = ""
-    @Published private(set) var summaryStatus = ""
+  @Observable
+  final class ConversationSession {
+    private(set) var document = ConversationDocument(title: "Conversation")
+    var isOpen = false
+    private(set) var hasDocument = false
+    private(set) var isRecording = false
+    private(set) var isPreparing = false
+    private(set) var isFinishing = false
+    private(set) var meetingActive = false
+    private(set) var status = "Transcription is off."
+    private(set) var transcriptionNotice = ""
+    private(set) var summaryStatus = ""
     /// The last line or two of speech, for the captions over the video. It
     /// empties itself once the room goes quiet.
     ///
@@ -37,32 +38,32 @@
     final class CaptionFeed: ObservableObject {
       @Published fileprivate(set) var lines: [ConversationDocument.CaptionLine] = []
     }
-    @Published var localeIdentifier = Locale.current.identifier
-    @Published var sidebarWidth: CGFloat = 400
+    var localeIdentifier = Locale.current.identifier
+    var sidebarWidth: CGFloat = 400
     let undoManager = UndoManager()
     #if os(macOS)
-      weak var window: NSWindow?
+      @ObservationIgnored weak var window: NSWindow?
     #endif
-    private var roster: [ConversationDocument.Participant] = []
-    private var streams: [String: RemoteAudioStream] = [:]
-    private var localMuted = false
-    private var origin = ProcessInfo.processInfo.systemUptime
-    private var transcriber: AnyObject?
-    private var summarizer: AnyObject?
-    private var preparation: Task<Void, Never>?
-    private var summaryTask: Task<Void, Never>?
-    private var summaryID = UUID()
-    private var summaryTimer: Task<Void, Never>?
-    private var editRefresh: Task<Void, Never>?
-    private var finishTask: Task<Void, Never>?
-    private var captionTimer: Task<Void, Never>?
+    @ObservationIgnored private var roster: [ConversationDocument.Participant] = []
+    @ObservationIgnored private var streams: [String: RemoteAudioStream] = [:]
+    @ObservationIgnored private var localMuted = false
+    @ObservationIgnored private var origin = ProcessInfo.processInfo.systemUptime
+    @ObservationIgnored private var transcriber: AnyObject?
+    @ObservationIgnored private var summarizer: AnyObject?
+    @ObservationIgnored private var preparation: Task<Void, Never>?
+    @ObservationIgnored private var summaryTask: Task<Void, Never>?
+    @ObservationIgnored private var summaryID = UUID()
+    @ObservationIgnored private var summaryTimer: Task<Void, Never>?
+    @ObservationIgnored private var editRefresh: Task<Void, Never>?
+    @ObservationIgnored private var finishTask: Task<Void, Never>?
+    @ObservationIgnored private var captionTimer: Task<Void, Never>?
     #if DEBUG
-      private var captionPreview: Task<Void, Never>?
+      @ObservationIgnored private var captionPreview: Task<Void, Never>?
     #endif
-    private var epoch = UUID()
-    private var lastSummaryRevision: UInt64?
-    private var resolving = false
-    private var savedURL: URL?
+    @ObservationIgnored private var epoch = UUID()
+    @ObservationIgnored private var lastSummaryRevision: UInt64?
+    @ObservationIgnored private var resolving = false
+    @ObservationIgnored private var savedURL: URL?
     /// Whether this platform writes summaries. Both do: the generator always
     /// compiled on either, and iOS now has a notes surface to show a summary
     /// in. Generating one on device mid-call costs battery, which is the
@@ -79,9 +80,9 @@
     /// Whether this document's transcription started itself rather than
     /// being asked for, and has not been opened, edited or saved since. Such
     /// a document is nobody's work in progress, so it leaves without asking.
-    private var startedAutomatically = false
-    private var composing = false
-    private var deferredUpdates: [@MainActor () -> Void] = []
+    @ObservationIgnored private var startedAutomatically = false
+    @ObservationIgnored private var composing = false
+    @ObservationIgnored private var deferredUpdates: [@MainActor () -> Void] = []
 
     func setComposing(_ value: Bool) {
       composing = value
