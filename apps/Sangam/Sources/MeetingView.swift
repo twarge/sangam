@@ -231,9 +231,9 @@ struct MeetingView: View {
   /// threaded out of three call sites.
   private var chatInset: CGFloat { 0 }
 
-  @ViewBuilder
-  private var meetingToolbar: some View {
-    #if os(macOS)
+  #if os(macOS)
+    @ViewBuilder
+    private var meetingToolbar: some View {
       // Only the bar's own footprint is hover-sensitive: the outer wrapper
       // keeps the exact bounds hit-testable (and so hoverable) even while
       // the bar inside is invisible and ignoring clicks.
@@ -271,26 +271,8 @@ struct MeetingView: View {
         }
       }
       .onAppear { updateToolbarVisibility() }
-    #else
-      // Measure the actual navigation column, including when iPad shows
-      // both columns. The inset reserves space for the controls and scrolling.
-      GeometryReader { geometry in
-        MeetingControlBar(
-          controller: controller,
-          conversation: conversation,
-          notesOpen: conversation.isOpen,
-          popoverPinned: $toolbarPinned,
-          availableWidth: geometry.size.width
-        )
-        .frame(maxWidth: .infinity)
-      }
-      .frame(height: 62)
-      .padding(.horizontal, 16)
-      .padding(.bottom, 14)
-    #endif
-  }
+    }
 
-  #if os(macOS)
     private func updateToolbarVisibility() {
       toolbarHideTask?.cancel()
       // A layout preview is for looking at the controls; they stay put.
@@ -316,10 +298,13 @@ struct MeetingView: View {
         meetingToolbar
       }
     #else
+      // The navigation stack's own bottom bar, laid out by the system and
+      // stood up the side of the screen on iPhone Duo's vertical bar.
       NativeMeetingSurface(
         configuration: configuration, controller: controller, conversation: conversation
       ) {
-        meetingToolbar
+        MeetingToolbar(
+          controller: controller, conversation: conversation, notesOpen: conversation.isOpen)
       }
     #endif
   }

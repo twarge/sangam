@@ -22,11 +22,23 @@ enum MeetingSidePanel {
   static let inset: CGFloat = 312
 }
 
-struct NativeMeetingSurface<Controls: View>: View {
+#if os(iOS)
+  /// The meeting's controls are toolbar content on iOS, for the navigation
+  /// stack's own bottom bar, and a view floated over the stage on the Mac.
+  typealias MeetingControls = ToolbarContent
+#else
+  typealias MeetingControls = View
+#endif
+
+struct NativeMeetingSurface<Controls: MeetingControls>: View {
   let configuration: MeetingConfiguration
   let controller: MeetingController
   let conversation: ConversationSession
-  @ViewBuilder var controls: Controls
+  #if os(iOS)
+    @ToolbarContentBuilder var controls: Controls
+  #else
+    @ViewBuilder var controls: Controls
+  #endif
 
   private enum SidebarSelection: Hashable {
     case meeting
@@ -35,6 +47,7 @@ struct NativeMeetingSurface<Controls: View>: View {
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
   #endif
@@ -334,7 +347,7 @@ struct NativeMeetingSurface<Controls: View>: View {
           .navigationTitle("Participants")
           .navigationBarTitleDisplayMode(.inline)
           .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 320)
-          .safeAreaInset(edge: .bottom, spacing: 0) {
+          .toolbar {
             // In a split iPad layout the controls belong to the wider stage.
             // Keep them reachable while viewing the full-width phone roster.
             if horizontalSizeClass == .compact { controls }
@@ -343,7 +356,7 @@ struct NativeMeetingSurface<Controls: View>: View {
         detailContent
           .navigationTitle(configuration.normalizedRoom)
           .navigationBarTitleDisplayMode(.inline)
-          .safeAreaInset(edge: .bottom, spacing: 0) { controls }
+          .toolbar { controls }
       }
       .navigationSplitViewStyle(.balanced)
     }
@@ -510,7 +523,7 @@ struct NativeMeetingSurface<Controls: View>: View {
   {
     if let stream {
       #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if supportsMultipleWindows {
           Button("Open in New Window") { openWindow(id: "feed", value: stream.id) }
         }
       #endif
@@ -655,7 +668,7 @@ struct NativeMeetingSurface<Controls: View>: View {
     }
     #if os(iOS)
       // The stage is the split view's detail column here: captions belong to
-      // it, above the controls it carries as a safe-area inset.
+      // it, above the bottom bar that carries the controls.
       .overlay(alignment: .bottom) {
         if controller.connectionState == .joined {
           CaptionOverlay(feed: conversation.captionFeed)
