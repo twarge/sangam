@@ -150,22 +150,8 @@
       let response = try await session.respond(
         to: "SOURCE:\n\(source)\nEND SOURCE",
         generating: ConversationDigest.self,
-        options: greedyOptions(maximumResponseTokens: 900))
+        options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 900))
       return response.content
-    }
-
-    /// FoundationModels renamed the initializer's first argument from
-    /// `sampling:` to `samplingMode:` in the 27.0 SDK and deprecated the old
-    /// label, while CI builds on Xcode 26.6, whose 26.5 SDK has only the old
-    /// one. The toolchain tells the two apart — Xcode 27 is the first to ship
-    /// Swift 6.4 — so each build gets the label its SDK accepts, with no
-    /// warning on either. Drop the branch once the runners carry Xcode 27.
-    private func greedyOptions(maximumResponseTokens: Int) -> GenerationOptions {
-      #if compiler(>=6.4)
-        GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
-      #else
-        GenerationOptions(sampling: .greedy, maximumResponseTokens: maximumResponseTokens)
-      #endif
     }
 
     private func split(_ text: String, limit: Int) -> [String] {
