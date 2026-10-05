@@ -13,21 +13,20 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The xcode-27 image defaults to Xcode 27.0. Build with 27.1, the Xcode the
+# app is developed on, so CI compiles against the same SDKs.
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+
 jobs:
   # The conference core is a Swift package; its tests exercise real WebRTC,
   # so they need a Mac (the staged xcframework rides in via SPM).
   test:
     name: Core tests
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
-      - name: Select newest Xcode
-        run: |
-          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
-          echo "Selecting $XCODE"
-          sudo xcode-select -s "$XCODE"
 
       - name: Show Xcode version
         run: xcodebuild -version
@@ -40,7 +39,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.name }})
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -52,12 +51,6 @@ jobs:
             destination: generic/platform=iOS Simulator
     steps:
       - uses: actions/checkout@v7
-
-      - name: Select newest Xcode
-        run: |
-          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
-          echo "Selecting $XCODE"
-          sudo xcode-select -s "$XCODE"
 
       - name: Show Xcode version
         run: xcodebuild -version
