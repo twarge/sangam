@@ -52,11 +52,11 @@ struct SangamApp: App {
     #endif
 
     // A double-clicked sidebar feed in its own window (its own scene on
-    // iPad); keyed by stream id, so reopening the same feed refocuses the
+    // iPad); keyed by source id, so reopening the same feed refocuses the
     // existing window.
-    WindowGroup("Feed", id: "feed", for: String.self) { $streamID in
-      if let streamID {
-        FeedWindow(streamID: streamID)
+    WindowGroup("Feed", id: "feed", for: String.self) { $sourceID in
+      if let sourceID {
+        FeedWindow(sourceID: sourceID)
       } else {
         Text("No feed selected")
       }

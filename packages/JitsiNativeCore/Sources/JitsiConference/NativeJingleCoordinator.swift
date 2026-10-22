@@ -53,9 +53,16 @@ public struct NativeJingleConfiguration: Equatable, Sendable {
 
 /// A remote video source with its rendering track, as shown in a tile.
 public struct RemoteVideoStream: Identifiable, Sendable {
-  /// The WebRTC track id, which for a signaled source is the track part of its
-  /// msid — the stable handle both signaling and media agree on.
+  /// The WebRTC track id: the track part of a signaled source's msid, or the
+  /// receive slot ("remote-video-1") an SSRC-rewriting bridge forwards on. It
+  /// names what the video arrives on, not whose video it is — a rewriting
+  /// bridge reassigns a slot to another source whenever it remaps.
   public var id: String { track.id }
+  /// Whose video this is: the source name when the source was signaled, else
+  /// the track id. A remap moves a source between slots but keeps its name,
+  /// so anything that should follow one person's camera or screen — a pin, a
+  /// feed floated in its own window — keys on this rather than `id`.
+  public var sourceID: String { sourceName ?? id }
   public var track: RemoteVideoTrack
   /// The Jitsi source name ("abcd1234-v0"), when the source was signaled.
   public var sourceName: String?

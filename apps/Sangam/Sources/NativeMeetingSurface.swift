@@ -477,7 +477,7 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
         Section {
           ForEach(entry.streams) { stream in
             let thumbnail = SidebarThumbnail(
-              isPinned: model.pinnedTileID == stream.id,
+              isPinned: model.pinnedTileID == stream.sourceID,
               videoType: stream.videoType,
               handRaised: entry.handRaised,
               reaction: entry.endpointID.flatMap { model.tileReactions[$0]?.emoji }
@@ -486,16 +486,16 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
             }
             #if os(macOS)
               thumbnail
-                .tag(SidebarSelection.stream(stream.id))
+                .tag(SidebarSelection.stream(stream.sourceID))
                 // A double-click floats the feed in its own window; a single
                 // click still selects (pins) through the List.
                 .onTapGesture(count: 2) {
-                  openWindow(id: "feed", value: stream.id)
+                  openWindow(id: "feed", value: stream.sourceID)
                 }
                 .contextMenu { rosterMenu(for: entry, stream: stream) }
                 .accessibilityLabel(Text("\(entry.displayName) video"))
             #else
-              NavigationLink(value: SidebarSelection.stream(stream.id)) {
+              NavigationLink(value: SidebarSelection.stream(stream.sourceID)) {
                 thumbnail
               }
               .contextMenu { rosterMenu(for: entry, stream: stream) }
@@ -524,13 +524,13 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     if let stream {
       #if os(iOS)
         if supportsMultipleWindows {
-          Button("Open in New Window") { openWindow(id: "feed", value: stream.id) }
+          Button("Open in New Window") { openWindow(id: "feed", value: stream.sourceID) }
         }
       #endif
-      if model.pinnedTileID == stream.id {
+      if model.pinnedTileID == stream.sourceID {
         Button("Unpin") { model.pinnedTileID = nil }
       } else {
-        Button("Pin to stage") { model.pinnedTileID = stream.id }
+        Button("Pin to stage") { model.pinnedTileID = stream.sourceID }
       }
     }
     if model.isModerator, let endpointID = entry.endpointID,
@@ -842,7 +842,7 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
       )
       if let name = featured.stream?.sourceName { names.insert(name) }
     }
-    for stream in model.streams where model.openFeedStreamIDs.contains(stream.id) {
+    for stream in model.streams where model.openFeedSourceIDs.contains(stream.sourceID) {
       if let name = stream.sourceName { names.insert(name) }
     }
     return names.sorted()
@@ -1407,6 +1407,10 @@ final class NativeMeetingModel: ObservableObject {
   /// One grid spot: a participant (with or without flowing video) or a video
   /// source that has not been attributed to a participant yet.
   struct MeetingTile: Identifiable {
+    /// The stream's `sourceID`, or the endpoint id of a participant with no
+    /// video. Never the track id: under SSRC rewriting that is a receive slot
+    /// the bridge hands to someone else, and a pin on it would follow the
+    /// slot instead of the person.
     let id: String
     let displayName: String
     let stream: RemoteVideoStream?
@@ -1429,9 +1433,10 @@ final class NativeMeetingModel: ObservableObject {
   /// for our own), shown on that participant's tiles for a few seconds.
   @Published private(set) var tileReactions: [String: TileReaction] = [:]
   @Published var sidebarCollapsed = false
-  /// Stream ids currently floated in their own feed windows; those sources
-  /// stay at full receive quality even though they are off the stage.
-  @Published var openFeedStreamIDs: Set<String> = []
+  /// The sources (by `RemoteVideoStream.sourceID`) floated in their own feed
+  /// windows; they stay at full receive quality even though they are off the
+  /// stage.
+  @Published var openFeedSourceIDs: Set<String> = []
   @Published private(set) var localCameraTrack: LocalVideoTrack?
   /// The outgoing screen-share track, previewed in the sidebar while sharing.
   /// It renders straight from the capture pipeline, so a black preview means
@@ -1518,7 +1523,7 @@ final class NativeMeetingModel: ObservableObject {
     for stream in streams where !placedStreamIDs.contains(stream.id) {
       entries.append(
         RosterEntry(
-          id: "stream-\(stream.id)",
+          id: "stream-\(stream.sourceID)",
           displayName: stream.sourceName ?? stream.endpointID ?? "Participant",
           audioMuted: false,
           handRaised: false,
@@ -1554,7 +1559,7 @@ final class NativeMeetingModel: ObservableObject {
           placedStreamIDs.insert(stream.id)
           result.append(
             MeetingTile(
-              id: stream.id,
+              id: stream.sourceID,
               displayName: participant.displayName,
               stream: stream,
               audioMuted: participant.audioMuted,
@@ -1568,7 +1573,7 @@ final class NativeMeetingModel: ObservableObject {
     for stream in streams where !placedStreamIDs.contains(stream.id) {
       result.append(
         MeetingTile(
-          id: stream.id,
+          id: stream.sourceID,
           displayName: stream.sourceName ?? stream.endpointID ?? "Participant",
           stream: stream,
           audioMuted: false,
@@ -1848,7 +1853,12 @@ final class NativeMeetingModel: ObservableObject {
           // The bridge's mixed placeholder source never carries real video and
           // is not a participant.
           guard !stream.isBridgePlaceholder else { break }
-          streams.removeAll { $0.id == stream.id }
+          // A source that moved to a new slot replaces whatever still
+          // carries its name — the coordinator withdraws the old slot first,
+          // but tiles are keyed by source, so two must never coexist.
+          streams.removeAll {
+            $0.id == stream.id || (stream.sourceName != nil && $0.sourceID == stream.sourceID)
+          }
           streams.append(stream)
         case .remoteVideoTrackRemoved(let id):
           streams.removeAll { $0.id == id }

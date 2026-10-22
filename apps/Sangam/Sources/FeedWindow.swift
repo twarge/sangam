@@ -2,18 +2,20 @@ import JitsiConference
 import SwiftUI
 
 /// A single feed in its own window (its own scene on iPad): opened by
-/// double-clicking a sidebar thumbnail. The stream is resolved live from
-/// the active meeting, so the window follows renegotiations and shows a
-/// placeholder once the feed is gone.
+/// double-clicking a sidebar thumbnail. The window holds the source, not
+/// the stream: it is resolved live from the active meeting by `sourceID`,
+/// so it follows the source when an SSRC-rewriting bridge moves it to
+/// another receive slot, shows a placeholder while it is not being sent,
+/// and picks it up again when it returns.
 struct FeedWindow: View {
-  let streamID: String
+  let sourceID: String
 
   @ObservedObject private var hub = MeetingHub.shared
 
   var body: some View {
     Group {
       if let model = hub.activeModel {
-        FeedContent(model: model, streamID: streamID)
+        FeedContent(model: model, sourceID: sourceID)
       } else {
         FeedUnavailable()
       }
@@ -26,11 +28,11 @@ struct FeedWindow: View {
 
 private struct FeedContent: View {
   @ObservedObject var model: NativeMeetingModel
-  let streamID: String
+  let sourceID: String
 
   var body: some View {
     Group {
-      if let stream = model.streams.first(where: { $0.id == streamID }) {
+      if let stream = model.streams.first(where: { $0.sourceID == sourceID }) {
         NativeVideoSurface(track: stream.track)
           .navigationTitle(title(for: stream))
       } else {
@@ -43,8 +45,8 @@ private struct FeedContent: View {
     // A floated feed renders large, so its source must keep full receive
     // quality even while the main window shows it as a thumbnail (or not
     // at all).
-    .onAppear { model.openFeedStreamIDs.insert(streamID) }
-    .onDisappear { model.openFeedStreamIDs.remove(streamID) }
+    .onAppear { model.openFeedSourceIDs.insert(sourceID) }
+    .onDisappear { model.openFeedSourceIDs.remove(sourceID) }
   }
 
   private func title(for stream: RemoteVideoStream) -> String {
@@ -58,9 +60,10 @@ private struct FeedContent: View {
 private struct FeedUnavailable: View {
   var body: some View {
     ContentUnavailableView(
-      "This feed has ended",
+      "This feed has stopped",
       systemImage: "video.slash",
-      description: Text("It closed when its sender stopped, or the meeting ended.")
+      description: Text(
+        "Its sender stopped sending, or the meeting ended. It picks up here if they start again.")
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(.black)

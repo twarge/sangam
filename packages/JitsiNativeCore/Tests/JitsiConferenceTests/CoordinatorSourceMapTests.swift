@@ -111,6 +111,15 @@ struct CoordinatorSourceMapTests {
     }
     let observed = await harness.events
     #expect(switched, "the remapped track was not re-announced: \(observed)")
+    // Same slot, someone else's video: whatever followed the first source
+    // by its source id must no longer find it here.
+    let sourceIDs = observed.compactMap { event -> String? in
+      guard case .remoteVideoTrackAdded(let stream) = event, stream.id == "remote-video-1"
+      else { return nil }
+      return stream.sourceID
+    }
+    #expect(sourceIDs.first == "webabcd12-v0", "slot 1 announcements: \(sourceIDs)")
+    #expect(sourceIDs.last == "other9876-v0", "slot 1 announcements: \(sourceIDs)")
   }
 
   @Test
@@ -193,6 +202,16 @@ struct CoordinatorSourceMapTests {
       }
     }
     #expect(movedToNewSlot, "the source did not surface on its new slot: \(observed)")
+    // A new slot, the same video: a pin or a floated window keyed on the
+    // source id finds it again, where one keyed on the slot would not.
+    let slotsBySourceID = await harness.events.compactMap { event -> String? in
+      guard case .remoteVideoTrackAdded(let stream) = event, stream.sourceID == "webabcd12-v0"
+      else { return nil }
+      return stream.id
+    }
+    #expect(
+      Set(slotsBySourceID) == ["remote-video-1", "remote-video-2"],
+      "webabcd12-v0 announcements: \(slotsBySourceID)")
   }
 
   @Test
