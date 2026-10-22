@@ -68,6 +68,18 @@ struct SangamApp: App {
       .defaultSize(width: 640, height: 400)
     #endif
 
+    // The stage on a second display, following whoever the meeting
+    // features. Always opened with `StageWindow.singleton`, so asking again
+    // brings the one stage window forward. (`Window` would say that on the
+    // Mac, but iPadOS has no `Window` scene.)
+    WindowGroup("Stage", id: "stage", for: String.self) { _ in
+      StageWindow()
+    }
+    #if os(macOS)
+      .windowStyle(.hiddenTitleBar)
+      .defaultSize(width: 960, height: 540)
+    #endif
+
     #if os(macOS)
       Settings {
         SettingsView()

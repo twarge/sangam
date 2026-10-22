@@ -218,6 +218,8 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
           case .password: controller.requireMeetingPassword()
           case .meeting, .chat, .notes, .lobby:
             controller.didJoin()
+            // So a stage or feed window opened from the preview finds it.
+            MeetingHub.shared.registerModel(model)
             model.loadChatPreview()
             controller.isChatOpen = preview == .chat
             conversation.isOpen = preview == .notes
@@ -601,15 +603,11 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
         }
       } else if controller.usesTileGrid {
         gridView(tiles: tiles)
-      } else {
-        tileView(
-          for: Self.featuredTile(
-            in: tiles, pinned: model.pinnedTileID, dominantSpeakerID: model.dominantSpeakerID),
-          fitsVideoAspect: true
-        )
-        // A margin, so the feed's rounded corner reads as a corner rather
-        // than running into whichever sidebar is beside it.
-        .padding(gridSpacing * 2)
+      } else if let featured = model.featuredTile(in: tiles) {
+        tileView(for: featured, fitsVideoAspect: true)
+          // A margin, so the feed's rounded corner reads as a corner rather
+          // than running into whichever sidebar is beside it.
+          .padding(gridSpacing * 2)
       }
     }
     // Before any video exists the stage has no intrinsic size; without an
@@ -824,41 +822,23 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     }
   }
 
-  /// The remote video sources rendered large right now: every tile in grid
-  /// view, the featured tile otherwise, plus any feed floated in its own
-  /// window. Sorted so the onChange hook compares order-independently.
+  /// The remote video sources rendered large right now: the featured tile —
+  /// on this stage, or on a stage window when this one shows the grid — and
+  /// every tile in grid view, plus any feed floated in its own window.
+  /// Sorted so the onChange hook compares order-independently.
   private var fullQualitySourceNames: [String] {
     let tiles = model.tiles
     var names: Set<String> = []
+    if let name = model.featuredTile(in: tiles)?.stream?.sourceName { names.insert(name) }
     if controller.usesTileGrid {
       for tile in tiles {
         if let name = tile.stream?.sourceName { names.insert(name) }
       }
-    } else if !tiles.isEmpty {
-      let featured = Self.featuredTile(
-        in: tiles,
-        pinned: model.pinnedTileID,
-        dominantSpeakerID: model.dominantSpeakerID
-      )
-      if let name = featured.stream?.sourceName { names.insert(name) }
     }
     for stream in model.streams where model.openFeedSourceIDs.contains(stream.sourceID) {
       if let name = stream.sourceName { names.insert(name) }
     }
     return names.sorted()
-  }
-
-  /// The tile the stage features: the pinned tile, else a screen share, else
-  /// the dominant speaker, else the first.
-  private static func featuredTile(
-    in tiles: [NativeMeetingModel.MeetingTile],
-    pinned: String?,
-    dominantSpeakerID: String?
-  ) -> NativeMeetingModel.MeetingTile {
-    tiles.first { $0.id == pinned }
-      ?? tiles.first { $0.stream?.videoType == "desktop" }
-      ?? tiles.first { $0.endpointID != nil && $0.endpointID == dominantSpeakerID }
-      ?? tiles[0]
   }
 }
 
@@ -1277,7 +1257,7 @@ struct TileBadges: View {
   }
 }
 
-private struct MeetingTileView: View {
+struct MeetingTileView: View {
   /// One radius for the feed, its highlight border, and the margin that
   /// keeps them clear of the sidebars.
   static let cornerRadius: CGFloat = 12
@@ -1446,17 +1426,24 @@ final class NativeMeetingModel: ObservableObject {
   /// System Picture in Picture, fed by whatever the stage features.
   let pictureInPicture = PictureInPictureManager()
 
-  /// What the PiP window should show: the pinned tile's stream, else a
-  /// screen share, else the dominant speaker's, else any stream at all.
-  var featuredRemoteStream: RemoteVideoStream? {
-    let tiles = self.tiles
-    guard !tiles.isEmpty else { return nil }
-    let featured =
-      tiles.first { $0.id == pinnedTileID }
+  /// The tile the stage features: the pinned tile, else a screen share, else
+  /// the dominant speaker, else the first. The main window's stage, Picture
+  /// in Picture and the stage window all take it from here, so none of them
+  /// can disagree about who is on stage.
+  func featuredTile(in tiles: [MeetingTile]) -> MeetingTile? {
+    tiles.first { $0.id == pinnedTileID }
       ?? tiles.first { $0.stream?.videoType == "desktop" }
       ?? tiles.first { $0.endpointID != nil && $0.endpointID == dominantSpeakerID }
-      ?? tiles[0]
-    return featured.stream ?? tiles.compactMap(\.stream).first
+      ?? tiles.first
+  }
+
+  var featuredTile: MeetingTile? { featuredTile(in: tiles) }
+
+  /// What the PiP window should show: the featured tile's stream, else any
+  /// stream at all.
+  var featuredRemoteStream: RemoteVideoStream? {
+    let tiles = self.tiles
+    return featuredTile(in: tiles)?.stream ?? tiles.compactMap(\.stream).first
   }
 
   /// A reaction shown on a participant's tiles; the token distinguishes a

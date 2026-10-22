@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		006312C9FFD001E8FEF1FF75 /* MeetingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */; };
 		026F6AC5EBF21B813BAA7F8E /* CaptionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A098087D67C07A0F3D142C0C /* CaptionOverlay.swift */; };
+		02EF0B60B5A981DB500ADECF /* StageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B13D89EF6A5DDF09953CBB /* StageWindow.swift */; };
 		049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */; };
 		0C8D249AE24DFFD5309A74E1 /* TranscriptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6FFC67589BD36B439D69B80 /* TranscriptSheet.swift */; };
 		0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; productRef = D1C05CC97547E3D084834834 /* JitsiMedia */; };
@@ -84,6 +85,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00B13D89EF6A5DDF09953CBB /* StageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StageWindow.swift; sourceTree = "<group>"; };
 		0F43CEDFACF4E584D9316019 /* SangamBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SangamBroadcastExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingActivityController.swift; sourceTree = "<group>"; };
 		19074360D5D558EF60955DBD /* MeetingControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingControlBar.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 				9281FDC1DCBFB690D23631E7 /* SangamApp.swift */,
 				D5FAFE5FC31E55605E60979E /* SangamIntents.swift */,
 				5E0FBB2248A77A5E6C12EA58 /* SpeakerStatsPanel.swift */,
+				00B13D89EF6A5DDF09953CBB /* StageWindow.swift */,
 				B6FFC67589BD36B439D69B80 /* TranscriptSheet.swift */,
 			);
 			path = Sources;
@@ -418,6 +421,7 @@
 				9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */,
 				CC8E52AE8B4ED3D358932C6E /* SangamIntents.swift in Sources */,
 				8863F107C3E62AEE467B0689 /* SpeakerStatsPanel.swift in Sources */,
+				02EF0B60B5A981DB500ADECF /* StageWindow.swift in Sources */,
 				0C8D249AE24DFFD5309A74E1 /* TranscriptSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

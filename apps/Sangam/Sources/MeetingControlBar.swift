@@ -429,6 +429,9 @@ private struct MoreMenu: View {
   let notesOpen: Bool
   @ObservedObject private var settings = AppSettings.shared
   var overflow: [OverflowControl] = []
+  @Environment(\.openWindow) private var openWindow
+  /// False on iPhone, where there is no second window to put the stage in.
+  @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
 
   #if os(iOS)
     @State private var showsPopover = false
@@ -517,6 +520,13 @@ private struct MoreMenu: View {
           Label(
             controller.isPiPActive ? "Exit Picture in Picture" : "Picture in Picture",
             systemImage: "pip")
+        }
+      }
+      if supportsMultipleWindows {
+        Button {
+          perform { openWindow(id: "stage", value: StageWindow.singleton) }
+        } label: {
+          Label("Open Stage in New Window", systemImage: "rectangle.on.rectangle")
         }
       }
       Button {
