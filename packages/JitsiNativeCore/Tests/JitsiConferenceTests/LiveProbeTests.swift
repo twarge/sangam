@@ -75,7 +75,9 @@ func liveJoinProbe() async throws {
         serverURL: base,
         room: room,
         displayName: "Sangam Probe",
+        // Probes join real meetings: present, but sending nothing.
         startCamera: false,
+        startMicrophoneMuted: true,
         meetingPassword: meetingPassword
       ),
       progress: { progress in print("PROBE progress: \(progress)") }
