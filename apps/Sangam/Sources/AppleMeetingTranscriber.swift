@@ -39,7 +39,7 @@
     private var workers: [String: RemoteWorker] = [:]
     private var pending: [String: UUID] = [:]
     private var desired: [String: UUID] = [:]
-    private var microphone: AVAudioEngine?
+    private var microphone: MicrophoneCapture?
     private var microphonePump: Task<Void, Never>?
     private var microphoneSpeech: SpeechStream?
     private var running = true
@@ -179,62 +179,42 @@
           await speech.cancel()
           return
         }
-        let engine = AVAudioEngine()
-        // Torn down immediately when muted, on either platform.
-        #if os(macOS)
-          // Apple's voice processing keeps the room's own audio, played back
-          // through the speakers, out of what is transcribed as your voice.
-          // It is one unit for both directions, and an engine that only
-          // records leaves the playback side with no graph to run: Core
-          // Audio logs "failed to run downlink DSP (I/O fault)" every I/O
-          // cycle. The main mixer, made first, gives it silence to render
-          // (made after, it won't initialize).
-          _ = engine.mainMixerNode
-          try engine.inputNode.setVoiceProcessingEnabled(true)
-        #else
-          // Not on iOS: the call has the session in .videoChat already, so
-          // this input arrives echo-cancelled by the system's own unit, and
-          // asking for voice processing here would stand a second one up
-          // beside WebRTC's.
-        #endif
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-          throw TranscriptionError.microphone
-        }
         let stream = AsyncStream<MicrophonePacket>.makeStream(
           bufferingPolicy: .bufferingNewest(32))
         let continuation = stream.continuation
-        // AVFoundation invokes this on its audio queue. The SDK's non-Sendable
-        // tap block otherwise inherits MainActor here and traps on the first
-        // buffer. Capture only the thread-safe continuation and copy the audio
-        // before returning; the framework owns and reuses the input buffer.
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) {
-          @Sendable [continuation] buffer, time in
-          guard let copy = Self.captureCopy(of: buffer) else { return }
-          let start =
-            time.isHostTimeValid
-            ? AVAudioTime.seconds(forHostTime: time.hostTime)
-            : ProcessInfo.processInfo.systemUptime - Double(buffer.frameLength)
-              / buffer.format.sampleRate
-          continuation.yield(MicrophonePacket(buffer: copy, time: start))
-        }
-        SangamLog.event(
-          "transcriber: starting microphone engine \(Int(format.sampleRate))Hz x\(format.channelCount)"
-        )
-        do { try engine.start() } catch {
-          SangamLog.event("transcriber: microphone engine failed: \(error)")
-          engine.inputNode.removeTap(onBus: 0)
-          await speech.cancel()
-          throw error
-        }
-        SangamLog.event("transcriber: microphone engine running")
-        microphone = engine
+        let capture = MicrophoneCapture()
+        // Claimed before it opens, so a mute that arrives while the engine
+        // starts stops it the way it stops a running one.
+        microphone = capture
         microphoneSpeech = speech
         microphonePump = Task.detached(priority: .utility) {
           for await packet in stream.stream {
             guard !Task.isCancelled else { break }
             await speech.push(packet.buffer, at: packet.time)
           }
+        }
+        do {
+          // AVFoundation invokes this on its audio queue. Capture only the
+          // thread-safe continuation and copy the audio before returning;
+          // the framework owns and reuses the input buffer.
+          try await capture.start { @Sendable [continuation] buffer, time in
+            guard let copy = Self.captureCopy(of: buffer) else { return }
+            let start =
+              time.isHostTimeValid
+              ? AVAudioTime.seconds(forHostTime: time.hostTime)
+              : ProcessInfo.processInfo.systemUptime - Double(buffer.frameLength)
+                / buffer.format.sampleRate
+            continuation.yield(MicrophonePacket(buffer: copy, time: start))
+          }
+        } catch {
+          // A mute in the meantime has stopped and finished all of it.
+          guard microphone === capture else { return }
+          microphone = nil
+          microphoneSpeech = nil
+          microphonePump?.cancel()
+          microphonePump = nil
+          await speech.cancel()
+          throw error
         }
       } catch {
         report("Your microphone could not be transcribed: \(error.localizedDescription)")
@@ -277,13 +257,13 @@
     }
 
     private func stopMicrophone() async {
-      microphone?.stop()
-      microphone?.inputNode.removeTap(onBus: 0)
-      microphone = nil
+      let capture = microphone
       let pump = microphonePump
       let speech = microphoneSpeech
+      microphone = nil
       microphonePump = nil
       microphoneSpeech = nil
+      await capture?.stop()
       pump?.cancel()
       await pump?.value
       await speech?.finish()
@@ -306,8 +286,7 @@
       localEpoch = UUID()
       pending.removeAll()
       desired.removeAll()
-      microphone?.stop()
-      microphone?.inputNode.removeTap(onBus: 0)
+      let capture = microphone
       microphone = nil
       microphonePump?.cancel()
       microphonePump = nil
@@ -319,6 +298,7 @@
         worker.pump.cancel()
         worker.tap.stop()
       }
+      await capture?.stop()
       await local?.cancel()
       for worker in current { await worker.speech.cancel() }
       for task in retired.values { task.cancel() }
@@ -584,6 +564,84 @@
         await worker.finish()
       }
     #endif
+  }
+
+  /// The microphone's audio engine, kept off the main thread.
+  ///
+  /// Starting, stopping and above all releasing an engine whose input runs
+  /// voice processing wait on Core Audio threads at default QoS, so on the
+  /// main thread each is a priority inversion: the user-interactive thread
+  /// stalls behind a lower one for as long as Core Audio takes. Here every
+  /// engine is made, started, stopped and released on one serial queue,
+  /// which also keeps a new engine from starting before the last has
+  /// stopped. The engine is reached only on that queue, so the capture can
+  /// cross from the main actor.
+  @available(macOS 26, iOS 26, *)
+  nonisolated private final class MicrophoneCapture: @unchecked Sendable {
+    private static let queue = DispatchQueue(
+      label: "com.twarge.sangam.transcriber.microphone", qos: .utility)
+    private var engine: AVAudioEngine?
+    private var stopped = false
+
+    /// Opens the input and delivers its buffers to `tap` on AVFoundation's
+    /// audio queue. The tap is `@Sendable` so that it can never inherit the
+    /// main actor: a main-actor tap traps on the first buffer.
+    func start(_ tap: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void) async throws {
+      try await withCheckedThrowingContinuation { continuation in
+        Self.queue.async { continuation.resume(with: Result { try self.open(tap) }) }
+      }
+    }
+
+    /// Ends capture and releases the engine. A capture is used once: one
+    /// stopped before its start reaches the queue never opens.
+    func stop() async {
+      await withCheckedContinuation { continuation in
+        Self.queue.async {
+          self.stopped = true
+          self.engine?.stop()
+          self.engine?.inputNode.removeTap(onBus: 0)
+          self.engine = nil
+          continuation.resume()
+        }
+      }
+    }
+
+    private func open(_ tap: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void) throws {
+      guard !stopped else { return }
+      let engine = AVAudioEngine()
+      // Torn down immediately when muted, on either platform.
+      #if os(macOS)
+        // Apple's voice processing keeps the room's own audio, played back
+        // through the speakers, out of what is transcribed as your voice.
+        // It is one unit for both directions, and an engine that only
+        // records leaves the playback side with no graph to run: Core
+        // Audio logs "failed to run downlink DSP (I/O fault)" every I/O
+        // cycle. The main mixer, made first, gives it silence to render
+        // (made after, it won't initialize).
+        _ = engine.mainMixerNode
+        try engine.inputNode.setVoiceProcessingEnabled(true)
+      #else
+        // Not on iOS: the call has the session in .videoChat already, so
+        // this input arrives echo-cancelled by the system's own unit, and
+        // asking for voice processing here would stand a second one up
+        // beside WebRTC's.
+      #endif
+      let format = engine.inputNode.outputFormat(forBus: 0)
+      guard format.sampleRate > 0, format.channelCount > 0 else {
+        throw AppleMeetingTranscriber.TranscriptionError.microphone
+      }
+      engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tap)
+      SangamLog.event(
+        "transcriber: starting microphone engine \(Int(format.sampleRate))Hz x\(format.channelCount)"
+      )
+      do { try engine.start() } catch {
+        SangamLog.event("transcriber: microphone engine failed: \(error)")
+        engine.inputNode.removeTap(onBus: 0)
+        throw error
+      }
+      SangamLog.event("transcriber: microphone engine running")
+      self.engine = engine
+    }
   }
 
   @available(macOS 26, iOS 26, *)
