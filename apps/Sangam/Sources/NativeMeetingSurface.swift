@@ -2400,6 +2400,7 @@ final class NativeMeetingModel: ObservableObject {
 
     func updateNSView(_ view: NativeVideoRendererView, context: Context) {
       view.videoContentMode = contentMode
+      view.onVideoSize = onVideoSize
       view.display(track)
     }
 
