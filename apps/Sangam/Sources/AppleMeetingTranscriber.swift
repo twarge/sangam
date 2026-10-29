@@ -184,6 +184,12 @@
         #if os(macOS)
           // Apple's voice processing keeps the room's own audio, played back
           // through the speakers, out of what is transcribed as your voice.
+          // It is one unit for both directions, and an engine that only
+          // records leaves the playback side with no graph to run: Core
+          // Audio logs "failed to run downlink DSP (I/O fault)" every I/O
+          // cycle. The main mixer, made first, gives it silence to render
+          // (made after, it won't initialize).
+          _ = engine.mainMixerNode
           try engine.inputNode.setVoiceProcessingEnabled(true)
         #else
           // Not on iOS: the call has the session in .videoChat already, so
@@ -405,6 +411,8 @@
       ) -> (summary: String, format: AVAudioFormat?) {
         let engine = AVAudioEngine()
         do {
+          // As the transcriber does: the playback side needs a graph first.
+          if voiceProcessed { _ = engine.mainMixerNode }
           try engine.inputNode.setVoiceProcessingEnabled(voiceProcessed)
         } catch {
           return ("voice processing could not be enabled: \(error.localizedDescription)", nil)
