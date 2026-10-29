@@ -68,13 +68,24 @@ struct JoinView: View {
         }
         .frame(maxWidth: 420)
 
+        // A server the join can't use says so here rather than leaving the
+        // button to do nothing.
+        if let serverProblem {
+          Label(serverProblem, systemImage: "exclamationmark.circle.fill")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .frame(maxWidth: 420, alignment: .leading)
+        }
+
         Button(action: join) {
           Text("Join Meeting")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(room.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(
+          room.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || serverProblem != nil
+        )
         .frame(maxWidth: 420)
 
         // Where a meeting can live: the public server, or one of your own.
@@ -91,6 +102,17 @@ struct JoinView: View {
     }
     .defaultFocus($focusedField, .room)
     .onAppear(perform: focusRoomField)
+  }
+
+  /// Why the server field can't be joined, or nil when it can.
+  private var serverProblem: String? {
+    guard MeetingConfiguration.serverURL(from: serverURL) == nil else { return nil }
+    let text = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.isEmpty { return "Enter the Jitsi server, like meet.jit.si." }
+    if text.lowercased().hasPrefix("http://") {
+      return "Sangam connects over HTTPS only. Use https:// for this server."
+    }
+    return "That isn't a server address. Enter one like meet.jit.si."
   }
 
   private func fieldLabel(_ text: String) -> some View {

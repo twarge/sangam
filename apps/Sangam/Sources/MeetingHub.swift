@@ -74,7 +74,8 @@ final class MeetingHub: ObservableObject {
     guard !normalized.isEmpty else { return }
     let stored = UserDefaults.standard.string(forKey: "serverURL")
     let server =
-      stored.flatMap(URL.init(string:)) ?? MeetingConfiguration.defaultServerURL
+      stored.flatMap(MeetingConfiguration.serverURL(from:))
+      ?? MeetingConfiguration.defaultServerURL
     pendingJoin = MeetingConfiguration(
       serverURL: server,
       room: normalized,

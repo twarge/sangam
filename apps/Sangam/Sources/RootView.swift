@@ -119,11 +119,7 @@ struct RootView: View {
   }
 
   private func join() {
-    guard
-      let server = URL(string: serverURL),
-      let scheme = server.scheme?.lowercased(),
-      scheme == "https" || (scheme == "http" && server.host == "localhost")
-    else { return }
+    guard let server = MeetingConfiguration.serverURL(from: serverURL) else { return }
 
     let normalizedRoom = room.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedRoom.isEmpty else { return }
