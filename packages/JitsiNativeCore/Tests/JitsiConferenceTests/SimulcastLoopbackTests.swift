@@ -103,7 +103,7 @@ func encodesMultipleSimulcastStreamsOverLoopback() async throws {
       sendingSSRCs = Set(
         summary.components(separatedBy: " | ")
           .filter { $0.hasPrefix("vsend ssrc=") && !$0.hasSuffix(" sent=0") }
-          .compactMap { $0.split(separator: " ").first?.split(separator: "=").last }
+          .compactMap { $0.split(separator: " ").first { $0.hasPrefix("ssrc=") }?.dropFirst(5) }
           .map(String.init))
       print("=== \(Int(Date().timeIntervalSince(started)))s \(summary) ===")
       if sendingSSRCs.count >= 2 { break }
