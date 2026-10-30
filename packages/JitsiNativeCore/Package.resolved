@@ -1,13 +1,13 @@
 {
-  "originHash" : "78bc8d8db906d96001d30b33027e11895680bf698de7302b00f542200bf39627",
+  "originHash" : "cb98176e8d86cc64d68acf5862d3423dcd3fe46023ffd2257fd4e0a8d28d8854",
   "pins" : [
     {
       "identity" : "webrtc",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jitsi/webrtc",
       "state" : {
-        "revision" : "3a659cecd97387a0cf079be34f82f3bb24a03e13",
-        "version" : "124.0.2"
+        "revision" : "623fcfe044d5037b3ecd92001c2ef80ca1d932d5",
+        "version" : "155.0.1"
       }
     }
   ],

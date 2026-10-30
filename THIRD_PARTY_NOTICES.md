@@ -3,12 +3,13 @@
 ## WebRTC audio bridge headers
 
 `packages/JitsiNativeCore/Sources/JitsiAudioBridge/Vendor` contains unmodified
-WebRTC M124 interface headers from Jitsi revision
-`e7fccf32f8833bbe66b9ffdb73e5990af0809840`, distributed under the BSD license and
+WebRTC M155 interface headers from Jitsi revision
+`623fcfe044d5037b3ecd92001c2ef80ca1d932d5`, distributed under the BSD license and
 patent grant in `Vendor/LICENSE` and `Vendor/PATENTS`. Transitive Abseil headers
-come from Chromium revision `0ee7acc04862615acafccb621c4cbf38974dc1e3` and are
-distributed under Apache 2.0 in `Vendor/ABSEIL_LICENSE`. The source files retain
-their copyright notices. Include these notices when distributing the app.
+come from Chromium third_party revision `74ec8c2ee533c9eb78e660876c6fa12d47626176`
+and are distributed under Apache 2.0 in `Vendor/ABSEIL_LICENSE`. The source
+files retain their copyright notices. Include these notices when distributing
+the app.
 
 ## Jitsi Meet
 

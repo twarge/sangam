@@ -8,10 +8,10 @@
 #include <memory>
 
 // This is WebRTC's own Objective-C++ accessor, absent from the distributed
-// public headers. Its declaration and C++ headers are pinned to M124; never
+// public headers. Its declaration and C++ headers are pinned to M155; never
 // update the binary independently of this bridge and its loopback test.
 @interface RTCAudioTrack (SangamNativeAudio)
-@property(nonatomic, readonly) rtc::scoped_refptr<webrtc::AudioTrackInterface> nativeAudioTrack;
+@property(nonatomic, readonly) webrtc::scoped_refptr<webrtc::AudioTrackInterface> nativeAudioTrack;
 @end
 
 namespace {
@@ -32,8 +32,11 @@ class AudioSink final : public webrtc::AudioTrackSinkInterface {
     mach_timebase_info(&info);
     secondsPerTick_ = double(info.numer) / info.denom / 1e9;
   }
+  // RemoteAudioSource delivers only this overload; the shorter ones are
+  // deprecated defaults that a sink overriding them would never receive.
   void OnData(const void *data, int bits, int rate, size_t channels,
-              size_t frames) override {
+              size_t frames, std::optional<int64_t>,
+              const webrtc::RtpPacketInfos &) override {
     const auto sequence = ++sequence_;
     if (bits != 16 || rate <= 0 || channels == 0 || frames == 0 ||
         channels > 2 || frames > kMaxSamples / channels) return;
@@ -75,7 +78,7 @@ class AudioSink final : public webrtc::AudioTrackSinkInterface {
 
 @implementation SGAudioTrackTap {
   RTCAudioTrack *_track;
-  rtc::scoped_refptr<webrtc::AudioTrackInterface> _nativeTrack;
+  webrtc::scoped_refptr<webrtc::AudioTrackInterface> _nativeTrack;
   std::unique_ptr<AudioSink> _sink;
   uint64_t _lastSequence;
 }

@@ -125,16 +125,18 @@ finalized, corrected turns -> Foundation Models -> title/summary/actions
 ```
 
 The pinned Jitsi WebRTC binary does not publicly expose PCM in its Objective-C
-API. JitsiAudioBridge uses WebRTC's nativeAudioTrack accessor and the actual M124
+API. JitsiAudioBridge uses WebRTC's nativeAudioTrack accessor and the actual M155
 C++ headers, with no hard-coded vtable offsets. Its audio callback only copies
 into a fixed ring. Polling, allocation, format conversion, and inference happen
 outside the callback. See the bridge README for header provenance. A real
 WebRTC receiver test verifies attachment, idempotent detach, and attribution
-after Jitsi remaps an audio SSRC. Revalidate the bridge when upgrading WebRTC.
+after Jitsi remaps an audio SSRC, and a loopback test verifies that decoded
+audio actually arrives. Revalidate the bridge when upgrading WebRTC.
 
 Audio source maps now update ownership even for an existing receive slot. Each
-ownership epoch gets a fresh recognition session. M124 does not expose packet
-source metadata at its decoded-audio callback; a conservative one-second gap
+ownership epoch gets a fresh recognition session. The tap does not use the RTP
+packet information M155 passes to its decoded-audio callback, and under SSRC
+rewriting a slot's SSRC survives a reassignment anyway; a conservative one-second gap
 at a known reassignment reduces the risk of assigning the transition to the new speaker.
 Exact attribution at those boundaries still needs real-call verification.
 For controlled deployments, the existing `SANGAM_SSRC_REWRITING=0` diagnostic

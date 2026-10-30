@@ -8,17 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef MODULES_AUDIO_PROCESSING_INCLUDE_AUDIO_PROCESSING_STATISTICS_H_
-#define MODULES_AUDIO_PROCESSING_INCLUDE_AUDIO_PROCESSING_STATISTICS_H_
+#ifndef API_AUDIO_AUDIO_PROCESSING_STATISTICS_H_
+#define API_AUDIO_AUDIO_PROCESSING_STATISTICS_H_
 
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 // This version of the stats uses Optionals, it will replace the regular
 // AudioProcessingStatistics struct.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 struct RTC_EXPORT AudioProcessingStats {
   AudioProcessingStats();
   AudioProcessingStats(const AudioProcessingStats& other);
@@ -30,16 +33,16 @@ struct RTC_EXPORT AudioProcessingStats {
   // It is conservative in flagging audio as speech, with low likelihood of
   // incorrectly flagging a frame as voice.
   // Only reported if voice detection is enabled in AudioProcessing::Config.
-  absl::optional<bool> voice_detected;
+  [[deprecated("bugs.webrtc.org/11226")]] std::optional<bool> voice_detected;
 
   // AEC Statistics.
   // ERL = 10log_10(P_far / P_echo)
-  absl::optional<double> echo_return_loss;
+  std::optional<double> echo_return_loss;
   // ERLE = 10log_10(P_echo / P_out)
-  absl::optional<double> echo_return_loss_enhancement;
+  std::optional<double> echo_return_loss_enhancement;
   // Fraction of time that the AEC linear filter is divergent, in a 1-second
   // non-overlapped aggregation window.
-  absl::optional<double> divergent_filter_fraction;
+  std::optional<double> divergent_filter_fraction;
 
   // The delay metrics consists of the delay median and standard deviation. It
   // also consists of the fraction of delay estimates that can make the echo
@@ -48,20 +51,21 @@ struct RTC_EXPORT AudioProcessingStats {
   // second. Note that if there are several clients pulling metrics from
   // `GetStatistics()` during a session the first call from any of them will
   // change to one second aggregation window for all.
-  absl::optional<int32_t> delay_median_ms;
-  absl::optional<int32_t> delay_standard_deviation_ms;
+  std::optional<int32_t> delay_median_ms;
+  std::optional<int32_t> delay_standard_deviation_ms;
 
   // Residual echo detector likelihood.
-  absl::optional<double> residual_echo_likelihood;
+  std::optional<double> residual_echo_likelihood;
   // Maximum residual echo likelihood from the last time period.
-  absl::optional<double> residual_echo_likelihood_recent_max;
+  std::optional<double> residual_echo_likelihood_recent_max;
 
   // The instantaneous delay estimate produced in the AEC. The unit is in
   // milliseconds and the value is the instantaneous value at the time of the
   // call to `GetStatistics()`.
-  absl::optional<int32_t> delay_ms;
+  std::optional<int32_t> delay_ms;
 };
+#pragma clang diagnostic pop
 
 }  // namespace webrtc
 
-#endif  // MODULES_AUDIO_PROCESSING_INCLUDE_AUDIO_PROCESSING_STATISTICS_H_
+#endif  // API_AUDIO_AUDIO_PROCESSING_STATISTICS_H_

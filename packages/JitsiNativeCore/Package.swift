@@ -20,7 +20,7 @@ let package = Package(
     .library(name: "JitsiMeetingNotes", targets: ["JitsiMeetingNotes"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/jitsi/webrtc", exact: "124.0.2")
+    .package(url: "https://github.com/jitsi/webrtc", exact: "155.0.1")
   ],
   targets: [
     .target(name: "JitsiConcurrency"),
@@ -71,5 +71,5 @@ let package = Package(
     .testTarget(name: "JitsiNativeCoreTests", dependencies: ["JitsiNativeCore"]),
     .testTarget(name: "JitsiMeetingNotesTests", dependencies: ["JitsiMeetingNotes"]),
   ],
-  cxxLanguageStandard: .cxx17
+  cxxLanguageStandard: .cxx20
 )

@@ -108,8 +108,9 @@
             report("This WebRTC audio source cannot be transcribed.")
             continue
           }
-          // Audio buffered by WebRTC at a slot remap has no source timestamp
-          // in M124. Discard the boundary instead of giving it the new name.
+          // Audio buffered by WebRTC at a slot remap reaches the tap with no
+          // owner of its own. Discard the boundary instead of giving it the
+          // new name.
           let acceptAfter = ProcessInfo.processInfo.systemUptime + (remapped ? 1 : 0)
           if remapped {
             report("An audio source changed; a short boundary may be missing from the transcript.")

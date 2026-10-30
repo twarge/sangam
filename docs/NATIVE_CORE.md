@@ -18,7 +18,7 @@ targets:
 - live XMPP WebSocket transport with bounded frames;
 - anonymous and PLAIN SASL negotiation, stream restart, and resource binding;
 - correlated Jicofo IQ requests and initial MUC join/self-presence handling;
-- a Jitsi WebRTC 124.0.2 media factory for unified-plan peer connections and
+- a Jitsi WebRTC 155.0.1 media factory for unified-plan peer connections and
   native microphone, camera, and screencast tracks;
 - complete Jingle offer-to-SDP and WebRTC-answer-to-session-accept translation,
   including BUNDLE, codecs, feedback, RTP extensions, ICE/DTLS, and SSRC groups;
