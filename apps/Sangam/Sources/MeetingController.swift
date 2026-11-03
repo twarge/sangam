@@ -206,6 +206,11 @@ final class MeetingController {
     send(.setAudioMuted(!isAudioMuted))
   }
 
+  func setAudioMuted(_ muted: Bool) {
+    guard muted != isAudioMuted else { return }
+    send(.setAudioMuted(muted))
+  }
+
   func toggleVideo() {
     videoPausedForBackground = false
     send(.setVideoMuted(!isVideoMuted))

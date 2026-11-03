@@ -31,6 +31,7 @@
 		634766FAB30DD092BF8E5B04 /* PictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92020D258073CA69E8B28E7 /* PictureInPicture.swift */; };
 		65DD302DB8DCE3568F6F64C0 /* NativeMeetingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDD0ACBD1724A2A5DB4DBC /* NativeMeetingSurface.swift */; };
 		6650E50F3FEBCBBB4BDF68B9 /* MeetingNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */; };
+		6D9C84280986C6090671286B /* SpacebarMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED874A7CD96DEC70F679EBB7 /* SpacebarMicrophone.swift */; };
 		70358F1EBCFA188C8BEAD8CF /* AppleMeetingTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEAA7F9498D376073FB42A5 /* AppleMeetingTranscriber.swift */; };
 		80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47C324E5E8C593BF40E952B /* MenuBarControls.swift */; };
 		812040D4A20062C7329CEF2F /* MeetingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */; };
@@ -127,6 +128,7 @@
 		E4A1842D7AEACAA5C83BD5BD /* JoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinView.swift; sourceTree = "<group>"; };
 		E6EABEC3E58B670AB3011ECA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E715F935B0C7E78D66C8DAF8 /* SangamWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamWidgets.swift; sourceTree = "<group>"; };
+		ED874A7CD96DEC70F679EBB7 /* SpacebarMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacebarMicrophone.swift; sourceTree = "<group>"; };
 		F7F8CB213B8F76C626A50EC4 /* MeetingNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingNotifications.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -174,6 +176,7 @@
 				B0C991D47AFD16CAABED8B8D /* RootView.swift */,
 				9281FDC1DCBFB690D23631E7 /* SangamApp.swift */,
 				D5FAFE5FC31E55605E60979E /* SangamIntents.swift */,
+				ED874A7CD96DEC70F679EBB7 /* SpacebarMicrophone.swift */,
 				5E0FBB2248A77A5E6C12EA58 /* SpeakerStatsPanel.swift */,
 				00B13D89EF6A5DDF09953CBB /* StageWindow.swift */,
 				B6FFC67589BD36B439D69B80 /* TranscriptSheet.swift */,
@@ -420,6 +423,7 @@
 				D351A4DE90E9B5D5424A6C02 /* RootView.swift in Sources */,
 				9BDDCC110A2DBAF995A4BE31 /* SangamApp.swift in Sources */,
 				CC8E52AE8B4ED3D358932C6E /* SangamIntents.swift in Sources */,
+				6D9C84280986C6090671286B /* SpacebarMicrophone.swift in Sources */,
 				8863F107C3E62AEE467B0689 /* SpeakerStatsPanel.swift in Sources */,
 				02EF0B60B5A981DB500ADECF /* StageWindow.swift in Sources */,
 				0C8D249AE24DFFD5309A74E1 /* TranscriptSheet.swift in Sources */,

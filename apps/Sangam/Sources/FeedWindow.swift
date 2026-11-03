@@ -22,6 +22,7 @@ struct FeedWindow: View {
     }
     #if os(macOS)
       .frame(minWidth: 320, minHeight: 200)
+      .background(SpacebarMicrophone(controller: hub.activeController))
     #endif
   }
 }

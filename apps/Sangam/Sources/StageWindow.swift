@@ -33,6 +33,7 @@ struct StageWindow: View {
     #if os(macOS)
       .frame(minWidth: 320, minHeight: 200)
       .background(FreeDisplayPlacement())
+      .background(SpacebarMicrophone(controller: hub.activeController))
     #endif
   }
 }

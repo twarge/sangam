@@ -105,6 +105,8 @@ struct MeetingView: View {
           .animation(.snappy, value: chatInset)
         }
       }
+      // Tap the space bar to mute or unmute; hold it to talk.
+      .background(SpacebarMicrophone(controller: controller))
     #endif
     // Chat and the conversation share the trailing column on a Mac and on a
     // wide iPad, and on a phone they would be two sheets fighting over the
