@@ -55,6 +55,12 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      # Jitsi WebRTC 155.0.1's macOS slice ships only its umbrella header.
+      # This resolves packages into build/DerivedData and restores the rest
+      # there, so the build below must use the same derived data path.
+      - name: Restore WebRTC macOS headers
+        run: make app-webrtc-headers
+
       - name: Build
         run: |
           xcodebuild build \
@@ -62,4 +68,5 @@ jobs:
             -scheme Sangam \
             -configuration Release \
             -destination '${{ matrix.destination }}' \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO

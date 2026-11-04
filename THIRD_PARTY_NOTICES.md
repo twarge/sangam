@@ -11,6 +11,11 @@ and are distributed under Apache 2.0 in `Vendor/ABSEIL_LICENSE`. The source
 files retain their copyright notices. Include these notices when distributing
 the app.
 
+`Scripts/webrtc-macos-headers/RTCMTLNSVideoView.h` is the WebRTC header of that
+name from the same revision, under the same license, with its import rewritten
+to the `<WebRTC/...>` form the framework ships. It fills a gap in the 155.0.1
+release's macOS slice.
+
 ## Jitsi Meet
 
 Copyright 8x8, Inc., Atlassian Pty Ltd, and Jitsi contributors.

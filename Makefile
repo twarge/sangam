@@ -10,7 +10,8 @@
 #   make project     regenerate the checked-in Xcode project
 #   make clean
 
-.PHONY: all project format test stage-webrtc media mac ios ios-device clean
+.PHONY: all project format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \
+  ios-device clean
 
 all: test mac ios
 
@@ -21,12 +22,28 @@ format:
 	swift format --in-place --recursive apps/Sangam apps/SangamBroadcastExtension \
 	  packages/JitsiNativeCore/Sources packages/JitsiNativeCore/Tests
 
+# Jitsi's WebRTC 155.0.1 xcframework ships a macOS slice with only the
+# umbrella WebRTC.h, so the Mac build of anything importing WebRTC fails.
+# Resolving extracts the xcframework; the script then restores the headers in
+# place before anything compiles against it. SwiftPM and Xcode each keep their
+# own extracted copy. Drop both targets once Jitsi publishes a fixed release.
+WEBRTC_XCFRAMEWORK = artifacts/webrtc/WebRTC/WebRTC.xcframework
+
+webrtc-headers:
+	@swift package --package-path packages/JitsiNativeCore resolve
+	@Scripts/repair-webrtc-macos-headers.sh packages/JitsiNativeCore/.build/$(WEBRTC_XCFRAMEWORK)
+
+app-webrtc-headers:
+	@xcodebuild -resolvePackageDependencies -project apps/Sangam.xcodeproj -scheme Sangam \
+	  -derivedDataPath build/DerivedData -quiet
+	@Scripts/repair-webrtc-macos-headers.sh build/DerivedData/SourcePackages/$(WEBRTC_XCFRAMEWORK)
+
 # SwiftPM does not embed a binary xcframework next to its test bundles, so
 # dyld cannot resolve @rpath/WebRTC.framework when JitsiConferenceTests loads.
 # PackageFrameworks is already on the bundle's search path, so staging the
 # framework there is enough. Xcode embeds it for the app targets and needs none
 # of this.
-stage-webrtc:
+stage-webrtc: webrtc-headers
 	@swift build --package-path packages/JitsiNativeCore --target JitsiMedia >/dev/null
 	@bin="$$(swift build --package-path packages/JitsiNativeCore --show-bin-path)"; \
 	  mkdir -p "$$bin/PackageFrameworks"; \
@@ -41,11 +58,11 @@ test: stage-webrtc
 test-ci: stage-webrtc
 	swift test --package-path packages/JitsiNativeCore --no-parallel
 
-media:
+media: webrtc-headers
 	swift build --package-path packages/JitsiNativeCore --target JitsiMedia
 	swift build --package-path packages/JitsiNativeCore --target JitsiConference
 
-mac:
+mac: app-webrtc-headers
 	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
 	  -destination "platform=macOS" -derivedDataPath build/DerivedData \
 	  -allowProvisioningUpdates -quiet build
