@@ -1606,7 +1606,64 @@ final class NativeMeetingModel: ObservableObject {
     pictureInPicture.onError = { [weak controller] message in
       controller?.report(error: message)
     }
-    await startJoin(configuration: configuration, controller: controller)
+    // A sign-in or meeting password that got in here before goes first; the
+    // form only asks when the server turns it down.
+    let saved = savedAccess(for: configuration)
+    await startJoin(
+      configuration: configuration,
+      controller: controller,
+      username: saved.signIn?.username,
+      password: saved.signIn?.password,
+      meetingPassword: saved.meetingPassword,
+      fromKeychain: saved.kinds
+    )
+  }
+
+  /// Which of a join's credentials came from the Keychain rather than from
+  /// the person joining, so a refusal forgets them instead of blaming
+  /// something nobody typed.
+  struct SavedAccessKinds: OptionSet {
+    let rawValue: Int
+    static let signIn = SavedAccessKinds(rawValue: 1 << 0)
+    static let meetingPassword = SavedAccessKinds(rawValue: 1 << 1)
+  }
+
+  /// What the Keychain holds for a meeting: its server's admin sign-in —
+  /// unless the meeting brought its own token — and the room's password.
+  private func savedAccess(for configuration: MeetingConfiguration) -> (
+    signIn: SavedCredentials.AdminSignIn?, meetingPassword: String?, kinds: SavedAccessKinds
+  ) {
+    let signIn =
+      configuration.token == nil
+      ? SavedCredentials.adminSignIn(for: configuration.serverURL) : nil
+    let meetingPassword = SavedCredentials.meetingPassword(
+      server: configuration.serverURL, room: configuration.normalizedRoom)
+    var kinds: SavedAccessKinds = []
+    if signIn != nil { kinds.insert(.signIn) }
+    if meetingPassword != nil { kinds.insert(.meetingPassword) }
+    return (signIn, meetingPassword, kinds)
+  }
+
+  /// Keeps what got a join in for the next one, and the meeting itself in
+  /// the recents.
+  private func rememberJoin(
+    configuration: MeetingConfiguration,
+    username: String?,
+    password: String?,
+    meetingPassword: String?,
+    fromKeychain: SavedAccessKinds
+  ) {
+    MeetingHub.shared.noteMeetingJoined(configuration)
+    if let username, let password, configuration.token == nil,
+      !fromKeychain.contains(.signIn)
+    {
+      SavedCredentials.saveAdminSignIn(
+        .init(username: username, password: password), for: configuration.serverURL)
+    }
+    if let meetingPassword, !fromKeychain.contains(.meetingPassword) {
+      SavedCredentials.saveMeetingPassword(
+        meetingPassword, server: configuration.serverURL, room: configuration.normalizedRoom)
+    }
   }
 
   /// One tick of the mute button's level meter.
@@ -1681,7 +1738,8 @@ final class NativeMeetingModel: ObservableObject {
     password: String? = nil,
     waitForHost: Bool = false,
     roomOverride: String? = nil,
-    meetingPassword: String? = nil
+    meetingPassword: String? = nil,
+    fromKeychain: SavedAccessKinds = []
   ) async {
     guard joinTask == nil, handle == nil else { return }
     SangamLog.event(
@@ -1722,6 +1780,12 @@ final class NativeMeetingModel: ObservableObject {
         self.localScreenTrack = handle.coordinator.screenVideoTrack
         self.observe(handle: handle, controller: controller)
         self.startStatsLogging(handle: handle)
+        // A breakout room is a stop inside this meeting, not one to return to.
+        if roomOverride == nil {
+          self.rememberJoin(
+            configuration: configuration, username: username, password: password,
+            meetingPassword: meetingPassword, fromKeychain: fromKeychain)
+        }
         // MUC membership is the user-visible definition of "joined". Jicofo's
         // default min-participants is two, so a lone participant will not
         // receive a Jingle media offer yet.
@@ -1739,23 +1803,56 @@ final class NativeMeetingModel: ObservableObject {
           controller.didEnterLobby(waitingForHost: true)
           self.joinTask = nil
           await self.startJoin(
-            configuration: configuration, controller: controller, waitForHost: true)
+            configuration: configuration, controller: controller, waitForHost: true,
+            meetingPassword: meetingPassword,
+            fromKeychain: fromKeychain.intersection(.meetingPassword))
+          // The wait ran as its own join and has already settled joinTask —
+          // or a sign-in cancelled it and owns joinTask now.
+          return
         }
       } catch NativeConferenceBootstrapError.invalidCredentials {
-        SangamLog.event("join: invalidCredentials")
-        controller.requireAccess(message: "That username or password wasn’t accepted.")
+        SangamLog.event("join: invalidCredentials saved=\(fromKeychain.contains(.signIn))")
+        if fromKeychain.contains(.signIn) {
+          // The password changed, or the account went: the next join should
+          // not try it again. The username is still worth handing back.
+          SavedCredentials.forgetAdminSignIn(for: configuration.serverURL)
+          controller.requireAccess(
+            message: "The saved sign-in for this server wasn’t accepted.",
+            suggestedUsername: username)
+        } else {
+          controller.requireAccess(message: "That username or password wasn’t accepted.")
+        }
       } catch NativeConferenceBootstrapError.guestAccessUnavailable {
         // The server will not take a guest at all, so waiting for a host
         // cannot help: the sign-in card is the only way forward.
         SangamLog.event("join: guestAccessUnavailable")
         controller.requireAccess(message: "This meeting needs an account. Sign in to join.")
       } catch NativeConferenceBootstrapError.passwordLoginUnavailable {
-        SangamLog.event("join: passwordLoginUnavailable")
+        SangamLog.event("join: passwordLoginUnavailable saved=\(fromKeychain.contains(.signIn))")
+        if fromKeychain.contains(.signIn) {
+          // The server stopped taking passwords since the sign-in was saved.
+          // Nobody asked to sign in this time, so join the ordinary way.
+          SavedCredentials.forgetAdminSignIn(for: configuration.serverURL)
+          self.joinTask = nil
+          await self.startJoin(
+            configuration: configuration, controller: controller,
+            meetingPassword: meetingPassword,
+            fromKeychain: fromKeychain.subtracting(.signIn))
+          return
+        }
         controller.requireAccess(
           message: "This server doesn’t accept username and password sign-in.")
       } catch NativeConferenceBootstrapError.passwordRequired {
-        SangamLog.event("join: passwordRequired")
-        controller.requireMeetingPassword()
+        SangamLog.event("join: passwordRequired saved=\(fromKeychain.contains(.meetingPassword))")
+        if fromKeychain.contains(.meetingPassword) {
+          // A host changed the password since it was saved.
+          SavedCredentials.forgetMeetingPassword(
+            server: configuration.serverURL, room: configuration.normalizedRoom)
+          controller.requireMeetingPassword(
+            message: "The saved password for this meeting wasn’t accepted.")
+        } else {
+          controller.requireMeetingPassword()
+        }
       } catch is CancellationError {
         SangamLog.event("join: cancelled")
         return
@@ -2059,19 +2156,26 @@ final class NativeMeetingModel: ObservableObject {
       // flight; its cancellation tears down what that join opened.
       joinTask?.cancel()
       joinTask = nil
+      // A typed sign-in still carries the room's saved password with it.
+      let saved = savedAccess(for: configuration)
       await startJoin(
         configuration: configuration,
         controller: controller,
         username: username,
-        password: password
+        password: password,
+        meetingPassword: saved.meetingPassword,
+        fromKeychain: saved.kinds.intersection(.meetingPassword)
       )
       return
     case .waitForHost:
       guard let configuration else { return }
+      let saved = savedAccess(for: configuration)
       await startJoin(
         configuration: configuration,
         controller: controller,
-        waitForHost: true
+        waitForHost: true,
+        meetingPassword: saved.meetingPassword,
+        fromKeychain: saved.kinds.intersection(.meetingPassword)
       )
       return
     case .cancelWaiting:
@@ -2085,8 +2189,16 @@ final class NativeMeetingModel: ObservableObject {
       guard let configuration else { return }
       joinTask?.cancel()
       joinTask = nil
+      // A typed meeting password still signs in with the server's saved
+      // account, as the first attempt did.
+      let saved = savedAccess(for: configuration)
       await startJoin(
-        configuration: configuration, controller: controller, meetingPassword: password)
+        configuration: configuration,
+        controller: controller,
+        username: saved.signIn?.username,
+        password: saved.signIn?.password,
+        meetingPassword: password,
+        fromKeychain: saved.kinds.intersection(.signIn))
       return
     default:
       break

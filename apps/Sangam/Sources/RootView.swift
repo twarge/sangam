@@ -114,14 +114,23 @@ struct RootView: View {
       serverURL: $serverURL,
       room: $room,
       displayName: $displayName,
-      join: join
+      join: { join(server: serverURL, room: room) },
+      joinRecent: joinRecent
     )
   }
 
-  private func join() {
-    guard let server = MeetingConfiguration.serverURL(from: serverURL) else { return }
+  /// Fills the form with a recent meeting — so Back returns to it — and
+  /// joins it.
+  private func joinRecent(_ meeting: RecentMeeting) {
+    serverURL = meeting.server
+    room = meeting.room
+    join(server: meeting.server, room: meeting.room)
+  }
 
-    let normalizedRoom = room.trimmingCharacters(in: .whitespacesAndNewlines)
+  private func join(server serverText: String, room roomText: String) {
+    guard let server = MeetingConfiguration.serverURL(from: serverText) else { return }
+
+    let normalizedRoom = roomText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedRoom.isEmpty else { return }
 
     let configuration = MeetingConfiguration(

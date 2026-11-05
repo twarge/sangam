@@ -5,6 +5,10 @@ struct JoinView: View {
   @Binding var room: String
   @Binding var displayName: String
   var join: () -> Void
+  /// Joins a meeting picked from the Recent list.
+  var joinRecent: (RecentMeeting) -> Void
+
+  @ObservedObject private var hub = MeetingHub.shared
 
   private enum Field {
     case room
@@ -88,6 +92,14 @@ struct JoinView: View {
         )
         .frame(maxWidth: 420)
 
+        if !hub.recentMeetings.isEmpty {
+          RecentMeetingsList(
+            meetings: Array(hub.recentMeetings.prefix(5)),
+            join: joinRecent
+          )
+          .frame(maxWidth: 420)
+        }
+
         // Where a meeting can live: the public server, or one of your own.
         Text(
           "Anyone can host meetings on [meet.jit.si](https://meet.jit.si), or [set up their own Jitsi server](https://jitsi.github.io/handbook/docs/devops-guide/) to host private conferences securely."
@@ -146,6 +158,145 @@ struct JoinView: View {
     Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(200))
       if focusedField == nil { focusedField = .room }
+    }
+  }
+}
+
+/// The meetings joined lately, under the Join button: a click fills in the
+/// form and joins. A key marks a meeting that will sign itself in or enter
+/// its password from the Keychain.
+private struct RecentMeetingsList: View {
+  let meetings: [RecentMeeting]
+  let join: (RecentMeeting) -> Void
+
+  private struct Saved: Equatable {
+    var signIn = false
+    var meetingPassword = false
+  }
+
+  /// What the Keychain holds for each meeting — read when the list changes,
+  /// not on every keystroke in the form above.
+  @State private var saved: [RecentMeeting.ID: Saved] = [:]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Recent")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.leading, 4)
+
+      VStack(spacing: 0) {
+        ForEach(meetings) { meeting in
+          RecentMeetingRow(
+            meeting: meeting,
+            savedSignIn: saved[meeting.id]?.signIn ?? false,
+            savedMeetingPassword: saved[meeting.id]?.meetingPassword ?? false,
+            join: { join(meeting) }
+          )
+          .contextMenu { menu(for: meeting) }
+          if meeting.id != meetings.last?.id {
+            Divider().padding(.leading, 42)
+          }
+        }
+      }
+      .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+    .task(id: meetings) { refresh() }
+  }
+
+  @ViewBuilder
+  private func menu(for meeting: RecentMeeting) -> some View {
+    Button("Join", systemImage: "video") { join(meeting) }
+    if let server = meeting.serverURL {
+      if saved[meeting.id]?.meetingPassword == true {
+        Button("Forget Meeting Password", systemImage: "key.slash") {
+          SavedCredentials.forgetMeetingPassword(server: server, room: meeting.room)
+          refresh()
+        }
+      }
+      if saved[meeting.id]?.signIn == true {
+        Button("Forget Sign-in for \(meeting.serverName)", systemImage: "person.badge.key") {
+          SavedCredentials.forgetAdminSignIn(for: server)
+          refresh()
+        }
+      }
+    }
+    Divider()
+    Button("Remove from Recent", systemImage: "trash", role: .destructive) {
+      MeetingHub.shared.forgetRecentMeeting(meeting)
+    }
+  }
+
+  private func refresh() {
+    saved = Dictionary(
+      meetings.compactMap { meeting in
+        meeting.serverURL.map { server in
+          (
+            meeting.id,
+            Saved(
+              signIn: SavedCredentials.hasAdminSignIn(for: server),
+              meetingPassword: SavedCredentials.hasMeetingPassword(
+                server: server, room: meeting.room))
+          )
+        }
+      },
+      uniquingKeysWith: { first, _ in first })
+  }
+}
+
+private struct RecentMeetingRow: View {
+  let meeting: RecentMeeting
+  let savedSignIn: Bool
+  let savedMeetingPassword: Bool
+  let join: () -> Void
+
+  @State private var hovered = false
+
+  var body: some View {
+    Button(action: join) {
+      HStack(spacing: 10) {
+        Image(systemName: "clock.arrow.circlepath")
+          .foregroundStyle(.secondary)
+          .frame(width: 20)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(meeting.room)
+            .lineLimit(1)
+          Text(meeting.serverName)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 8)
+        if let savedNote {
+          Image(systemName: "key.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .help(savedNote)
+            .accessibilityLabel(savedNote)
+        }
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tertiary)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .contentShape(Rectangle())
+      .background(hovered ? Color.primary.opacity(0.06) : .clear)
+    }
+    .buttonStyle(.plain)
+    .onHover { hovered = $0 }
+    .help("Join \(meeting.room) on \(meeting.serverName)")
+    .accessibilityElement(children: .combine)
+    .accessibilityHint("Joins this meeting")
+  }
+
+  /// What the key stands for, when there is one.
+  private var savedNote: String? {
+    switch (savedSignIn, savedMeetingPassword) {
+    case (true, true): "Signs in and enters the meeting password with saved passwords"
+    case (true, false): "Signs in with the saved account for \(meeting.serverName)"
+    case (false, true): "Enters the saved meeting password"
+    case (false, false): nil
     }
   }
 }

@@ -109,6 +109,8 @@ final class MeetingController {
   var usesTileGrid = false
   var errorMessage: String?
   private(set) var accessMessage: String?
+  /// A username for the sign-in form to start from, when one is known.
+  private(set) var suggestedUsername: String?
   /// Whether the lobby wait ends when a host arrives rather than when one
   /// decides; changes the wording of the waiting card.
   private(set) var lobbyWaitsForHost = false
@@ -365,9 +367,9 @@ final class MeetingController {
     errorMessage = nil
   }
 
-  func requireMeetingPassword() {
+  func requireMeetingPassword(message: String? = nil) {
     connectionState = .passwordRequired
-    accessMessage = meetingPasswordAttempted ? "That password wasn’t accepted." : nil
+    accessMessage = message ?? (meetingPasswordAttempted ? "That password wasn’t accepted." : nil)
     errorMessage = nil
   }
 
@@ -438,7 +440,10 @@ final class MeetingController {
     }
   }
 
-  func requireAccess(message: String? = nil) {
+  /// `suggestedUsername` fills an empty username field — the account of a
+  /// saved sign-in the server just turned down.
+  func requireAccess(message: String? = nil, suggestedUsername: String? = nil) {
+    self.suggestedUsername = suggestedUsername
     connectionState = .accessRequired
     accessMessage = message
     errorMessage = nil

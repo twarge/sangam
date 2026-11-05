@@ -34,11 +34,26 @@ final class MeetingHub: ObservableObject {
     }
   }
 
-  /// Rooms joined lately, newest first, for Siri and Spotlight suggestions.
-  @Published private(set) var recentRooms: [String]
+  /// Meetings joined lately, newest first: the join form's Recent list, and
+  /// the rooms Siri and Spotlight suggest.
+  @Published private(set) var recentMeetings: [RecentMeeting]
+
+  /// The recent rooms by name alone, for Siri — one entry per name even when
+  /// it was joined on more than one server.
+  var recentRooms: [String] {
+    var seen = Set<String>()
+    return recentMeetings.map(\.room).filter { seen.insert($0.lowercased()).inserted }
+  }
+
+  private static let recentMeetingsKey = "recentMeetings"
+  private static let recentMeetingsLimit = 8
 
   private init() {
-    recentRooms = UserDefaults.standard.stringArray(forKey: "recentRooms") ?? []
+    // The list before this one ("recentRooms") held room names without
+    // their servers, so it starts over rather than guessing them.
+    recentMeetings =
+      UserDefaults.standard.data(forKey: Self.recentMeetingsKey)
+      .flatMap { try? JSONDecoder().decode([RecentMeeting].self, from: $0) } ?? []
   }
 
   func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
@@ -48,13 +63,33 @@ final class MeetingHub: ObservableObject {
       self.activeConfiguration = configuration
       self.activeController = controller
       MeetingNotifications.prepare()
-      var recents = self.recentRooms.filter {
-        $0.caseInsensitiveCompare(configuration.normalizedRoom) != .orderedSame
-      }
-      recents.insert(configuration.normalizedRoom, at: 0)
-      self.recentRooms = Array(recents.prefix(8))
-      UserDefaults.standard.set(self.recentRooms, forKey: "recentRooms")
     }
+  }
+
+  /// Puts a meeting at the top of the recents once it has actually been
+  /// joined, so a mistyped room never makes the list.
+  func noteMeetingJoined(_ configuration: MeetingConfiguration) {
+    let meeting = RecentMeeting(
+      server: configuration.serverURL.absoluteString, room: configuration.normalizedRoom)
+    var recents = recentMeetings.filter { $0.id != meeting.id }
+    recents.insert(meeting, at: 0)
+    storeRecentMeetings(Array(recents.prefix(Self.recentMeetingsLimit)))
+  }
+
+  /// Drops a meeting from the recents, and the password saved for it.
+  func forgetRecentMeeting(_ meeting: RecentMeeting) {
+    if let server = meeting.serverURL {
+      SavedCredentials.forgetMeetingPassword(server: server, room: meeting.room)
+    }
+    storeRecentMeetings(recentMeetings.filter { $0.id != meeting.id })
+  }
+
+  private func storeRecentMeetings(_ meetings: [RecentMeeting]) {
+    recentMeetings = meetings
+    if let data = try? JSONEncoder().encode(meetings) {
+      UserDefaults.standard.set(data, forKey: Self.recentMeetingsKey)
+    }
+    UserDefaults.standard.removeObject(forKey: "recentRooms")
   }
 
   /// Clears the active meeting — but only if `controller` still is it:
@@ -68,13 +103,18 @@ final class MeetingHub: ObservableObject {
     }
   }
 
-  /// Joins a room by name on the user's configured server.
+  /// Joins a room by name: on the server it was last joined on, or else on
+  /// the user's configured server.
   func requestJoin(room: String) {
     let normalized = room.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else { return }
+    let recent = recentMeetings.first {
+      $0.room.caseInsensitiveCompare(normalized) == .orderedSame
+    }
     let stored = UserDefaults.standard.string(forKey: "serverURL")
     let server =
-      stored.flatMap(MeetingConfiguration.serverURL(from:))
+      recent?.serverURL
+      ?? stored.flatMap(MeetingConfiguration.serverURL(from:))
       ?? MeetingConfiguration.defaultServerURL
     pendingJoin = MeetingConfiguration(
       serverURL: server,
@@ -121,4 +161,23 @@ final class MeetingHub: ObservableObject {
       token: token.flatMap { $0.isEmpty ? nil : $0 }
     )
   }
+}
+
+/// A meeting joined before: where it was and what it was called, enough to
+/// join it again in one click.
+struct RecentMeeting: Codable, Hashable, Identifiable, Sendable {
+  /// The server address as it was joined.
+  var server: String
+  var room: String
+
+  /// One entry per meeting, however the server was typed or the room cased.
+  var id: String {
+    serverURL.map { SavedCredentials.roomKey(server: $0, room: room) }
+      ?? "\(server)/\(room.lowercased())"
+  }
+
+  var serverURL: URL? { MeetingConfiguration.serverURL(from: server) }
+
+  /// The server as the list shows it.
+  var serverName: String { serverURL.map(SavedCredentials.displayHost) ?? server }
 }

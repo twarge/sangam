@@ -636,7 +636,12 @@ private struct PreJoinView: View {
     switch state {
     case .accessRequired:
       submittedCredentials = false
-      focus(.username)
+      if username.isEmpty, let suggested = controller.suggestedUsername {
+        username = suggested
+        focus(.password)
+      } else {
+        focus(.username)
+      }
     case .passwordRequired:
       focus(.meetingPassword)
     default:
