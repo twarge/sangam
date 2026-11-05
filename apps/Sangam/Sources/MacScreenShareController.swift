@@ -78,12 +78,13 @@
         report(.stopped)
         return
       }
+      // The share is over whatever stopCapture answers — the stream is
+      // already gone from here — so a teardown error is logged, not raised.
       activeStream.stopCapture { [weak self] error in
         if let error {
-          self?.report(.failed(error.localizedDescription))
-        } else {
-          self?.report(.stopped)
+          SangamLog.event("screen-share: stop error \(Self.describe(error))")
         }
+        self?.report(.stopped)
       }
     }
 
@@ -180,18 +181,47 @@
   extension MacScreenShareController: nonisolated SCStreamDelegate, nonisolated SCStreamOutput {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
       _ = takeStream()
-      // Closing the shared window, or stopping from the system's screen
-      // sharing indicator, ends the stream with `userStopped`. That is an
-      // ordinary end of sharing — report it as stopped so the app resets the
+      SangamLog.event("screen-share: stream stopped \(Self.describe(error))")
+      // Closing the shared window or unplugging the shared display, or
+      // stopping from the system's screen sharing indicator, ends the
+      // stream with an error too. Those are ordinary ends of sharing —
+      // stop the way the toolbar's button does, so the app resets the
       // toolbar quietly instead of raising an error alert.
-      let nsError = error as NSError
-      if nsError.domain == SCStreamErrorDomain,
-        nsError.code == SCStreamError.Code.userStopped.rawValue
-      {
-        report(.stopped)
+      if Self.endsSharingOrdinarily(error) {
+        Task { @MainActor in self.stop() }
       } else {
         report(.failed(error.localizedDescription))
       }
+    }
+
+    /// Every window being shared has closed (macOS 15.2 and later). The
+    /// stream stays up in case one reopens, but a window that closed is a
+    /// share that ended: stop it quietly rather than send a frozen frame
+    /// until somebody notices.
+    nonisolated func streamDidBecomeInactive(_ stream: SCStream) {
+      SangamLog.event("screen-share: shared windows closed")
+      Task { @MainActor in self.stop() }
+    }
+
+    /// Whether a stream stopped because its content went away or someone
+    /// stopped it outside the app, rather than because capture failed.
+    private nonisolated static func endsSharingOrdinarily(_ error: any Error) -> Bool {
+      let error = error as NSError
+      guard error.domain == SCStreamErrorDomain else { return false }
+      switch SCStreamError.Code(rawValue: error.code) {
+      case .userStopped?, .noCaptureSource?:
+        return true
+      default:
+        if #available(macOS 15.0, *) {
+          return error.code == SCStreamError.Code.systemStoppedStream.rawValue
+        }
+        return false
+      }
+    }
+
+    private nonisolated static func describe(_ error: any Error) -> String {
+      let error = error as NSError
+      return "\(error.domain) \(error.code): \(error.localizedDescription)"
     }
 
     nonisolated func stream(
