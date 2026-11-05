@@ -1,6 +1,10 @@
 import JitsiConference
 import SwiftUI
 
+#if os(macOS)
+  import AppKit
+#endif
+
 /// A single feed in its own window (its own scene on iPad): opened by
 /// double-clicking a sidebar thumbnail. The window holds the source, not
 /// the stream: it is resolved live from the active meeting by `sourceID`,
@@ -21,11 +25,35 @@ struct FeedWindow: View {
       }
     }
     #if os(macOS)
+      .overlay(WindowDragSurface())
       .frame(minWidth: 320, minHeight: 200)
       .background(SpacebarMicrophone(controller: hub.activeController))
     #endif
   }
 }
+
+#if os(macOS)
+  /// Drags the window from anywhere on the feed, as its title bar would. The
+  /// title bar is hidden with the video running under it, so otherwise only
+  /// the thin strip along the top edge moves the window. The feed has no
+  /// controls of its own for this to cover.
+  private struct WindowDragSurface: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ view: DragView, context: Context) {}
+
+    final class DragView: NSView {
+      override var mouseDownCanMoveWindow: Bool { true }
+
+      // Like a title bar, a window in the background drags on the first
+      // click, without one to bring it forward first.
+      override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+      override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+      }
+    }
+  }
+#endif
 
 private struct FeedContent: View {
   @ObservedObject var model: NativeMeetingModel
