@@ -578,13 +578,15 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
               selfVideoAspect = size.width / size.height
             }
             .aspectRatio(selfVideoAspect, contentMode: .fit)
-            .clipShape(.rect(cornerRadius: MeetingTileView.cornerRadius))
-            .overlay {
-              RoundedRectangle(cornerRadius: MeetingTileView.cornerRadius)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-            }
+            .concentricClipShape(minimumRadius: MeetingTileView.cornerRadius)
+            .concentricBorder(.white.opacity(0.12), minimumRadius: MeetingTileView.cornerRadius)
             .padding(gridSpacing * 2)
           }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Along the top of the stage, which on the Mac runs under the window
+        // controls.
+        .cornerAdaptiveOverlay(alignment: .top, padding: 0) {
           // The knock at the door has its own notice over the stage, whether
           // or not anyone is on it, so this one is only about the quiet.
           if controller.connectionState == .joined, controller.lobbyRequests.isEmpty {
@@ -597,7 +599,6 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
             }
             .padding(16)
             .background(.regularMaterial, in: .rect(cornerRadius: 14))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, 24)
           }
         }
@@ -627,19 +628,18 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     #else
       .background(.black)
     #endif
-    .overlay(alignment: .top) {
+    .cornerAdaptiveOverlay(alignment: .top, padding: 16) {
       if controller.connectionState == .joined, !controller.lobbyRequests.isEmpty {
         LobbyNotice(
           requests: controller.lobbyRequests,
           admitAll: controller.admitAllLobbyParticipants
         )
-        .padding(.horizontal, 16)
-        .padding(.top, 24)
+        .padding(.top, 8)
         .transition(.move(edge: .top).combined(with: .opacity))
       }
     }
     .animation(.snappy, value: controller.lobbyRequests)
-    .overlay(alignment: .topTrailing) {
+    .cornerAdaptiveOverlay(alignment: .topTrailing, padding: 16) {
       // A corner self-preview for the grid layout only: the other layouts show
       // the local camera in the sidebar, and when nobody else is in the
       // meeting the self view already fills the window.
@@ -648,19 +648,17 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
       {
         LocalVideoSurface(track: localCameraTrack)
           .frame(width: 132, height: 176)
-          .clipShape(.rect(cornerRadius: 14))
-          .overlay {
-            RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.22))
-          }
+          .concentricClipShape(minimumRadius: 14)
+          .concentricBorder(.white.opacity(0.22), minimumRadius: 14)
           .overlay(alignment: .bottomTrailing) {
             TileBadges(
               handRaised: controller.isHandRaised,
               reaction: model.tileReactions["self"]?.emoji,
               size: 22
             )
+            .padding(6)
           }
           .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
-          .padding(16)
           .accessibilityLabel("Your camera")
       }
     }
@@ -1033,6 +1031,7 @@ private struct SidebarThumbnail<Surface: View>: View {
         // Deliberately large for the thumbnail's 92-point height, so the
         // state reads at sidebar size.
         TileBadges(handRaised: handRaised, reaction: reaction, size: 30)
+          .padding(6)
       }
       .overlay(alignment: .topTrailing) {
         HStack(spacing: 4) {
@@ -1163,10 +1162,12 @@ private struct ChatPanel: View {
       .padding(10)
     }
     .background {
+      // The trailing column runs to the window's corner, so the card's
+      // corner there follows it.
       if floating {
-        RoundedRectangle(cornerRadius: 14)
-          .fill(.regularMaterial)
-          .strokeBorder(.white.opacity(0.12))
+        Color.clear
+          .concentricBackground(.regularMaterial, minimumRadius: 14)
+          .concentricBorder(.white.opacity(0.12), minimumRadius: 14)
       }
     }
     #if os(macOS)
@@ -1250,10 +1251,31 @@ struct TileBadges: View {
           .transition(.scale.combined(with: .opacity))
       }
     }
-    .padding(6)
     .allowsHitTesting(false)
     .animation(.snappy, value: reaction)
     .animation(.snappy, value: handRaised)
+  }
+}
+
+extension View {
+  /// A border just inside the shape `concentricClipShape(minimumRadius:)`
+  /// clips to, as `strokeBorder` draws one inside a rounded rectangle.
+  @ViewBuilder
+  fileprivate func concentricBorder<S: ShapeStyle>(
+    _ style: S, lineWidth: CGFloat = 1, minimumRadius: CGFloat
+  ) -> some View {
+    if #available(iOS 26, macOS 26, *) {
+      overlay {
+        // The shape cannot be inset, so the stroke runs at twice the width
+        // along its edge and the half outside it is clipped away.
+        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(minimumRadius)))
+        shape.stroke(style, lineWidth: lineWidth * 2).clipShape(shape)
+      }
+    } else {
+      overlay {
+        RoundedRectangle(cornerRadius: minimumRadius).strokeBorder(style, lineWidth: lineWidth)
+      }
+    }
   }
 }
 
@@ -1302,33 +1324,33 @@ struct MeetingTileView: View {
     // the video rather than out in the bars.
     .aspectRatio(fitsVideoAspect ? videoAspect : nil, contentMode: .fit)
     // One shape for the feed and the border that highlights it, so the
-    // speaker outline follows the corner instead of cutting across it.
-    .clipShape(.rect(cornerRadius: Self.cornerRadius))
-    .overlay {
-      RoundedRectangle(cornerRadius: Self.cornerRadius)
-        .strokeBorder(
-          isDominantSpeaker ? Color.accentColor : .white.opacity(0.12),
-          lineWidth: isDominantSpeaker ? 2.5 : 1
-        )
-    }
-    .overlay(alignment: .topLeading) {
+    // speaker outline follows the corner instead of cutting across it. Close
+    // to the window's edge, as on the stage, the corners follow the window's.
+    .concentricClipShape(minimumRadius: Self.cornerRadius)
+    .concentricBorder(
+      isDominantSpeaker ? Color.accentColor : .white.opacity(0.12),
+      lineWidth: isDominantSpeaker ? 2.5 : 1,
+      minimumRadius: Self.cornerRadius
+    )
+    // The badges keep clear of the window's rounded corners, and in a tile at
+    // the stage's top leading corner, of the window controls over it.
+    .cornerAdaptiveOverlay(alignment: .topLeading, padding: 8) {
       if isPinned {
         Image(systemName: "pin.fill")
           .font(.caption2)
           .foregroundStyle(.white)
           .padding(6)
           .background(.black.opacity(0.55), in: .capsule)
-          .padding(8)
       }
     }
-    .overlay(alignment: .bottomTrailing) {
+    .cornerAdaptiveOverlay(alignment: .bottomTrailing, padding: 6) {
       TileBadges(
         handRaised: tile.handRaised,
         reaction: reaction,
         size: 24
       )
     }
-    .overlay(alignment: .bottomLeading) {
+    .cornerAdaptiveOverlay(alignment: .bottomLeading, padding: 8) {
       HStack(spacing: 5) {
         if tile.audioMuted {
           Image(systemName: "mic.slash.fill")
@@ -1346,8 +1368,10 @@ struct MeetingTileView: View {
       .padding(.horizontal, 8)
       .padding(.vertical, 4)
       .background(.black.opacity(0.55), in: .capsule)
-      .padding(8)
     }
+    // A plain overlay: no window controls sit at this corner, the dot clears
+    // the tile's own rounded corner, and its padding is the tooltip's hover
+    // area.
     .overlay(alignment: .topTrailing) {
       if tile.stream != nil {
         Circle()
