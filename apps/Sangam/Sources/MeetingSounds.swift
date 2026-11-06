@@ -7,8 +7,8 @@ import Foundation
 #endif
 
 /// Small audible cues for meeting events, using system sounds so the app
-/// ships no audio assets. Kept quiet by design: joins, leaves, and reactions
-/// only.
+/// ships no audio assets. Kept quiet by design: joins, leaves, knocks, and
+/// reactions only.
 enum MeetingSounds {
   static func participantJoined() {
     play(mac: "Glass", ios: 1054)
@@ -16,6 +16,11 @@ enum MeetingSounds {
 
   static func participantLeft() {
     play(mac: "Bottle", ios: 1053)
+  }
+
+  /// Someone is waiting in the lobby to be let in.
+  static func knock() {
+    play(mac: "Submarine", ios: 1074)
   }
 
   static func reaction() {

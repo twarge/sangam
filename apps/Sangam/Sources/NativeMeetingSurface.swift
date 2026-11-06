@@ -2157,12 +2157,17 @@ final class NativeMeetingModel: ObservableObject {
         case .lobbyKnockersChanged(let knockers):
           SangamLog.event("event: lobbyKnockersChanged count=\(knockers.count)")
           let known = Set(controller.lobbyRequests.map(\.id))
-          for knocker in knockers where !known.contains(knocker.id) {
+          let newcomers = knockers.filter { !known.contains($0.id) }
+          for knocker in newcomers {
             MeetingNotifications.post(
               title: "Waiting to join",
               body: "\(knocker.displayName) is asking to join the meeting.",
               id: "knock-\(knocker.id)"
             )
+          }
+          // In the background the notification brings its own sound.
+          if !newcomers.isEmpty, MeetingNotifications.isAppActive {
+            MeetingSounds.knock()
           }
           controller.didChangeLobbyRequests(
             knockers.map { MeetingController.LobbyRequest(id: $0.id, displayName: $0.displayName) }

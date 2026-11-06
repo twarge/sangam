@@ -34,7 +34,7 @@ enum MeetingNotifications {
     )
   }
 
-  private static var isAppActive: Bool {
+  static var isAppActive: Bool {
     #if os(macOS)
       NSApplication.shared.isActive
     #else
