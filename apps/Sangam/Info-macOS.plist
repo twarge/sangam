@@ -43,6 +43,8 @@
 	<string>Sangam uses screen recording when you share a display or window.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Twarge.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 </dict>
 </plist>
 
