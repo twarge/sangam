@@ -111,6 +111,8 @@ targets:
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Sangam/SangamMac.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": Sangam/SangamIOS.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Sangam/SangamIOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=xros*]": Sangam/SangamVision.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=xrsimulator*]": Sangam/SangamVision.entitlements
         "INFOPLIST_FILE[sdk=macosx*]": Sangam/Info-macOS.plist
         "INFOPLIST_FILE[sdk=iphoneos*]": Sangam/Info-iOS.plist
         "INFOPLIST_FILE[sdk=iphonesimulator*]": Sangam/Info-iOS.plist

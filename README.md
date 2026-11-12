@@ -67,6 +67,14 @@ renegotiation. Reconnect and production interoperability hardening remain.
 The default server is `https://meet.jit.si`; self-hosted HTTPS Jitsi servers can
 be entered on the join screen. Plain HTTP is accepted only for `localhost`.
 
+Preferences sync between a person's devices through the iCloud key-value store
+(`SettingsSync`): display name, recent meetings and the transcription toggles;
+the server and room in the join form, layout, background blur, incoming video
+quality and Keychain credentials stay on the device. Signed builds need the
+iCloud key-value storage capability on the `com.twarge.sangam` App ID. A Mac
+build signed without a provisioning profile is refused at launch unless the key
+is deleted from `SangamMac.entitlements`; it then runs without sync.
+
 ## Conversation notes
 
 On macOS, the Notes toolbar button opens an editable Markdown conversation

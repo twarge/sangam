@@ -27,6 +27,7 @@ struct SangamApp: App {
         }
       }
     #endif
+    SettingsSync.shared.start()
     #if os(iOS)
       // CallKit owns audio activation; WebRTC must be in manual-audio mode
       // before the first call's audio units exist.

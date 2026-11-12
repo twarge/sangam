@@ -50,6 +50,17 @@ final class AppSettings: ObservableObject {
     transcribeOnJoin = defaults.object(forKey: "transcribeOnJoin") as? Bool ?? true
     showsCaptions = defaults.object(forKey: "showsCaptions") as? Bool ?? true
   }
+
+  /// Takes up the preferences `SettingsSync` has just written to
+  /// UserDefaults from another device. Only what differs is assigned, so
+  /// nothing is published, or written back, for a value already in place.
+  func reloadSyncedPreferences() {
+    let defaults = UserDefaults.standard
+    let transcribe = defaults.object(forKey: "transcribeOnJoin") as? Bool ?? true
+    if transcribeOnJoin != transcribe { transcribeOnJoin = transcribe }
+    let captions = defaults.object(forKey: "showsCaptions") as? Bool ?? true
+    if showsCaptions != captions { showsCaptions = captions }
+  }
 }
 
 /// The mirrored settings surface: a Settings window on macOS, a sheet on

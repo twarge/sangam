@@ -54,9 +54,52 @@ final class MeetingHub: ObservableObject {
   private init() {
     // The list before this one ("recentRooms") held room names without
     // their servers, so it starts over rather than guessing them.
-    recentMeetings =
-      UserDefaults.standard.data(forKey: Self.recentMeetingsKey)
-      .flatMap { try? JSONDecoder().decode([RecentMeeting].self, from: $0) } ?? []
+    recentMeetings = Self.storedRecentMeetings()
+  }
+
+  private static func storedRecentMeetings() -> [RecentMeeting] {
+    UserDefaults.standard.data(forKey: recentMeetingsKey).flatMap(decodedRecentMeetings) ?? []
+  }
+
+  /// The list a stored value holds, or nil when this build can't read it.
+  static func decodedRecentMeetings(_ data: Data) -> [RecentMeeting]? {
+    try? JSONDecoder().decode([RecentMeeting].self, from: data)
+  }
+
+  /// This device's stored list and another's as one, for the first time they
+  /// meet: entries alternate, this device's first, so that each keeps its
+  /// most recent.
+  static func mergedRecentMeetings(_ local: Data, _ remote: Data) -> Data {
+    let lists = [local, remote].map { decodedRecentMeetings($0) ?? [] }
+    var seen = Set<String>()
+    var merged: [RecentMeeting] = []
+    for index in 0..<(lists.map(\.count).max() ?? 0) {
+      for list in lists where index < list.count {
+        if seen.insert(list[index].id).inserted { merged.append(list[index]) }
+      }
+    }
+    merged = Array(merged.prefix(recentMeetingsLimit))
+    guard merged != lists[1], let data = try? JSONEncoder().encode(merged) else { return remote }
+    return data
+  }
+
+  /// Takes up the list `SettingsSync` has just written to UserDefaults from
+  /// another device.
+  func reloadRecentMeetings() {
+    let stored = Self.storedRecentMeetings()
+    guard stored != recentMeetings else { return }
+    // A meeting forgotten on another device takes its saved password with it
+    // here as well. One only pushed off the end of a full list keeps its
+    // password, as it does when that happens on this device.
+    let kept = Set(stored.map(\.id))
+    let lastKept = recentMeetings.lastIndex { kept.contains($0.id) } ?? -1
+    for (index, meeting) in recentMeetings.enumerated() where !kept.contains(meeting.id) {
+      guard stored.count < Self.recentMeetingsLimit || index < lastKept,
+        let server = meeting.serverURL
+      else { continue }
+      SavedCredentials.forgetMeetingPassword(server: server, room: meeting.room)
+    }
+    recentMeetings = stored
   }
 
   #if !os(visionOS)
