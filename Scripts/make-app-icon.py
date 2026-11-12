@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Writes the app icon as an Icon Composer bundle.
+"""Writes the app icon: an Icon Composer bundle, and an image stack for visionOS.
 
     python3 Scripts/make-app-icon.py
 
-The output is apps/Sangam/AppIcon.icon: icon.json plus one SVG per layer.
+The bundle is apps/Sangam/AppIcon.icon: icon.json plus one SVG per layer.
 Xcode's asset compiler turns it into every size iOS and macOS need and applies
 the system shape and the glass, dark, clear and tinted treatments, so the
 artwork here is full bleed and carries no mask, rim or shadow of its own.
@@ -17,8 +17,16 @@ Dark (the black river) and Light (the white river). In the dark appearance
 the sky, Peaks and Valley change to night colours and the rivers stay as
 they are.
 
-The bundle is committed, so this only needs running when the design changes.
-To look at the result without building:
+visionOS takes nothing from an Icon Composer bundle. Its icon is a stack of up
+to three bitmaps that it crops to a circle and sets apart in depth, so the
+same drawings are also written as 1024 px PNGs to
+apps/Sangam/Assets.xcassets/AppIcon.solidimagestack: Back (the sky and Peaks),
+Middle (Valley) and Front (both rivers). The asset compiler gives each
+platform the one it can use; both are named AppIcon. The PNGs are drawn by
+sips, which comes with macOS.
+
+Both are committed, so this only needs running when the design changes. To
+look at the bundle without building:
 
     "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool" \\
         apps/Sangam/AppIcon.icon --export-image --output-file icon.png \\
@@ -27,9 +35,12 @@ To look at the result without building:
 import json
 import math
 import os
+import subprocess
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "apps", "Sangam", "AppIcon.icon")
+CATALOG = os.path.join(ROOT, "apps", "Sangam", "Assets.xcassets")
 
 # The canvas is 1024 x 1024 with y downward. Shapes that leave the canvas run
 # on to these coordinates so no edge of theirs can show inside it.
@@ -280,6 +291,15 @@ def light_river(tone):
             + [brush(points, width, WHITE_CURRENT) for points, width in WHITE_CURRENTS])
 
 
+def sky(tone):
+    """The fill as a drawing, for the icon that has no fill of its own."""
+    # Icon Composer runs a fill's gradient over the middle four fifths of the height.
+    return ['<linearGradient id="sky" x1="0" y1="0.1" x2="0" y2="0.9">'
+            '<stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+            % (tone(SKY[0]), tone(SKY[1])),
+            '<rect width="1024" height="1024" fill="url(#sky)"/>']
+
+
 def svg(body):
     return ('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">\n'
             + "".join("  %s\n" % line for line in body) + "</svg>\n")
@@ -301,8 +321,48 @@ LAYERS = [
 ]
 
 
+# The visionOS stack from front to back: name, and the drawings it holds from
+# back to front. The back one has to be opaque.
+STACK = [
+    ("Front", [dark_river, light_river]),
+    ("Middle", [valley]),
+    ("Back", [sky, peaks]),
+]
+
+
 def gradient(colors):
     return {"linear-gradient": [color(colors[0]), color(colors[1])]}
+
+
+def write_json(path, doc):
+    with open(path, "w") as f:
+        json.dump(doc, f, indent=2, sort_keys=True, separators=(",", " : "))
+        f.write("\n")
+
+
+def write_png(path, body):
+    with tempfile.TemporaryDirectory() as scratch:
+        drawing = os.path.join(scratch, "layer.svg")
+        with open(drawing, "w") as f:
+            f.write(svg(body))
+        subprocess.run(["sips", "-s", "format", "png", drawing, "--out", path],
+                       check=True, stdout=subprocess.DEVNULL)
+
+
+def write_stack():
+    info = {"author": "xcode", "version": 1}
+    stack = os.path.join(CATALOG, "AppIcon.solidimagestack")
+    for name, drawings in STACK:
+        images = os.path.join(stack, name + ".solidimagestacklayer", "Content.imageset")
+        os.makedirs(images, exist_ok=True)
+        write_png(os.path.join(images, name + ".png"), [line for draw in drawings for line in draw(day)])
+        write_json(os.path.join(images, "Contents.json"),
+                   {"images": [{"filename": name + ".png", "idiom": "vision", "scale": "2x"}], "info": info})
+        write_json(os.path.join(os.path.dirname(images), "Contents.json"), {"info": info})
+    write_json(os.path.join(stack, "Contents.json"),
+               {"info": info, "layers": [{"filename": name + ".solidimagestacklayer"} for name, _ in STACK]})
+    write_json(os.path.join(CATALOG, "Contents.json"), {"info": info})
+    print("wrote", os.path.relpath(stack, ROOT))
 
 
 def main():
@@ -332,10 +392,9 @@ def main():
         "groups": groups,
         "supported-platforms": {"squares": "shared"},
     }
-    with open(os.path.join(OUT, "icon.json"), "w") as f:
-        json.dump(doc, f, indent=2, sort_keys=True, separators=(",", " : "))
-        f.write("\n")
+    write_json(os.path.join(OUT, "icon.json"), doc)
     print("wrote", os.path.relpath(OUT, ROOT))
+    write_stack()
 
 
 if __name__ == "__main__":

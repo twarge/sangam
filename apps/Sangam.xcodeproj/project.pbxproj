@@ -10,6 +10,7 @@
 		006312C9FFD001E8FEF1FF75 /* MeetingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */; platformFilters = (ios, macos, ); };
 		026F6AC5EBF21B813BAA7F8E /* CaptionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A098087D67C07A0F3D142C0C /* CaptionOverlay.swift */; platformFilters = (ios, macos, ); };
 		02EF0B60B5A981DB500ADECF /* StageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B13D89EF6A5DDF09953CBB /* StageWindow.swift */; platformFilters = (ios, macos, ); };
+		049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */; };
 		0C8D249AE24DFFD5309A74E1 /* TranscriptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6FFC67589BD36B439D69B80 /* TranscriptSheet.swift */; platformFilters = (ios, macos, ); };
 		0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = D1C05CC97547E3D084834834 /* JitsiMedia */; };
 		11FABCE32120FA88F62D0B66 /* SampleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF4ABBA402C90522AE89350 /* SampleUploader.swift */; };
@@ -116,6 +117,7 @@
 		76244101D16934095A89545C /* ConversationSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSummarizer.swift; sourceTree = "<group>"; };
 		7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedWindow.swift; sourceTree = "<group>"; };
 		8781C36A5DED9919CB53A627 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
+		8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9281FDC1DCBFB690D23631E7 /* SangamApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamApp.swift; sourceTree = "<group>"; };
 		9684B717801E9A3643DB0599 /* CornerAdaptation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CornerAdaptation.swift; sourceTree = "<group>"; };
 		978911C6FFA40F9C1D762C5F /* Sangam.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Sangam.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -248,6 +250,7 @@
 			isa = PBXGroup;
 			children = (
 				088B9A56C60E239796B7F25A /* AppIcon.icon */,
+				8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */,
 				49E2D903FCFA017137DFA806 /* Sources */,
 			);
 			path = Sangam;
@@ -375,6 +378,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7BB65B10BEC26BE0B3D8C684 /* AppIcon.icon in Resources */,
+				049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

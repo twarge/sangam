@@ -8,7 +8,7 @@
 #   make ios-device  signed generic iOS device build
 #   make format      format all Swift sources
 #   make project     regenerate the checked-in Xcode project
-#   make icon        regenerate the checked-in app icon bundle
+#   make icon        regenerate the checked-in app icon
 #   make clean
 
 .PHONY: all project icon format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \

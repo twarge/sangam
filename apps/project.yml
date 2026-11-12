@@ -74,7 +74,12 @@ targets:
         includes: *meetingSources
         destinationFilters: [iOS, macOS]
       - path: SangamShared
+      # The app icon twice over, both written by Scripts/make-app-icon.py and
+      # both named AppIcon: the Icon Composer bundle for iOS and macOS, and a
+      # solid image stack in the catalog for visionOS, which takes nothing from
+      # the bundle. The asset compiler gives each platform the one it can use.
       - path: Sangam/AppIcon.icon
+      - path: Sangam/Assets.xcassets
     dependencies:
       - package: JitsiNativeCore
         product: JitsiNativeCore
@@ -95,7 +100,6 @@ targets:
     settings:
       base:
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
-        # Sangam/AppIcon.icon, written by Scripts/make-app-icon.py.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_BITCODE: NO
         PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
