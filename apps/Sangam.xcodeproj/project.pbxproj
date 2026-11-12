@@ -10,7 +10,6 @@
 		006312C9FFD001E8FEF1FF75 /* MeetingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */; platformFilters = (ios, macos, ); };
 		026F6AC5EBF21B813BAA7F8E /* CaptionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A098087D67C07A0F3D142C0C /* CaptionOverlay.swift */; platformFilters = (ios, macos, ); };
 		02EF0B60B5A981DB500ADECF /* StageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B13D89EF6A5DDF09953CBB /* StageWindow.swift */; platformFilters = (ios, macos, ); };
-		049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */; };
 		0C8D249AE24DFFD5309A74E1 /* TranscriptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6FFC67589BD36B439D69B80 /* TranscriptSheet.swift */; platformFilters = (ios, macos, ); };
 		0E8C33E8CF94EBEEBB7581C5 /* JitsiMedia in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = D1C05CC97547E3D084834834 /* JitsiMedia */; };
 		11FABCE32120FA88F62D0B66 /* SampleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CF4ABBA402C90522AE89350 /* SampleUploader.swift */; };
@@ -34,6 +33,7 @@
 		6D9C84280986C6090671286B /* SpacebarMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED874A7CD96DEC70F679EBB7 /* SpacebarMicrophone.swift */; platformFilters = (ios, macos, ); };
 		70358F1EBCFA188C8BEAD8CF /* AppleMeetingTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEAA7F9498D376073FB42A5 /* AppleMeetingTranscriber.swift */; platformFilters = (ios, macos, ); };
 		78B4C2AC922F5ED214CFE628 /* SangamLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 340405FE2EA08149E83AC0A1 /* SangamLog.swift */; };
+		7BB65B10BEC26BE0B3D8C684 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 088B9A56C60E239796B7F25A /* AppIcon.icon */; };
 		80E2427C086D1C4F07015110 /* MenuBarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47C324E5E8C593BF40E952B /* MenuBarControls.swift */; platformFilters = (ios, macos, ); };
 		812040D4A20062C7329CEF2F /* MeetingActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19878937196A5BFEC6BAC9E2 /* MeetingActivityAttributes.swift */; };
 		86DDF0ACBE53A67CBEF2AFC2 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A237959FDD9FC7F773DFC /* AppSettings.swift */; };
@@ -90,6 +90,7 @@
 
 /* Begin PBXFileReference section */
 		00B13D89EF6A5DDF09953CBB /* StageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StageWindow.swift; sourceTree = "<group>"; };
+		088B9A56C60E239796B7F25A /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		0F43CEDFACF4E584D9316019 /* SangamBroadcastExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SangamBroadcastExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		10E0B9822D570A0C78E5D65E /* MeetingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingActivityController.swift; sourceTree = "<group>"; };
 		172A6DEC20F1DF006A04B929 /* SavedCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedCredentials.swift; sourceTree = "<group>"; };
@@ -115,7 +116,6 @@
 		76244101D16934095A89545C /* ConversationSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSummarizer.swift; sourceTree = "<group>"; };
 		7E7FD96AC7E704411855A6B2 /* FeedWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedWindow.swift; sourceTree = "<group>"; };
 		8781C36A5DED9919CB53A627 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
-		8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9281FDC1DCBFB690D23631E7 /* SangamApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangamApp.swift; sourceTree = "<group>"; };
 		9684B717801E9A3643DB0599 /* CornerAdaptation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CornerAdaptation.swift; sourceTree = "<group>"; };
 		978911C6FFA40F9C1D762C5F /* Sangam.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Sangam.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -247,7 +247,7 @@
 		DB0614245AA070302D14761A /* Sangam */ = {
 			isa = PBXGroup;
 			children = (
-				8B0B7F3582C8C6F36EC2E23B /* Assets.xcassets */,
+				088B9A56C60E239796B7F25A /* AppIcon.icon */,
 				49E2D903FCFA017137DFA806 /* Sources */,
 			);
 			path = Sangam;
@@ -374,7 +374,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				049B0707E33317B12AE8B873 /* Assets.xcassets in Resources */,
+				7BB65B10BEC26BE0B3D8C684 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

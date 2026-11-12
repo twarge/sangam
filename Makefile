@@ -8,15 +8,19 @@
 #   make ios-device  signed generic iOS device build
 #   make format      format all Swift sources
 #   make project     regenerate the checked-in Xcode project
+#   make icon        regenerate the checked-in app icon bundle
 #   make clean
 
-.PHONY: all project format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \
+.PHONY: all project icon format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \
   ios-device clean
 
 all: test mac ios
 
 project:
 	xcodegen generate --spec apps/project.yml --project apps
+
+icon:
+	python3 Scripts/make-app-icon.py
 
 format:
 	swift format --in-place --recursive apps/Sangam apps/SangamBroadcastExtension \
