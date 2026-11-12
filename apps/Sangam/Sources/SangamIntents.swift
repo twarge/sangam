@@ -46,34 +46,37 @@ struct JoinMeetingIntent: AppIntent {
   }
 }
 
-struct ToggleMuteIntent: AppIntent {
-  static let title: LocalizedStringResource = "Toggle Mute"
-  static let description = IntentDescription(
-    "Mutes or unmutes your microphone in the current meeting.")
+// The in-meeting intents need a meeting, which visionOS cannot have yet.
+#if !os(visionOS)
+  struct ToggleMuteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Toggle Mute"
+    static let description = IntentDescription(
+      "Mutes or unmutes your microphone in the current meeting.")
 
-  @MainActor
-  func perform() async throws -> some IntentResult {
-    guard let controller = MeetingHub.shared.activeController else {
-      throw NoActiveMeetingError()
+    @MainActor
+    func perform() async throws -> some IntentResult {
+      guard let controller = MeetingHub.shared.activeController else {
+        throw NoActiveMeetingError()
+      }
+      controller.toggleAudio()
+      return .result()
     }
-    controller.toggleAudio()
-    return .result()
   }
-}
 
-struct LeaveMeetingIntent: AppIntent {
-  static let title: LocalizedStringResource = "Leave Meeting"
-  static let description = IntentDescription("Leaves the current meeting.")
+  struct LeaveMeetingIntent: AppIntent {
+    static let title: LocalizedStringResource = "Leave Meeting"
+    static let description = IntentDescription("Leaves the current meeting.")
 
-  @MainActor
-  func perform() async throws -> some IntentResult {
-    guard let controller = MeetingHub.shared.activeController else {
-      throw NoActiveMeetingError()
+    @MainActor
+    func perform() async throws -> some IntentResult {
+      guard let controller = MeetingHub.shared.activeController else {
+        throw NoActiveMeetingError()
+      }
+      controller.hangUp()
+      return .result()
     }
-    controller.hangUp()
-    return .result()
   }
-}
+#endif
 
 struct SangamAppShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
@@ -86,17 +89,19 @@ struct SangamAppShortcuts: AppShortcutsProvider {
       shortTitle: "Join Meeting",
       systemImageName: "video.fill"
     )
-    AppShortcut(
-      intent: ToggleMuteIntent(),
-      phrases: ["Toggle mute in \(.applicationName)"],
-      shortTitle: "Toggle Mute",
-      systemImageName: "mic.slash.fill"
-    )
-    AppShortcut(
-      intent: LeaveMeetingIntent(),
-      phrases: ["Leave the \(.applicationName) meeting"],
-      shortTitle: "Leave Meeting",
-      systemImageName: "phone.down.fill"
-    )
+    #if !os(visionOS)
+      AppShortcut(
+        intent: ToggleMuteIntent(),
+        phrases: ["Toggle mute in \(.applicationName)"],
+        shortTitle: "Toggle Mute",
+        systemImageName: "mic.slash.fill"
+      )
+      AppShortcut(
+        intent: LeaveMeetingIntent(),
+        phrases: ["Leave the \(.applicationName) meeting"],
+        shortTitle: "Leave Meeting",
+        systemImageName: "phone.down.fill"
+      )
+    #endif
   }
 }

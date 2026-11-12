@@ -19,20 +19,23 @@ final class MeetingHub: ObservableObject {
 
   /// The meeting currently on screen, for system surfaces to act on.
   @Published private(set) var activeConfiguration: MeetingConfiguration?
-  @Published private(set) var activeController: MeetingController?
-  /// The live meeting model, for feed windows to resolve streams from.
-  @Published private(set) var activeModel: NativeMeetingModel?
+  // No meeting can be on screen on visionOS until WebRTC ships for it.
+  #if !os(visionOS)
+    @Published private(set) var activeController: MeetingController?
+    /// The live meeting model, for feed windows to resolve streams from.
+    @Published private(set) var activeModel: NativeMeetingModel?
 
-  func registerModel(_ model: NativeMeetingModel) {
-    Task { @MainActor in self.activeModel = model }
-  }
-
-  func unregisterModel(_ model: NativeMeetingModel) {
-    Task { @MainActor in
-      guard self.activeModel === model else { return }
-      self.activeModel = nil
+    func registerModel(_ model: NativeMeetingModel) {
+      Task { @MainActor in self.activeModel = model }
     }
-  }
+
+    func unregisterModel(_ model: NativeMeetingModel) {
+      Task { @MainActor in
+        guard self.activeModel === model else { return }
+        self.activeModel = nil
+      }
+    }
+  #endif
 
   /// Meetings joined lately, newest first: the join form's Recent list, and
   /// the rooms Siri and Spotlight suggest.
@@ -56,15 +59,17 @@ final class MeetingHub: ObservableObject {
       .flatMap { try? JSONDecoder().decode([RecentMeeting].self, from: $0) } ?? []
   }
 
-  func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
-    // Deferred: the callers are view-lifecycle hooks, and publishing from
-    // inside a view update feeds SwiftUI's graph re-entrantly.
-    Task { @MainActor in
-      self.activeConfiguration = configuration
-      self.activeController = controller
-      MeetingNotifications.prepare()
+  #if !os(visionOS)
+    func noteMeetingStarted(_ configuration: MeetingConfiguration, controller: MeetingController) {
+      // Deferred: the callers are view-lifecycle hooks, and publishing from
+      // inside a view update feeds SwiftUI's graph re-entrantly.
+      Task { @MainActor in
+        self.activeConfiguration = configuration
+        self.activeController = controller
+        MeetingNotifications.prepare()
+      }
     }
-  }
+  #endif
 
   /// Puts a meeting at the top of the recents once it has actually been
   /// joined, so a mistyped room never makes the list.
@@ -95,13 +100,15 @@ final class MeetingHub: ObservableObject {
   /// Clears the active meeting — but only if `controller` still is it:
   /// when a room switch replaces the meeting view, the old view's
   /// disappearance can arrive after the new one's appearance.
-  func noteMeetingEnded(controller: MeetingController) {
-    Task { @MainActor in
-      guard self.activeController === controller else { return }
-      self.activeConfiguration = nil
-      self.activeController = nil
+  #if !os(visionOS)
+    func noteMeetingEnded(controller: MeetingController) {
+      Task { @MainActor in
+        guard self.activeController === controller else { return }
+        self.activeConfiguration = nil
+        self.activeController = nil
+      }
     }
-  }
+  #endif
 
   /// Joins a room by name: on the server it was last joined on, or else on
   /// the user's configured server.

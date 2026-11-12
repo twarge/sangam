@@ -5,6 +5,7 @@ options:
   deploymentTarget:
     iOS: "17.0"
     macOS: "14.0"
+    visionOS: "1.0"
   developmentLanguage: en
   xcodeVersion: "27.0"
 
@@ -31,10 +32,40 @@ packages:
 targets:
   Sangam:
     type: application
-    supportedDestinations: [macOS, iOS]
+    supportedDestinations: [macOS, iOS, visionOS]
     productName: Sangam
     sources:
+      # visionOS gets the shell only — the join form, recents, credentials,
+      # links and intents. Jitsi's WebRTC binary has no visionOS slice, so
+      # everything that touches the conference or its media stays on iOS and
+      # macOS. Once a visionOS WebRTC exists, drop the filters here and on the
+      # package products below, and the `os(visionOS)` conditions in the shell.
       - path: Sangam/Sources
+        excludes: &meetingSources
+          - AppleMeetingTranscriber.swift
+          - CallSessionManager.swift
+          - CaptionOverlay.swift
+          - ConversationSession.swift
+          - ConversationSidebar.swift
+          - ConversationSummarizer.swift
+          - FeedWindow.swift
+          - MacScreenShareController.swift
+          - MeetingActivityController.swift
+          - MeetingControlBar.swift
+          - MeetingController.swift
+          - MeetingView.swift
+          - MenuBarControls.swift
+          - NativeMeetingSurface.swift
+          - PictureInPicture.swift
+          - PollsPanel.swift
+          - ReplayKitFrameReceiver.swift
+          - SpacebarMicrophone.swift
+          - SpeakerStatsPanel.swift
+          - StageWindow.swift
+          - TranscriptSheet.swift
+      - path: Sangam/Sources
+        includes: *meetingSources
+        destinationFilters: [iOS, macOS]
       - path: SangamShared
       - path: Sangam/Assets.xcassets
     dependencies:
@@ -42,8 +73,10 @@ targets:
         product: JitsiNativeCore
       - package: JitsiNativeCore
         product: JitsiMedia
+        destinationFilters: [iOS, macOS]
       - package: JitsiNativeCore
         product: JitsiConference
+        destinationFilters: [iOS, macOS]
       - package: JitsiNativeCore
         product: JitsiMeetingNotes
       - target: SangamBroadcastExtension
@@ -60,12 +93,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.twarge.sangam
         PRODUCT_NAME: Sangam
         TARGETED_DEVICE_FAMILY: "1,2"
+        # Native Apple Vision app, not iPad-compatibility mode.
+        "TARGETED_DEVICE_FAMILY[sdk=xros*]": "7"
+        "TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]": "7"
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Sangam/SangamMac.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": Sangam/SangamIOS.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Sangam/SangamIOS.entitlements
         "INFOPLIST_FILE[sdk=macosx*]": Sangam/Info-macOS.plist
         "INFOPLIST_FILE[sdk=iphoneos*]": Sangam/Info-iOS.plist
         "INFOPLIST_FILE[sdk=iphonesimulator*]": Sangam/Info-iOS.plist
+        "INFOPLIST_FILE[sdk=xros*]": Sangam/Info-visionOS.plist
+        "INFOPLIST_FILE[sdk=xrsimulator*]": Sangam/Info-visionOS.plist
         # XcodeGen gives a multi-destination app the iOS runpath only, so a Mac
         # build looks for embedded frameworks beside the executable instead of
         # in Contents/Frameworks and dyld fails to load WebRTC at launch.

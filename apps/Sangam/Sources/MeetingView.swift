@@ -514,7 +514,7 @@ private struct PreJoinView: View {
                 .accessibilityLabel("Admin user")
                 .textContentType(.username)
                 .autocorrectionDisabled()
-                #if os(iOS)
+                #if os(iOS) || os(visionOS)
                   .textInputAutocapitalization(.never)
                 #endif
                 .focused($focusedField, equals: .username)

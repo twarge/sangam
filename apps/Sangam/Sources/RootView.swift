@@ -9,18 +9,34 @@ struct RootView: View {
   @ObservedObject private var hub = MeetingHub.shared
   /// Transcription lives here so it outlives the meeting view: on the Mac it
   /// is also the notes document, and on iOS it is what the captions read.
-  @State private var conversation = ConversationSession()
+  #if !os(visionOS)
+    @State private var conversation = ConversationSession()
+  #endif
 
   var body: some View {
     Group {
       if let activeMeeting {
-        // A different meeting is a different view tree: joining a link while
-        // already in a room tears the old meeting down cleanly.
-        MeetingView(configuration: activeMeeting, conversation: conversation) {
-          conversation.endMeeting()
-          self.activeMeeting = nil
-        }
-        .id(activeMeeting)
+        #if os(visionOS)
+          // The conference and its media need WebRTC, which has no visionOS
+          // build yet; the shell stops here rather than pretend to join.
+          ContentUnavailableView {
+            Label("Meetings aren't available yet", systemImage: "video.slash")
+          } description: {
+            Text(
+              "Sangam can't join \(activeMeeting.normalizedRoom) on Apple Vision Pro until its media engine supports visionOS."
+            )
+          } actions: {
+            Button("Back") { self.activeMeeting = nil }
+          }
+        #else
+          // A different meeting is a different view tree: joining a link while
+          // already in a room tears the old meeting down cleanly.
+          MeetingView(configuration: activeMeeting, conversation: conversation) {
+            conversation.endMeeting()
+            self.activeMeeting = nil
+          }
+          .id(activeMeeting)
+        #endif
       } else {
         #if os(macOS)
           if conversation.hasDocument {
@@ -68,7 +84,7 @@ struct RootView: View {
     #if os(macOS)
       .frame(minWidth: 320, minHeight: 400)
     #endif
-    #if DEBUG
+    #if DEBUG && !os(visionOS)
       .onAppear {
         guard MeetingLayoutPreviewMode.current != nil, activeMeeting == nil else { return }
         let configuration = MeetingConfiguration(
@@ -138,7 +154,9 @@ struct RootView: View {
       room: normalizedRoom,
       displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     )
-    conversation.configure(configuration)
+    #if !os(visionOS)
+      conversation.configure(configuration)
+    #endif
     activeMeeting = configuration
   }
 }

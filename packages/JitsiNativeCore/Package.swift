@@ -7,6 +7,10 @@ let package = Package(
   platforms: [
     .iOS(.v17),
     .macOS(.v14),
+    // The signalling modules only: the jitsi/webrtc binary has no visionOS
+    // slice, so JitsiAudioBridge, JitsiMedia and JitsiConference do not build
+    // there yet.
+    .visionOS(.v1),
   ],
   products: [
     .library(name: "JitsiNativeCore", targets: ["JitsiNativeCore"]),

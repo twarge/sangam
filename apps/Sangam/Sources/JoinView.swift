@@ -45,7 +45,7 @@ struct JoinView: View {
               .onChange(of: serverURL) { _, text in
                 splitMeetingLink(text) { serverURL = $0 }
               }
-              #if os(iOS)
+              #if os(iOS) || os(visionOS)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
               #endif
@@ -62,6 +62,10 @@ struct JoinView: View {
                 guard text.contains("/") else { return }
                 splitMeetingLink(text) { room = $0 }
               }
+              .autocorrectionDisabled()
+              #if os(iOS) || os(visionOS)
+                .textInputAutocapitalization(.never)
+              #endif
           }
           GridRow {
             fieldLabel("Name:")

@@ -51,33 +51,37 @@ struct SangamApp: App {
       .windowResizability(.contentMinSize)
     #endif
 
-    // A double-clicked sidebar feed in its own window (its own scene on
-    // iPad); keyed by source id, so reopening the same feed refocuses the
-    // existing window.
-    WindowGroup("Feed", id: "feed", for: String.self) { $sourceID in
-      if let sourceID {
-        FeedWindow(sourceID: sourceID)
-      } else {
-        Text("No feed selected")
+    // The feed and stage windows show meeting video, which visionOS cannot
+    // have until WebRTC ships for it.
+    #if !os(visionOS)
+      // A double-clicked sidebar feed in its own window (its own scene on
+      // iPad); keyed by source id, so reopening the same feed refocuses the
+      // existing window.
+      WindowGroup("Feed", id: "feed", for: String.self) { $sourceID in
+        if let sourceID {
+          FeedWindow(sourceID: sourceID)
+        } else {
+          Text("No feed selected")
+        }
       }
-    }
-    #if os(macOS)
-      // Full-bleed video: the title bar is transparent, with the traffic
-      // lights floating over the feed like the main meeting window.
-      .windowStyle(.hiddenTitleBar)
-      .defaultSize(width: 640, height: 400)
-    #endif
+      #if os(macOS)
+        // Full-bleed video: the title bar is transparent, with the traffic
+        // lights floating over the feed like the main meeting window.
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 640, height: 400)
+      #endif
 
-    // The stage on a second display, following whoever the meeting
-    // features. Always opened with `StageWindow.singleton`, so asking again
-    // brings the one stage window forward. (`Window` would say that on the
-    // Mac, but iPadOS has no `Window` scene.)
-    WindowGroup("Stage", id: "stage", for: String.self) { _ in
-      StageWindow()
-    }
-    #if os(macOS)
-      .windowStyle(.hiddenTitleBar)
-      .defaultSize(width: 960, height: 540)
+      // The stage on a second display, following whoever the meeting
+      // features. Always opened with `StageWindow.singleton`, so asking again
+      // brings the one stage window forward. (`Window` would say that on the
+      // Mac, but iPadOS has no `Window` scene.)
+      WindowGroup("Stage", id: "stage", for: String.self) { _ in
+        StageWindow()
+      }
+      #if os(macOS)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 960, height: 540)
+      #endif
     #endif
 
     #if os(macOS)
