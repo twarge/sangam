@@ -124,6 +124,16 @@ targets:
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
     scheme:
       gatherCoverageData: false
+      # Jitsi's WebRTC 155.0.1 xcframework ships a macOS slice with only the
+      # umbrella WebRTC.h, and Xcode extracts its copy afresh whenever it
+      # re-resolves packages. Restoring the headers before every build keeps
+      # a Mac build started in Xcode from failing on 'WebRTC/RTCAudioSource.h'
+      # file not found. Drop this, the script and the Makefile's
+      # webrtc-headers targets once Jitsi publishes a fixed release.
+      preActions:
+        - name: Restore WebRTC macOS headers
+          settingsTarget: Sangam
+          script: '"$PROJECT_DIR/../Scripts/repair-webrtc-macos-headers.sh" --xcode'
 
   SangamWidgets:
     type: app-extension
