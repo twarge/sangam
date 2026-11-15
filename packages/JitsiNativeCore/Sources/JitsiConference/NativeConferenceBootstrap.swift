@@ -147,10 +147,6 @@ public struct NativeConferenceBootstrap: Sendable {
     else { throw NativeConferenceBootstrapError.invalidRoom }
 
     let deployment = try await discoveryClient.discover(baseURL: options.serverURL)
-    // Bare 8-hex-char id, matching upstream's randomHexString(8): deployed
-    // jitsi-meet webapps parse a source name's owner with split('-')[0], so a
-    // dash inside the endpoint id breaks their screen-share tile binding.
-    let endpointID = String(UUID().uuidString.prefix(8)).lowercased()
     // A room with an @ is already a full MUC address — how breakout rooms
     // are named, since they live on their own MUC service.
     let roomJID = room.contains("@") ? room : "\(room)@\(deployment.mucDomain)"
@@ -180,18 +176,22 @@ public struct NativeConferenceBootstrap: Sendable {
         room: room,
         domain: xmppConnectionDomain,
         credential: credential,
-        endpointID: endpointID,
+        resource: Self.randomEndpointID(),
         token: options.token
       )
     } catch {
       throw Self.joinError(from: error, hasCredentials: hasCredentials)
     }
+    // Only now is the endpoint id known: for a guest it comes from the
+    // address the server just assigned.
+    let endpointID = Self.endpointID(boundJID: boundJID, hasCredentials: hasCredentials)
 
     do {
       progress(.stage(.allocatingFocus))
       let focus = try await allocateFocus(
         connection: connection,
         deployment: deployment,
+        room: room,
         roomJID: roomJID,
         token: options.token,
         waitForHost: options.waitForHost
@@ -311,6 +311,46 @@ public struct NativeConferenceBootstrap: Sendable {
     }
   }
 
+  /// The id this client is known by in the meeting: its MUC nickname, and the
+  /// prefix of its track and source names.
+  ///
+  /// Like lib-jitsi-meet, a guest takes the first eight characters of the
+  /// address the server bound it to — an anonymous user's node is a UUID.
+  /// Deployments that enforce it (meet.jit.si) refuse any other nickname with
+  /// "Invalid anonymous user ID". An account's node is a username, which says
+  /// nothing about the endpoint, so those sessions get a random id, as does a
+  /// guest whose node is not a UUID.
+  static func endpointID(boundJID: String, hasCredentials: Bool) -> String {
+    guard !hasCredentials else { return randomEndpointID() }
+    let node = XMPPJID.bare(boundJID).split(separator: "@", maxSplits: 1).first ?? ""
+    let prefix = node.prefix(8).lowercased()
+    let isHex = prefix.count == 8 && prefix.allSatisfy { $0.isASCII && $0.isHexDigit }
+    return isHex ? prefix : randomEndpointID()
+  }
+
+  /// Bare 8-hex-char id, matching upstream's randomHexString(8): deployed
+  /// jitsi-meet webapps parse a source name's owner with split('-')[0], so a
+  /// dash inside the endpoint id breaks their screen-share tile binding.
+  static func randomEndpointID() -> String {
+    String(UUID().uuidString.prefix(8)).lowercased()
+  }
+
+  /// The room name as the deployment's front end routes on it.
+  ///
+  /// A clustered deployment (meet.jit.si) reads `?room=` off every signalling
+  /// URL to pick the shard that hosts the meeting, and answers a conference
+  /// request without one with a bare HTTP 400. The web client sends the name
+  /// compatibility-normalized and lowercased, so a room typed in any case
+  /// lands where its other participants are.
+  static func routingRoom(_ room: String) -> String {
+    room.precomposedStringWithCompatibilityMapping.lowercased()
+  }
+
+  /// Where to POST the conference request for `room`.
+  static func conferenceRequestURL(_ url: URL, room: String) -> URL {
+    appending(queryItems: [("room", routingRoom(room))], to: url)
+  }
+
   /// Joins the meeting room, waiting in its lobby first when the room is
   /// members-only.
   ///
@@ -365,7 +405,7 @@ public struct NativeConferenceBootstrap: Sendable {
     room: String,
     domain: String,
     credential: XMPPCredential,
-    endpointID: String,
+    resource: String,
     token: String?
   ) async throws -> (XMPPConnection, String) {
     var lastError: (any Error)?
@@ -381,7 +421,7 @@ public struct NativeConferenceBootstrap: Sendable {
         transport: XMPPWebSocketTransport(socket: socket),
         negotiator: XMPPStreamNegotiator(
           domain: domain,
-          resource: endpointID,
+          resource: resource,
           credential: credential,
           bindID: "sangam-bind-\(UUID().uuidString.lowercased())"
         )
@@ -403,24 +443,23 @@ public struct NativeConferenceBootstrap: Sendable {
 
   /// Transports to attempt, most capable first. The JWT (when the
   /// deployment uses token auth — meet.jit.si's SSO, JaaS) rides the
-  /// connection URL: prosody validates `?token=` at session time.
+  /// connection URL: prosody validates `?token=` at session time. The room
+  /// rides it too, so the front end routes the session to the meeting's shard.
   private func transportCandidates(
     deployment: DeploymentConfiguration,
     room: String,
     token: String?
   ) -> [() throws -> any XMPPTextSocket] {
+    let query = [("room", Self.routingRoom(room)), ("token", token)]
     let webSocket: () throws -> any XMPPTextSocket = {
       #if canImport(Network)
         try NetworkXMPPTextSocket(
-          url: Self.appending(
-            queryItems: [("room", room), ("token", token)],
-            to: deployment.xmppWebSocketURL),
+          url: Self.appending(queryItems: query, to: deployment.xmppWebSocketURL),
           preflightURL: deployment.webSocketKeepAliveURL
         )
       #else
         URLSessionXMPPTextSocket(
-          url: Self.appending(
-            queryItems: [("token", token)], to: deployment.xmppWebSocketURL),
+          url: Self.appending(queryItems: query, to: deployment.xmppWebSocketURL),
           preflightURL: deployment.webSocketKeepAliveURL
         )
       #endif
@@ -428,7 +467,7 @@ public struct NativeConferenceBootstrap: Sendable {
     guard let boshURL = deployment.boshURL else { return [webSocket] }
     let bosh: () throws -> any XMPPTextSocket = {
       URLSessionXMPPBOSHSocket(
-        url: Self.appending(queryItems: [("token", token)], to: boshURL),
+        url: Self.appending(queryItems: query, to: boshURL),
         domain: deployment.xmppDomain,
         preflightURL: deployment.webSocketKeepAliveURL
       )
@@ -507,6 +546,7 @@ public struct NativeConferenceBootstrap: Sendable {
   private func allocateFocus(
     connection: XMPPConnection,
     deployment: DeploymentConfiguration,
+    room: String,
     roomJID: String,
     token: String?,
     waitForHost: Bool
@@ -528,7 +568,7 @@ public struct NativeConferenceBootstrap: Sendable {
         let response: FocusConferenceResponse
         if let requestURL = deployment.conferenceRequestURL {
           response = try await allocateFocusOverHTTP(
-            url: requestURL,
+            url: Self.conferenceRequestURL(requestURL, room: room),
             roomJID: roomJID,
             machineUID: machineUID,
             token: token
