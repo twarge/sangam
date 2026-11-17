@@ -22,23 +22,12 @@ enum MeetingSidePanel {
   static let inset: CGFloat = 312
 }
 
-#if os(iOS)
-  /// The meeting's controls are toolbar content on iOS, for the navigation
-  /// stack's own bottom bar, and a view floated over the stage on the Mac.
-  typealias MeetingControls = ToolbarContent
-#else
-  typealias MeetingControls = View
-#endif
-
-struct NativeMeetingSurface<Controls: MeetingControls>: View {
+struct NativeMeetingSurface<Controls: View>: View {
   let configuration: MeetingConfiguration
   let controller: MeetingController
   let conversation: ConversationSession
-  #if os(iOS)
-    @ToolbarContentBuilder var controls: Controls
-  #else
-    @ViewBuilder var controls: Controls
-  #endif
+  /// The control bar, floated over the foot of the stage.
+  @ViewBuilder var controls: Controls
 
   private enum SidebarSelection: Hashable {
     case meeting
@@ -50,6 +39,11 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .detail
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Whether a tap on the stage has put the navigation bar and the control
+    /// bar away. The Mac's bar leaves when the pointer does; a finger has to
+    /// say so.
+    @State private var barsHidden = false
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
   #endif
 
   @StateObject private var model = NativeMeetingModel()
@@ -349,20 +343,68 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
           .navigationTitle("Participants")
           .navigationBarTitleDisplayMode(.inline)
           .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 320)
-          .toolbar {
+          .safeAreaInset(edge: .bottom, spacing: 0) {
             // In a split iPad layout the controls belong to the wider stage.
             // Keep them reachable while viewing the full-width phone roster.
             if horizontalSizeClass == .compact { controls }
           }
       } detail: {
         detailContent
+          // An inset rather than an overlay: the grid, the captions and the
+          // notices stop above the bar, and only a feed that chooses to run
+          // under the bars does.
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Put away, the bar gives up its room but stays in the view
+            // tree: its buttons carry the keyboard shortcuts, and M should
+            // still mute with nothing on screen to press.
+            controls
+              .opacity(barsHidden ? 0 : 1)
+              .allowsHitTesting(!barsHidden)
+              .frame(height: barsHidden ? 0 : nil)
+              .accessibilityHidden(barsHidden)
+          }
+          // The bar keeps its place when a keyboard comes up beside the
+          // stage, rather than riding up over the video on top of it.
+          .ignoresSafeArea(.keyboard, edges: .bottom)
           .navigationTitle(configuration.normalizedRoom)
           .navigationBarTitleDisplayMode(.inline)
-          .toolbar { controls }
+          .toolbar(barsHidden ? .hidden : .automatic, for: .navigationBar)
+          .persistentSystemOverlays(barsHidden ? .hidden : .automatic)
+          // Back from the roster, the stage has its bars: whoever comes
+          // looking for the controls should not have to know about the tap.
+          .onDisappear { barsHidden = false }
+          .onChange(of: voiceOverEnabled) { _, enabled in
+            if enabled { barsHidden = false }
+          }
+          .toolbar {
+            // A feed can run under the navigation bar, and a bare title
+            // over a bright one is white on white. It wears the same dark
+            // capsule as the names on the tiles.
+            ToolbarItem(placement: .principal) {
+              Text(configuration.normalizedRoom)
+                .font(.headline)
+                .lineLimit(1)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.55), in: .capsule)
+            }
+          }
       }
       .navigationSplitViewStyle(.balanced)
+      // The Mac's meeting is a dark room whatever the system's appearance,
+      // and so is this one: the bars, the roster and the sheets over the
+      // black stage all follow it.
+      .preferredColorScheme(.dark)
     }
 
+    /// Puts the bars away, or brings them back. Bringing them back always
+    /// works; putting them away does not under VoiceOver, where the tap
+    /// that would return them is not one anybody could find.
+    private func toggleBars() {
+      guard barsHidden || !voiceOverEnabled else { return }
+      withAnimation(.easeInOut(duration: 0.2)) { barsHidden.toggle() }
+    }
   #endif
 
   /// The meeting beside its trailing sidebar.
@@ -404,11 +446,13 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     Binding(
       get: { model.pinnedTileID.map(SidebarSelection.stream) ?? .meeting },
       set: { selection in
-        if case .stream(let id) = selection {
-          model.pinnedTileID = id
-        } else {
-          model.pinnedTileID = nil
-        }
+        let pinned: String? = if case .stream(let id) = selection { id } else { nil }
+        // The split view writes the selection back while it is updating its
+        // views — navigating to a feed tapped in the roster, popping back to
+        // it — and the model may not publish from in there. Nothing changed
+        // is nothing to publish; a real change waits for the update to end.
+        guard model.pinnedTileID != pinned else { return }
+        Task { @MainActor in model.pinnedTileID = pinned }
       }
     )
   }
@@ -581,6 +625,7 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
             .concentricClipShape(minimumRadius: MeetingTileView.cornerRadius)
             .concentricBorder(.white.opacity(0.12), minimumRadius: MeetingTileView.cornerRadius)
             .padding(gridSpacing * 2)
+            .runsUnderBars()
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -605,29 +650,35 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
       } else if controller.usesTileGrid {
         gridView(tiles: tiles)
       } else if let featured = model.featuredTile(in: tiles) {
-        tileView(for: featured, fitsVideoAspect: true)
+        tileView(for: featured, fitsVideoAspect: true, isFeatured: true)
           // A margin, so the feed's rounded corner reads as a corner rather
           // than running into whichever sidebar is beside it.
           .padding(gridSpacing * 2)
+          .runsUnderBars()
       }
     }
     // Before any video exists the stage has no intrinsic size; without an
     // explicit fill the leading-aligned ZStack collapses to the sidebar's
     // width and the sidebar renders centered in the window on first join.
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // What the bars leave clear, for a tile that runs under them.
+    .coordinateSpace(.named(MeetingTileView.stageSpace))
+    #if os(iOS)
+      // A tap on the stage — the self view, or the black around a feed —
+      // puts the bars away and brings them back. A grid tile's own tap
+      // still pins it.
+      .contentShape(.rect)
+      .onTapGesture { toggleBars() }
+    #endif
     // Tell the bridge which sources are actually shown large: they receive
     // full quality while everything else is decoded at thumbnail height.
     .onAppear { controller.didChangeFeaturedVideoSources(fullQualitySourceNames) }
     .onChange(of: fullQualitySourceNames) { _, names in
       controller.didChangeFeaturedVideoSources(names)
     }
-    // The video is black; the surround it sits in is chrome, and follows the
-    // system's appearance like the rest of the window.
-    #if os(iOS)
-      .background(.background)
-    #else
-      .background(.black)
-    #endif
+    // Black to every edge, under the bars as well: the stage is a dark room
+    // on every platform.
+    .background(.black)
     .cornerAdaptiveOverlay(alignment: .top, padding: 16) {
       if controller.connectionState == .joined, !controller.lobbyRequests.isEmpty {
         LobbyNotice(
@@ -664,12 +715,15 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
     }
     #if os(iOS)
       // The stage is the split view's detail column here: captions belong to
-      // it, above the bottom bar that carries the controls.
+      // it, above the bar that carries the controls.
       .overlay(alignment: .bottom) {
         if controller.connectionState == .joined {
           CaptionOverlay(feed: conversation.captionFeed)
           .padding(.horizontal, 16)
-          .padding(.bottom, 12)
+          // Above the name on a tile that reaches the bar, not over it —
+          // and in the same place when the bars are put away, rather than
+          // dropping into the room the control bar left.
+          .padding(.bottom, 40 + (barsHidden ? MeetingControlBar.height + 8 : 0))
         }
       }
     #endif
@@ -771,7 +825,8 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
 
   private func tileView(
     for tile: NativeMeetingModel.MeetingTile,
-    fitsVideoAspect: Bool = false
+    fitsVideoAspect: Bool = false,
+    isFeatured: Bool = false
   ) -> some View {
     let participant = tile.endpointID.flatMap { id in
       model.participants.first { $0.id == id }
@@ -786,6 +841,14 @@ struct NativeMeetingSurface<Controls: MeetingControls>: View {
       reaction: tile.endpointID.flatMap { model.tileReactions[$0]?.emoji }
     )
     .onTapGesture {
+      #if os(iOS)
+        // The feed that has the stage to itself is the stage, as far as a
+        // finger can tell. Pinning it is still in its menu, and the roster.
+        if isFeatured {
+          toggleBars()
+          return
+        }
+      #endif
       model.pinnedTileID = model.pinnedTileID == tile.id ? nil : tile.id
     }
     .contextMenu {
@@ -1258,6 +1321,24 @@ struct TileBadges: View {
 }
 
 extension View {
+  /// Gives a feed that has the stage to itself the screen's whole height on
+  /// iOS — under the navigation bar and under the control bar — as the Mac's
+  /// stage runs under its title bar. The grid does not ask for this: its
+  /// tiles would end up with their names beneath the controls.
+  ///
+  /// Only the height. Sideways the safe area is the sensor housing of a
+  /// phone on its side and the roster column of an iPad, and a feed has no
+  /// business under either.
+  @ViewBuilder
+  fileprivate func runsUnderBars() -> some View {
+    #if os(iOS)
+      frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: .vertical)
+    #else
+      self
+    #endif
+  }
+
   /// A border just inside the shape `concentricClipShape(minimumRadius:)`
   /// clips to, as `strokeBorder` draws one inside a rounded rectangle.
   @ViewBuilder
@@ -1283,6 +1364,9 @@ struct MeetingTileView: View {
   /// One radius for the feed, its highlight border, and the margin that
   /// keeps them clear of the sidebars.
   static let cornerRadius: CGFloat = 12
+  /// The stage's safe area as a coordinate space: on iOS, the part of it
+  /// the navigation bar and the control bar leave clear.
+  static let stageSpace = "stage"
 
   let tile: NativeMeetingModel.MeetingTile
   let isDominantSpeaker: Bool
@@ -1295,6 +1379,16 @@ struct MeetingTileView: View {
   var stat: InboundVideoStatistic?
   /// The owner's latest reaction, shown next to their raised hand.
   var reaction: String?
+
+  /// How far the tile runs past the stage's safe area at its top and bottom.
+  /// On iOS a feed with the stage to itself goes under the bars; its name
+  /// and badges stay where they can be seen. Zero everywhere else.
+  @State private var barOverlap = BarOverlap()
+
+  private nonisolated struct BarOverlap: Equatable {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+  }
 
   /// The stream's shape, once it has told us. Nil until the first frame, and
   /// for a participant with no video at all — either way the tile falls back
@@ -1334,6 +1428,14 @@ struct MeetingTileView: View {
     )
     // The badges keep clear of the window's rounded corners, and in a tile at
     // the stage's top leading corner, of the window controls over it.
+    .onGeometryChange(for: BarOverlap.self) { proxy in
+      guard let stage = proxy.bounds(of: .named(Self.stageSpace)) else { return BarOverlap() }
+      return BarOverlap(
+        top: max(0, stage.minY.rounded()),
+        bottom: max(0, (proxy.size.height - stage.maxY).rounded()))
+    } action: { overlap in
+      barOverlap = overlap
+    }
     .cornerAdaptiveOverlay(alignment: .topLeading, padding: 8) {
       if isPinned {
         Image(systemName: "pin.fill")
@@ -1341,6 +1443,7 @@ struct MeetingTileView: View {
           .foregroundStyle(.white)
           .padding(6)
           .background(.black.opacity(0.55), in: .capsule)
+          .padding(.top, barOverlap.top)
       }
     }
     .cornerAdaptiveOverlay(alignment: .bottomTrailing, padding: 6) {
@@ -1349,6 +1452,7 @@ struct MeetingTileView: View {
         reaction: reaction,
         size: 24
       )
+      .padding(.bottom, barOverlap.bottom)
     }
     .cornerAdaptiveOverlay(alignment: .bottomLeading, padding: 8) {
       HStack(spacing: 5) {
@@ -1368,6 +1472,7 @@ struct MeetingTileView: View {
       .padding(.horizontal, 8)
       .padding(.vertical, 4)
       .background(.black.opacity(0.55), in: .capsule)
+      .padding(.bottom, barOverlap.bottom)
     }
     // A plain overlay: no window controls sit at this corner, the dot clears
     // the tile's own rounded corner, and its padding is the tooltip's hover
@@ -1380,6 +1485,7 @@ struct MeetingTileView: View {
           .padding(10)
           .help(qualityDescription)
           .accessibilityLabel("Connection \(qualityDescription)")
+          .padding(.top, barOverlap.top)
       }
     }
     .accessibilityLabel(Text(tile.displayName))

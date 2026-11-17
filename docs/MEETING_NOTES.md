@@ -56,10 +56,12 @@ and puts the message field under the keyboard. Both sheets carry the same dark
 chrome as the rest of the call, since the captions and the control bar sit
 directly behind them. A Mac and an iPad keep the side panel for chat.
 
-The More menu drops its inline settings on a phone in favour of one entry that
-opens the settings sheet. Each picker there expands to a row per choice, and
-the menu grew tall enough to run off the top of the screen, taking whatever
-was above it out of reach.
+On iOS the control bar is the Mac's capsule floated over the stage, and the
+More menu is not in it: it is a gear in the navigation bar, opening a popover
+with whatever the bar had no room for followed by the settings. A tap on the
+stage puts both bars away, and another brings them back. A system menu
+there grew tall enough to run off the top of a phone's screen — each picker
+expands to a row per choice — and took whatever was above it out of reach.
 
 ## Captions
 

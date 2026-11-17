@@ -290,25 +290,33 @@ struct MeetingView: View {
         toolbarVisible = false
       }
     }
+  #else
+    /// The Mac's capsule over the stage. There is no pointer to summon it
+    /// with, so it stays where it is, and it measures the column it is in:
+    /// an iPad's stage shares the window with the roster and the inspector,
+    /// so the window's own width says nothing about the room the bar has.
+    private var meetingToolbar: some View {
+      GeometryReader { geometry in
+        MeetingControlBar(
+          controller: controller,
+          conversation: conversation,
+          notesOpen: conversation.isOpen,
+          popoverPinned: .constant(false),
+          availableWidth: geometry.size.width - 16
+        )
+        .frame(maxWidth: .infinity)
+      }
+      .frame(height: MeetingControlBar.height)
+      .padding(.bottom, 8)
+    }
   #endif
 
   private var meetingSurface: some View {
-    #if os(macOS)
-      NativeMeetingSurface(
-        configuration: configuration, controller: controller, conversation: conversation
-      ) {
-        meetingToolbar
-      }
-    #else
-      // The navigation stack's own bottom bar, laid out by the system and
-      // stood up the side of the screen on iPhone Duo's vertical bar.
-      NativeMeetingSurface(
-        configuration: configuration, controller: controller, conversation: conversation
-      ) {
-        MeetingToolbar(
-          controller: controller, conversation: conversation, notesOpen: conversation.isOpen)
-      }
-    #endif
+    NativeMeetingSurface(
+      configuration: configuration, controller: controller, conversation: conversation
+    ) {
+      meetingToolbar
+    }
   }
 }
 

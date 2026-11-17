@@ -25,6 +25,10 @@ private func copyMeetingLink(_ link: URL) {
 
 /// The controls that may give up their own button for a place in More.
 private enum OverflowControl: CaseIterable {
+  #if os(iOS)
+    /// Front to back and round again. A Mac's cameras are picked by name.
+    case flipCamera
+  #endif
   case screenShare
   case raiseHand
   case reactions
@@ -42,190 +46,6 @@ private enum OverflowControl: CaseIterable {
   private func dismissKeyboard() {
     UIApplication.shared.sendAction(
       #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-  }
-
-  /// The meeting's controls as the navigation stack's own bottom bar.
-  ///
-  /// The system lays the bar out and gives way when it runs short, and on a
-  /// vertical bar (iPhone Duo) it stands the controls in a column at the
-  /// screen's edge along with the navigation bar's items, where a capsule
-  /// floating over the stage would have sat underneath it. So nothing here
-  /// measures the room it has: the controls a call is steered by stand in
-  /// the bar, and the rest wait in More.
-  struct MeetingToolbar: ToolbarContent {
-    let controller: MeetingController
-    /// Only acted on, never read in the body — see `MoreMenu.conversation`.
-    let conversation: ConversationSession
-    let notesOpen: Bool
-
-    /// What the bar leaves to More, in the order More lists it.
-    private static let overflow: [OverflowControl] = [
-      .raiseHand, .reactions, .notes, .layout, .invite,
-    ]
-
-    /// jitsi-meet's bare-key shortcuts (M, V, D, C). Disabled while the chat
-    /// panel is open so typing a message never toggles the microphone.
-    private func shortcut(_ key: Character) -> KeyboardShortcut? {
-      controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
-    }
-
-    var body: some ToolbarContent {
-      ToolbarItem(placement: .bottomBar) {
-        Button {
-          dismissKeyboard()
-          controller.toggleAudio()
-        } label: {
-          Label {
-            Text(controller.isAudioMuted ? "Unmute" : "Mute")
-          } icon: {
-            // Muted there is no level worth drawing, and the slashed symbol
-            // says the only thing that matters.
-            if controller.isAudioMuted {
-              Image(systemName: "mic.slash.fill")
-            } else {
-              MicrophoneMeterSymbol(meter: controller.microphoneMeter)
-                .foregroundStyle(.primary)
-            }
-          }
-        }
-        .keyboardShortcut(shortcut("m"))
-      }
-      .keptLongest()
-      // The meter is a view of its own rather than a symbol, which leaves
-      // the system nothing to judge the item's axes by.
-      .standsInVerticalBar()
-
-      ToolbarItem(placement: .bottomBar) {
-        // A tap starts or stops the camera; a long press picks which one.
-        Menu {
-          CameraPicker(controller: controller)
-        } label: {
-          Label(
-            controller.isVideoMuted ? "Start Video" : "Stop Video",
-            systemImage: controller.isVideoMuted ? "video.slash.fill" : "video.fill")
-        } primaryAction: {
-          dismissKeyboard()
-          controller.toggleVideo()
-        }
-        .keyboardShortcut(shortcut("v"))
-      }
-      .keptLongest()
-
-      ToolbarItem(placement: .bottomBar) {
-        Button {
-          dismissKeyboard()
-          controller.flipCamera()
-        } label: {
-          Label("Flip", systemImage: "arrow.triangle.2.circlepath.camera.fill")
-        }
-      }
-
-      ToolbarItem(placement: .bottomBar) {
-        Button {
-          dismissKeyboard()
-          controller.toggleScreenSharing()
-        } label: {
-          Label(
-            controller.isScreenSharing ? "Stop Sharing" : "Share",
-            systemImage: controller.isScreenSharing
-              ? "rectangle.slash.fill" : "rectangle.on.rectangle")
-        }
-        .keyboardShortcut(shortcut("d"))
-      }
-
-      ToolbarItem(placement: .bottomBar) {
-        chatButton
-      }
-
-      if #available(iOS 26.0, *) {
-        ToolbarSpacer(.flexible, placement: .bottomBar)
-      } else {
-        ToolbarItem(placement: .bottomBar) { Spacer() }
-      }
-
-      ToolbarItem(placement: .bottomBar) {
-        MoreMenu(
-          controller: controller, conversation: conversation, notesOpen: notesOpen,
-          overflow: Self.overflow)
-      }
-      // It holds everything the bar leaves out, so it is never what goes.
-      .keptLongest()
-
-      if #available(iOS 26.0, *) {
-        // Leaving stands apart from the controls that keep the call going.
-        ToolbarSpacer(.fixed, placement: .bottomBar)
-      }
-
-      ToolbarItem(placement: .bottomBar) {
-        Button(role: .destructive) {
-          dismissKeyboard()
-          controller.hangUp()
-        } label: {
-          Label("Leave", systemImage: "phone.down.fill")
-        }
-        .tint(.red)
-      }
-      .keptLongest()
-    }
-
-    /// The unread count rides on the button itself where the bar can badge
-    /// an item; before iOS 26 it cannot, and the count is drawn on the icon.
-    @ViewBuilder private var chatButton: some View {
-      let unread = controller.unreadChatCount
-      let badgeText = unread > 99 ? "99+" : "\(unread)"
-      let button = Button {
-        dismissKeyboard()
-        controller.toggleChat()
-      } label: {
-        Label {
-          Text(controller.isChatOpen ? "Hide Chat" : "Chat")
-        } icon: {
-          if #available(iOS 26.0, *) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-          } else {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-              .overlay(alignment: .topTrailing) {
-                if unread > 0 {
-                  Text(badgeText)
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
-                    .background(.red, in: .capsule)
-                    .offset(x: 8, y: -6)
-                }
-              }
-          }
-        }
-      }
-      .keyboardShortcut(shortcut("c"))
-      if #available(iOS 26.0, *) {
-        button.badge(unread > 0 ? Text(badgeText) : nil)
-      } else {
-        button
-      }
-    }
-  }
-
-  extension ToolbarContent {
-    /// Among the last items the bar lets go of when it runs short of room.
-    /// Before iOS 27 the bar has no notion of priority.
-    @ToolbarContentBuilder fileprivate func keptLongest() -> some ToolbarContent {
-      if #available(iOS 27.0, *) {
-        visibilityPriority(.high)
-      } else {
-        self
-      }
-    }
-
-    /// Declares that the item works on a vertical bar as well as a
-    /// horizontal one, so iPhone Duo does not hide it as horizontal-only.
-    @ToolbarContentBuilder fileprivate func standsInVerticalBar() -> some ToolbarContent {
-      if #available(iOS 27.1, *) {
-        axisBehavior(.verticalPreferred)
-      } else {
-        self
-      }
-    }
   }
 #endif
 
@@ -252,170 +72,251 @@ private struct CameraPicker: View {
   }
 }
 
-#if os(macOS)
-  struct MeetingControlBar: View {
-    let controller: MeetingController
-    /// Both objects are `@Observable`, so the bar redraws only for the
-    /// properties its body reads. That matters for the More menu: UIKit
-    /// reloads an open menu on every rebuild, collapsing submenus and dropping
-    /// the tap on its way. The session changes on every partial transcription
-    /// result, so the bar reads nothing from it here; the one thing it shows
-    /// is passed in as a value.
-    let conversation: ConversationSession
-    let notesOpen: Bool
-    /// True while one of the bar's popovers is open, so an auto-hiding host
-    /// can keep the bar on screen underneath it.
-    @Binding var popoverPinned: Bool
-    /// Width the bar may occupy. When it runs short — a narrow window, or the
-    /// sidebar and chat panel encroaching — optional controls retreat into
-    /// the More menu until only microphone, camera, More, and Leave remain.
-    var availableWidth: CGFloat = .infinity
+/// The meeting's controls: one capsule floated over the stage, the same on
+/// the Mac, an iPad and a phone.
+struct MeetingControlBar: View {
+  /// A button and the capsule's padding either side of it.
+  static let height: CGFloat = 62
 
-    /// Which optional controls keep their own button. Ordered by how much
-    /// they are worth keeping inline; the rest go to the More menu.
-    private var inlineControls: Set<OverflowControl> {
+  let controller: MeetingController
+  /// Both objects are `@Observable`, so the bar redraws only for the
+  /// properties its body reads. That matters for the More menu: UIKit
+  /// reloads an open menu on every rebuild, collapsing submenus and dropping
+  /// the tap on its way. The session changes on every partial transcription
+  /// result, so the bar reads nothing from it here; the one thing it shows
+  /// is passed in as a value.
+  let conversation: ConversationSession
+  let notesOpen: Bool
+  /// True while one of the bar's popovers is open, so an auto-hiding host
+  /// can keep the bar on screen underneath it.
+  @Binding var popoverPinned: Bool
+  /// Width the bar may occupy. When it runs short — a narrow window, a phone
+  /// held upright, or the sidebar and chat panel encroaching — optional
+  /// controls retreat into the More menu until only microphone, camera, and
+  /// Leave remain beside it.
+  var availableWidth: CGFloat = .infinity
+
+  /// Which optional controls keep their own button. Ordered by how much
+  /// they are worth keeping inline; the rest go to the More menu.
+  private var inlineControls: Set<OverflowControl> {
+    #if os(iOS)
+      // An upright phone has room for three or four of these, so the ones a
+      // call is steered by come first.
+      var keepOrder: [OverflowControl] = [
+        .screenShare, .chat, .raiseHand, .reactions, .notes, .layout, .invite,
+      ]
+      if hasCameraToFlipTo { keepOrder.insert(.flipCamera, at: 0) }
+      // Microphone, camera, and Leave always stay. More is not in the bar
+      // at all here: it is the gear in the navigation bar.
+      let essentialSlots = 3.0
+    #else
       var keepOrder: [OverflowControl] = [
         .screenShare, .chat, .raiseHand, .reactions, .layout, .invite,
       ]
       keepOrder.insert(.notes, at: 1)
-      guard availableWidth.isFinite else { return Set(keepOrder) }
       // Microphone, camera, More, and Leave always stay.
       let essentialSlots = 4.0
-      let slot = 52.0
-      let fitting = Int(((availableWidth - 20 - essentialSlots * slot) / slot).rounded(.down))
-      return Set(keepOrder.prefix(max(0, fitting)))
-    }
+    #endif
+    guard availableWidth.isFinite else { return Set(keepOrder) }
+    let slot = 52.0
+    let fitting = Int(((availableWidth - 20 - essentialSlots * slot) / slot).rounded(.down))
+    return Set(keepOrder.prefix(max(0, fitting)))
+  }
 
-    private var overflowControls: [OverflowControl] {
-      let inline = inlineControls
-      return OverflowControl.allCases.filter { !inline.contains($0) }
+  private var overflowControls: [OverflowControl] {
+    let inline = inlineControls
+    return OverflowControl.allCases.filter { control in
+      #if os(iOS)
+        if control == .flipCamera, !hasCameraToFlipTo { return false }
+      #endif
+      return !inline.contains(control)
     }
+  }
 
-    private var notesButtonTitle: String {
-      notesOpen ? "Hide Notes" : "Notes"
-    }
+  #if os(iOS)
+    private var hasCameraToFlipTo: Bool { controller.cameras.count > 1 }
+  #endif
 
-    /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
-    /// chat panel is open so typing a message never toggles the microphone.
-    private func shortcut(_ key: Character) -> KeyboardShortcut? {
-      if notesOpen { return nil }
-      return controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
-    }
+  /// The Mac opens the editable document; iOS has the transcript, not the
+  /// document behind it.
+  private var notesButton: (title: String, symbol: String) {
+    #if os(iOS)
+      (notesOpen ? "Hide Transcript" : "Transcript", "text.quote")
+    #else
+      (notesOpen ? "Hide Notes" : "Notes", "note.text")
+    #endif
+  }
 
-    var body: some View {
-      let inline = inlineControls
-      HStack(spacing: 10) {
+  /// jitsi-meet's bare-key shortcuts (M, V, D, R, C, W). Disabled while the
+  /// chat panel is open so typing a message never toggles the microphone.
+  private func shortcut(_ key: Character) -> KeyboardShortcut? {
+    if notesOpen { return nil }
+    return controller.isChatOpen ? nil : KeyboardShortcut(KeyEquivalent(key), modifiers: [])
+  }
+
+  var body: some View {
+    let inline = inlineControls
+    HStack(spacing: 10) {
+      ControlButton(
+        title: controller.isAudioMuted ? "Unmute" : "Mute",
+        symbol: controller.isAudioMuted ? "mic.slash.fill" : "mic.fill",
+        isActive: controller.isAudioMuted,
+        // Muted there is no level worth drawing, and the slashed symbol says
+        // the only thing that matters.
+        meter: controller.isAudioMuted ? nil : controller.microphoneMeter,
+        action: controller.toggleAudio
+      )
+      .keyboardShortcut(shortcut("m"))
+
+      videoButton
+
+      #if os(iOS)
+        if inline.contains(.flipCamera) {
+          ControlButton(
+            title: "Flip Camera",
+            symbol: "arrow.triangle.2.circlepath.camera.fill",
+            action: controller.flipCamera
+          )
+        }
+      #endif
+
+      if inline.contains(.screenShare) {
         ControlButton(
-          title: controller.isAudioMuted ? "Unmute" : "Mute",
-          symbol: controller.isAudioMuted ? "mic.slash.fill" : "mic.fill",
-          isActive: controller.isAudioMuted,
-          // Muted there is no level worth drawing, and the slashed symbol says
-          // the only thing that matters.
-          meter: controller.isAudioMuted ? nil : controller.microphoneMeter,
-          action: controller.toggleAudio
+          title: controller.isScreenSharing ? "Stop Sharing" : "Share",
+          symbol: controller.isScreenSharing
+            ? "rectangle.slash.fill" : "rectangle.on.rectangle",
+          isActive: controller.isScreenSharing,
+          action: controller.toggleScreenSharing
         )
-        .keyboardShortcut(shortcut("m"))
+        .keyboardShortcut(shortcut("d"))
+      }
 
+      if inline.contains(.raiseHand) {
         ControlButton(
-          title: controller.isVideoMuted ? "Start Video" : "Stop Video",
-          symbol: controller.isVideoMuted ? "video.slash.fill" : "video.fill",
-          isActive: controller.isVideoMuted,
-          action: controller.toggleVideo
+          title: controller.isHandRaised ? "Lower Hand" : "Raise Hand",
+          symbol: "hand.raised.fill",
+          isActive: controller.isHandRaised,
+          action: controller.toggleHandRaised
         )
-        .keyboardShortcut(shortcut("v"))
-        // Right-click picks the camera.
-        .contextMenu {
-          CameraPicker(controller: controller)
-        }
+        .keyboardShortcut(shortcut("r"))
+      }
 
-        if inline.contains(.screenShare) {
-          ControlButton(
-            title: controller.isScreenSharing ? "Stop Sharing" : "Share",
-            symbol: controller.isScreenSharing
-              ? "rectangle.slash.fill" : "rectangle.on.rectangle",
-            isActive: controller.isScreenSharing,
-            action: controller.toggleScreenSharing
-          )
-          .keyboardShortcut(shortcut("d"))
-        }
+      if inline.contains(.reactions) {
+        ReactionsButton(send: controller.sendReaction, pinned: $popoverPinned)
+      }
 
-        if inline.contains(.raiseHand) {
-          ControlButton(
-            title: controller.isHandRaised ? "Lower Hand" : "Raise Hand",
-            symbol: "hand.raised.fill",
-            isActive: controller.isHandRaised,
-            action: controller.toggleHandRaised
-          )
-          .keyboardShortcut(shortcut("r"))
-        }
+      if inline.contains(.chat) {
+        ControlButton(
+          title: controller.isChatOpen ? "Hide Chat" : "Chat",
+          symbol: "bubble.left.and.bubble.right.fill",
+          isActive: controller.isChatOpen,
+          badge: controller.unreadChatCount,
+          action: controller.toggleChat
+        )
+        .keyboardShortcut(shortcut("c"))
+      }
 
-        if inline.contains(.reactions) {
-          ReactionsButton(send: controller.sendReaction, pinned: $popoverPinned)
-        }
+      if inline.contains(.layout) {
+        ControlButton(
+          title: controller.usesTileGrid ? "Speaker View" : "Grid View",
+          symbol: controller.usesTileGrid
+            ? "person.crop.rectangle.fill" : "square.grid.2x2.fill",
+          action: controller.toggleLayout
+        )
+        .keyboardShortcut(shortcut("w"))
+      }
 
-        if inline.contains(.chat) {
-          ControlButton(
-            title: controller.isChatOpen ? "Hide Chat" : "Chat",
-            symbol: "bubble.left.and.bubble.right.fill",
-            isActive: controller.isChatOpen,
-            badge: controller.unreadChatCount,
-            action: controller.toggleChat
-          )
-          .keyboardShortcut(shortcut("c"))
+      if inline.contains(.notes) {
+        ControlButton(
+          title: notesButton.title,
+          symbol: notesButton.symbol,
+          isActive: notesOpen
+        ) {
+          controller.isChatOpen = false
+          conversation.toggleSidebar()
         }
+        .help("Conversation notes and transcription")
+        .keyboardShortcut("n", modifiers: [.command, .option])
+      }
 
-        if inline.contains(.layout) {
-          ControlButton(
-            title: controller.usesTileGrid ? "Speaker View" : "Grid View",
-            symbol: controller.usesTileGrid
-              ? "person.crop.rectangle.fill" : "square.grid.2x2.fill",
-            action: controller.toggleLayout
-          )
-          .keyboardShortcut(shortcut("w"))
-        }
+      if inline.contains(.invite) {
+        InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
+      }
 
-        if inline.contains(.notes) {
-          ControlButton(
-            // The Mac opens the editable document.
-            title: notesButtonTitle,
-            symbol: "note.text",
-            isActive: notesOpen
-          ) {
-            controller.isChatOpen = false
-            conversation.toggleSidebar()
-          }
-          .help("Conversation notes and transcription")
-          .keyboardShortcut("n", modifiers: [.command, .option])
-        }
-
-        if inline.contains(.invite) {
-          InviteButton(link: controller.meetingLink, pinned: $popoverPinned)
-        }
-
+      #if os(macOS)
         MoreMenu(
           controller: controller, conversation: conversation, notesOpen: notesOpen,
           overflow: overflowControls)
+      #endif
 
-        ControlButton(
-          title: "Leave",
-          symbol: "phone.down.fill",
-          role: .destructive,
-          action: controller.hangUp
-        )
-      }
-      .padding(10)
-      .background(.ultraThinMaterial, in: .capsule)
-      .overlay {
-        Capsule().strokeBorder(.white.opacity(0.12))
-      }
-      .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-      .animation(.snappy, value: inline)
+      ControlButton(
+        title: "Leave",
+        symbol: "phone.down.fill",
+        role: .destructive,
+        action: controller.hangUp
+      )
     }
+    .padding(10)
+    .background(.ultraThinMaterial, in: .capsule)
+    .overlay {
+      Capsule().strokeBorder(.white.opacity(0.12))
+    }
+    .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+    .animation(.snappy, value: inline)
+    #if os(iOS)
+      // What the bar has no room for, and every setting, waits under a gear
+      // in the navigation bar. It is declared here because only the bar
+      // knows what it had to leave out.
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          MoreMenu(
+            controller: controller, conversation: conversation, notesOpen: notesOpen,
+            overflow: overflowControls)
+        }
+      }
+    #endif
   }
-#endif
+
+  @ViewBuilder private var videoButton: some View {
+    let title = controller.isVideoMuted ? "Start Video" : "Stop Video"
+    let symbol = controller.isVideoMuted ? "video.slash.fill" : "video.fill"
+    #if os(iOS)
+      // A tap starts or stops the camera; a long press picks which one.
+      Menu {
+        CameraPicker(controller: controller)
+      } label: {
+        ControlSymbol(symbol: symbol)
+          .foregroundStyle(.white)
+          .background(
+            ControlButton.background(isActive: controller.isVideoMuted), in: .circle)
+      } primaryAction: {
+        dismissKeyboard()
+        controller.toggleVideo()
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(title)
+      .keyboardShortcut(shortcut("v"))
+    #else
+      ControlButton(
+        title: title,
+        symbol: symbol,
+        isActive: controller.isVideoMuted,
+        action: controller.toggleVideo
+      )
+      .keyboardShortcut(shortcut("v"))
+      // Right-click picks the camera.
+      .contextMenu {
+        CameraPicker(controller: controller)
+      }
+    #endif
+  }
+}
 
 /// The junk drawer: overflowed toolbar controls first, then the settings
 /// that never earn their own button (quality, moderation).
+///
+/// The last button in the bar on the Mac; on iOS a gear in the navigation
+/// bar, which leaves a phone's bar to the controls themselves.
 ///
 /// A system menu on the Mac; a popover on iOS. A UIKit menu rebuilt while
 /// open resets itself — submenus collapse, the list jumps back, the tap on
@@ -446,10 +347,19 @@ private struct MoreMenu: View {
         dismissKeyboard()
         showsPopover.toggle()
       } label: {
-        Label("More options", systemImage: "ellipsis")
+        Label {
+          Text("Settings")
+        } icon: {
+          Image(systemName: "gearshape")
+            // Chat only lands in here on the narrowest of windows, and then
+            // this is the one place left to say something arrived.
+            .overlay(alignment: .topTrailing) {
+              if overflow.contains(.chat), controller.unreadChatCount > 0 {
+                Circle().fill(.red).frame(width: 8, height: 8).offset(x: 3, y: -2)
+              }
+            }
+        }
       }
-      // No arrow edge: the bar may run along the bottom or, on iPhone Duo,
-      // up the side, and the system points the popover at wherever it is.
       .popover(isPresented: $showsPopover) {
         List {
           items
@@ -657,6 +567,14 @@ private struct MoreMenu: View {
   @ViewBuilder
   private func overflowEntry(for control: OverflowControl) -> some View {
     switch control {
+    #if os(iOS)
+      case .flipCamera:
+        Button {
+          perform { controller.flipCamera() }
+        } label: {
+          Label("Flip Camera", systemImage: "arrow.triangle.2.circlepath.camera")
+        }
+    #endif
     case .screenShare:
       Button {
         perform { controller.toggleScreenSharing() }
@@ -808,133 +726,160 @@ private struct MicrophoneMeterSymbol: View {
   }
 }
 
-#if os(macOS)
-  /// Shares the meeting's join link — the same URL web participants use.
-  private struct InviteButton: View {
-    let link: URL?
-    @Binding var pinned: Bool
-
-    @State private var showsPopover = false
-    @State private var copied = false
-
-    var body: some View {
-      ControlButton(title: "Invite", symbol: "person.badge.plus", isActive: showsPopover) {
-        showsPopover.toggle()
-      }
-      .onChange(of: showsPopover) { _, open in pinned = open }
-      .popover(isPresented: $showsPopover, arrowEdge: .top) {
-        VStack(alignment: .leading, spacing: 10) {
-          Text("Share this link to invite people")
-            .font(.headline)
-          if let link {
-            Text(link.absoluteString)
-              .font(.callout.monospaced())
-              .textSelection(.enabled)
-            HStack(spacing: 10) {
-              Button(copied ? "Copied" : "Copy Link") {
-                copyMeetingLink(link)
-                copied = true
-                Task {
-                  try? await Task.sleep(for: .seconds(2))
-                  copied = false
-                }
-              }
-              ShareLink(item: link) {
-                Label("Share…", systemImage: "square.and.arrow.up")
-              }
-            }
-          }
-        }
-        .padding(14)
-        .frame(minWidth: 300, alignment: .leading)
-      }
-    }
-  }
-
-  /// The reaction palette popover behind the toolbar's React button.
-  private struct ReactionsButton: View {
-    let send: (String) -> Void
-    @Binding var pinned: Bool
-
-    @State private var showsPalette = false
-
-    var body: some View {
-      ControlButton(title: "React", symbol: "face.smiling", isActive: showsPalette) {
-        showsPalette.toggle()
-      }
-      .onChange(of: showsPalette) { _, open in pinned = open }
-      .popover(isPresented: $showsPalette, arrowEdge: .top) {
-        HStack(spacing: 6) {
-          ForEach(meetingReactions, id: \.name) { reaction in
-            Button {
-              send(reaction.name)
-            } label: {
-              Text(reaction.emoji)
-                .font(.system(size: 26))
-                .frame(width: 40, height: 40)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(reaction.name)
-          }
-        }
-        .padding(10)
-      }
-    }
-  }
-
-  private struct ControlButton: View {
-    enum Role {
-      case normal
-      case destructive
-    }
-
-    let title: String
-    let symbol: String
-    var isActive = false
-    var badge = 0
-    var role: Role = .normal
-    /// When set, the symbol is drawn as a microphone whose body fills to the
-    /// current level. The meter is passed as the object, not the number, so
-    /// its ten readings a second stay inside `MicrophoneMeterSymbol` instead
-    /// of rebuilding this button and everything alongside it.
-    var meter: MicrophoneMeter?
-    let action: () -> Void
-
-    var body: some View {
-      Button(action: action) {
-        Group {
-          if let meter {
-            MicrophoneMeterSymbol(meter: meter)
-          } else {
-            Image(systemName: symbol)
-              .font(.system(size: 17, weight: .semibold))
-          }
-        }
-        .frame(width: 42, height: 42)
-        .contentShape(.circle)
-      }
-      .buttonStyle(.plain)
-      .foregroundStyle(.white)
-      .background(backgroundColor, in: .circle)
-      .overlay(alignment: .topTrailing) {
-        if badge > 0 {
-          Text(badge > 99 ? "99+" : "\(badge)")
-            .font(.caption2.bold())
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(.red, in: .capsule)
-            .offset(x: 4, y: -4)
-        }
-      }
-      .help(title)
-      .accessibilityLabel(title)
-    }
-
-    private var backgroundColor: Color {
-      if role == .destructive { return .red }
-      if isActive { return .white.opacity(0.32) }
-      return .black.opacity(0.48)
-    }
-  }
+/// The bar sits at the foot of the stage, so its popovers open upward. The
+/// two platforms name that from opposite ends: the Mac by the edge of the
+/// button the arrow meets, iOS by the edge of the popover the arrow is on.
+#if os(iOS)
+  private let barPopoverArrowEdge = Edge.bottom
+#else
+  private let barPopoverArrowEdge = Edge.top
 #endif
+
+/// Shares the meeting's join link — the same URL web participants use.
+private struct InviteButton: View {
+  let link: URL?
+  @Binding var pinned: Bool
+
+  @State private var showsPopover = false
+  @State private var copied = false
+
+  var body: some View {
+    ControlButton(title: "Invite", symbol: "person.badge.plus", isActive: showsPopover) {
+      showsPopover.toggle()
+    }
+    .onChange(of: showsPopover) { _, open in pinned = open }
+    .popover(isPresented: $showsPopover, arrowEdge: barPopoverArrowEdge) {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Share this link to invite people")
+          .font(.headline)
+        if let link {
+          Text(link.absoluteString)
+            .font(.callout.monospaced())
+            .textSelection(.enabled)
+          HStack(spacing: 10) {
+            Button(copied ? "Copied" : "Copy Link") {
+              copyMeetingLink(link)
+              copied = true
+              Task {
+                try? await Task.sleep(for: .seconds(2))
+                copied = false
+              }
+            }
+            ShareLink(item: link) {
+              Label("Share…", systemImage: "square.and.arrow.up")
+            }
+          }
+        }
+      }
+      .padding(14)
+      .frame(minWidth: 300, alignment: .leading)
+      // On a phone a popover would otherwise become a sheet, for a link and
+      // two buttons.
+      .presentationCompactAdaptation(.popover)
+    }
+  }
+}
+
+/// The reaction palette popover behind the toolbar's React button.
+private struct ReactionsButton: View {
+  let send: (String) -> Void
+  @Binding var pinned: Bool
+
+  @State private var showsPalette = false
+
+  var body: some View {
+    ControlButton(title: "React", symbol: "face.smiling", isActive: showsPalette) {
+      showsPalette.toggle()
+    }
+    .onChange(of: showsPalette) { _, open in pinned = open }
+    .popover(isPresented: $showsPalette, arrowEdge: barPopoverArrowEdge) {
+      HStack(spacing: 6) {
+        ForEach(meetingReactions, id: \.name) { reaction in
+          Button {
+            send(reaction.name)
+          } label: {
+            Text(reaction.emoji)
+              .font(.system(size: 26))
+              .frame(width: 40, height: 40)
+              .contentShape(.rect)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(reaction.name)
+        }
+      }
+      .padding(10)
+      .presentationCompactAdaptation(.popover)
+    }
+  }
+}
+
+/// A control's glyph in the footprint every button in the bar shares.
+private struct ControlSymbol: View {
+  let symbol: String
+  /// When set, the symbol is drawn as a microphone whose body fills to the
+  /// current level. The meter is passed as the object, not the number, so
+  /// its ten readings a second stay inside `MicrophoneMeterSymbol` instead
+  /// of rebuilding the button and everything alongside it.
+  var meter: MicrophoneMeter?
+
+  var body: some View {
+    Group {
+      if let meter {
+        MicrophoneMeterSymbol(meter: meter)
+      } else {
+        Image(systemName: symbol)
+          .font(.system(size: 17, weight: .semibold))
+      }
+    }
+    .frame(width: 42, height: 42)
+    .contentShape(.circle)
+  }
+}
+
+private struct ControlButton: View {
+  enum Role {
+    case normal
+    case destructive
+  }
+
+  let title: String
+  let symbol: String
+  var isActive = false
+  var badge = 0
+  var role: Role = .normal
+  /// See `ControlSymbol.meter`.
+  var meter: MicrophoneMeter?
+  let action: () -> Void
+
+  var body: some View {
+    Button {
+      #if os(iOS)
+        dismissKeyboard()
+      #endif
+      action()
+    } label: {
+      ControlSymbol(symbol: symbol, meter: meter)
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(.white)
+    .background(Self.background(isActive: isActive, role: role), in: .circle)
+    .overlay(alignment: .topTrailing) {
+      if badge > 0 {
+        Text(badge > 99 ? "99+" : "\(badge)")
+          .font(.caption2.bold())
+          .padding(.horizontal, 5)
+          .padding(.vertical, 2)
+          .background(.red, in: .capsule)
+          .offset(x: 4, y: -4)
+      }
+    }
+    .help(title)
+    .accessibilityLabel(title)
+  }
+
+  static func background(isActive: Bool, role: Role = .normal) -> Color {
+    if role == .destructive { return .red }
+    if isActive { return .white.opacity(0.32) }
+    return .black.opacity(0.48)
+  }
+}
