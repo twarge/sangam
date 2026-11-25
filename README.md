@@ -13,7 +13,6 @@ The repository follows the Twarge Calcium layout: application code lives under
 the same schemes and destinations as Xcode.
 
 ```bash
-make project      # only needed after editing apps/project.yml
 make test         # native Jitsi protocol and state tests
 make mac
 make ios
@@ -30,7 +29,6 @@ Jitsi iOS SDK Swift package at version 13.1.1.
 apps/Sangam/Sources/                 shared SwiftUI app and platform integration
 apps/SangamBroadcastExtension/       bounded ReplayKit frame uploader
 apps/Sangam.xcodeproj/               checked-in Xcode project
-apps/project.yml                     reproducible XcodeGen project description
 packages/JitsiNativeCore/            shared state and protocol implementation
 docs/ARCHITECTURE.md                 target native architecture and delivery gates
 docs/NATIVE_CORE.md                  package layout, scope, and verification plan

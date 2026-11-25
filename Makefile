@@ -7,17 +7,13 @@
 #   make ios         iOS simulator build
 #   make ios-device  signed generic iOS device build
 #   make format      format all Swift sources
-#   make project     regenerate the checked-in Xcode project
 #   make icon        regenerate the checked-in app icon
 #   make clean
 
-.PHONY: all project icon format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \
+.PHONY: all icon format webrtc-headers app-webrtc-headers test stage-webrtc media mac ios \
   ios-device clean
 
 all: test mac ios
-
-project:
-	xcodegen generate --spec apps/project.yml --project apps
 
 icon:
 	python3 Scripts/make-app-icon.py
@@ -37,10 +33,15 @@ webrtc-headers:
 	@swift package --package-path packages/JitsiNativeCore resolve
 	@Scripts/repair-webrtc-macos-headers.sh packages/JitsiNativeCore/.build/$(WEBRTC_XCFRAMEWORK)
 
+# Xcode's copy lives in its default DerivedData, beside the build folder; the
+# script's --xcode mode finds it from BUILD_DIR, as the scheme's pre-build
+# action does.
 app-webrtc-headers:
-	@xcodebuild -resolvePackageDependencies -project apps/Sangam.xcodeproj -scheme Sangam \
-	  -derivedDataPath build/DerivedData -quiet
-	@Scripts/repair-webrtc-macos-headers.sh build/DerivedData/SourcePackages/$(WEBRTC_XCFRAMEWORK)
+	@xcodebuild -resolvePackageDependencies -project apps/Sangam.xcodeproj -scheme Sangam -quiet
+	@BUILD_DIR="$$(xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
+	  -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
+	  | awk -F' = ' '/ BUILD_DIR /{print $$2; exit}')" \
+	  Scripts/repair-webrtc-macos-headers.sh --xcode
 
 # SwiftPM does not embed a binary xcframework next to its test bundles, so
 # dyld cannot resolve @rpath/WebRTC.framework when JitsiConferenceTests loads.
@@ -68,20 +69,17 @@ media: webrtc-headers
 
 mac: app-webrtc-headers
 	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
-	  -destination "platform=macOS" -derivedDataPath build/DerivedData \
-	  -allowProvisioningUpdates -quiet build
+	  -destination "platform=macOS" -allowProvisioningUpdates -quiet build
 	@echo "==> Built Sangam for macOS"
 
 ios:
 	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
-	  -destination "generic/platform=iOS Simulator" \
-	  -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+	  -destination "generic/platform=iOS Simulator" -quiet build
 	@echo "==> Built Sangam for iOS Simulator"
 
 ios-device:
 	xcodebuild -project apps/Sangam.xcodeproj -scheme Sangam \
-	  -destination "generic/platform=iOS" -derivedDataPath build/DerivedData \
-	  -allowProvisioningUpdates -quiet build
+	  -destination "generic/platform=iOS" -allowProvisioningUpdates -quiet build
 	@echo "==> Built Sangam for iOS device"
 
 clean:

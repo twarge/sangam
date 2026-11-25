@@ -125,7 +125,7 @@ jobs:
           elif [[ -n "$INPUT_VERSION" ]]; then
             VERSION="$INPUT_VERSION"
           else
-            VERSION=$(sed -n 's/.*MARKETING_VERSION = \([0-9.][0-9.]*\);.*/\1/p' apps/Sangam.xcodeproj/project.pbxproj | head -1)
+            VERSION=$(sed -n 's/.*"MARKETING_VERSION": "\([0-9.][0-9.]*\)".*/\1/p' apps/Sangam.xcodeproj/project.xcproj | head -1)
           fi
           [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "::error::Resolved version '$VERSION' is not a plain version number (tag like v1.2)"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -166,8 +166,8 @@ jobs:
           PLIST
 
       # Jitsi WebRTC 155.0.1's macOS slice ships only its umbrella header.
-      # This resolves packages into build/DerivedData and restores the rest
-      # there, so the archive below must use the same derived data path.
+      # This resolves packages into Xcode's default DerivedData and restores
+      # the rest there.
       - name: Restore WebRTC macOS headers
         run: make app-webrtc-headers
 
@@ -182,7 +182,6 @@ jobs:
             -configuration Release \
             -destination '${{ matrix.destination }}' \
             -archivePath '${{ matrix.archive }}' \
-            -derivedDataPath build/DerivedData \
             MARKETING_VERSION='${{ steps.version.outputs.version }}' \
             CURRENT_PROJECT_VERSION='${{ github.run_number }}.${{ github.run_attempt }}' \
             -allowProvisioningUpdates \
