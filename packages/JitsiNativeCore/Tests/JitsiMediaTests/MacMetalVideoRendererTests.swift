@@ -60,6 +60,22 @@
   }
 
   @Test
+  func mirroringSwapsTheFramesSidesOnScreen() {
+    let size = CGSize(width: 1600, height: 900)
+    let plain = MacMetalVideoRenderer.vertices(
+      videoWidth: 1280, videoHeight: 720, rotation: ._0, drawableSize: size, contentMode: .fit)
+    let mirrored = MacMetalVideoRenderer.vertices(
+      videoWidth: 1280, videoHeight: 720, rotation: ._0, drawableSize: size, contentMode: .fit,
+      mirrored: true)
+    // Each corner of the frame lands on the opposite side, at the same height.
+    for (before, after) in zip(plain, mirrored) {
+      #expect(after.texture == before.texture)
+      #expect(after.position.x == -before.position.x)
+      #expect(after.position.y == before.position.y)
+    }
+  }
+
+  @Test
   func aFrameMatchingTheViewIsNeitherCroppedNorInset() {
     for mode in [VideoContentMode.fit, .fill] {
       let vertices = quad(

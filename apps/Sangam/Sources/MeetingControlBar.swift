@@ -535,6 +535,7 @@ private struct MoreMenu: View {
         }
       }
       Toggle("Blur My Background", isOn: $settings.backgroundBlur)
+      Toggle("Mirror My Video Preview", isOn: $settings.mirrorsSelfView)
       Toggle("Transcribe From the Start", isOn: $settings.transcribeOnJoin)
       Toggle("Show Captions", isOn: $settings.showsCaptions)
       // Only the participants column still has a choice: chat and the

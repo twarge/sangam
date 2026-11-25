@@ -21,6 +21,12 @@ final class AppSettings: ObservableObject {
     didSet { UserDefaults.standard.set(backgroundBlur, forKey: "backgroundBlur") }
   }
 
+  /// Whether your own camera preview is flipped like a mirror. Only the
+  /// preview: everyone else always sees the unflipped picture. On by default.
+  @Published var mirrorsSelfView: Bool {
+    didSet { UserDefaults.standard.set(mirrorsSelfView, forKey: "mirrorsSelfView") }
+  }
+
   /// Whether the sidebar and chat panel push the stage aside instead of
   /// floating over it.
   @Published var panelsPushStage: Bool {
@@ -45,7 +51,8 @@ final class AppSettings: ObservableObject {
     receiveQuality = storedQuality == 0 ? 720 : storedQuality
     backgroundBlur = defaults.bool(forKey: "backgroundBlur")
     panelsPushStage = defaults.bool(forKey: "panelsPushStage")
-    // Absent, not false: these two default on, so an untouched preference
+    mirrorsSelfView = defaults.object(forKey: "mirrorsSelfView") as? Bool ?? true
+    // Absent, not false: these default on, so an untouched preference
     // has to read as on rather than as the Bool zero value.
     transcribeOnJoin = defaults.object(forKey: "transcribeOnJoin") as? Bool ?? true
     showsCaptions = defaults.object(forKey: "showsCaptions") as? Bool ?? true
@@ -90,6 +97,7 @@ struct SettingsView: View {
           }
         }
         Toggle("Blur my background", isOn: $settings.backgroundBlur)
+        Toggle("Mirror my video preview", isOn: $settings.mirrorsSelfView)
       }
       Section {
         Toggle("Transcribe from the start of a call", isOn: $settings.transcribeOnJoin)
@@ -113,6 +121,8 @@ struct SettingsView: View {
     .formStyle(.grouped)
     .navigationTitle("Settings")
     #if os(macOS)
+      // A Mac preference is a checkbox; the grouped form would draw switches.
+      .toggleStyle(.checkbox)
       .frame(width: 400)
       .fixedSize(horizontal: false, vertical: true)
     #endif

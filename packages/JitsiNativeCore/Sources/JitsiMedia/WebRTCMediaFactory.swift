@@ -255,6 +255,9 @@ public struct CameraDevice: Identifiable, Equatable, Sendable {
   public let id: String
   public let name: String
   public let isBuiltIn: Bool
+  /// A camera pointed away from the user — a phone's rear camera. Its
+  /// self-preview is never mirrored: it shows the scene, not a reflection.
+  public let isBackFacing: Bool
 }
 
 public enum CameraCaptureEvent: Sendable {
@@ -338,7 +341,8 @@ public final class LocalCameraTrack: @unchecked Sendable {
       CameraDevice(
         id: device.uniqueID,
         name: device.localizedName,
-        isBuiltIn: device.deviceType == .builtInWideAngleCamera
+        isBuiltIn: device.deviceType == .builtInWideAngleCamera,
+        isBackFacing: device.position == .back
       )
     }
   }

@@ -56,6 +56,12 @@ struct NativeMeetingSurface<Controls: View>: View {
   /// Whether the sidebar and chat panel push the stage aside instead of
   /// floating over it; the same key AppSettings writes.
   @AppStorage("panelsPushStage") private var panelsPushStage = false
+  @AppStorage("mirrorsSelfView") private var mirrorsSelfView = true
+  /// The camera preview reads as a mirror unless the preference is off or
+  /// the camera faces away. Only the preview: others see the unflipped feed.
+  private var mirrorsCameraPreview: Bool {
+    mirrorsSelfView && !controller.isCameraBackFacing
+  }
   /// Whether the window is wide enough for chat and the conversation to sit
   /// beside the stage instead of sliding up over it. A phone is not, nor is
   /// an iPad in a narrow split: a 300pt panel would leave the stage a sliver
@@ -499,7 +505,7 @@ struct NativeMeetingSurface<Controls: View>: View {
             handRaised: controller.isHandRaised,
             reaction: model.tileReactions["self"]?.emoji
           ) {
-            LocalVideoSurface(track: localCameraTrack)
+            LocalVideoSurface(track: localCameraTrack, mirrored: mirrorsCameraPreview)
           }
           .accessibilityLabel("Your camera")
         }
@@ -617,7 +623,9 @@ struct NativeMeetingSurface<Controls: View>: View {
           if !controller.isVideoMuted, let localCameraTrack = model.localCameraTrack {
             // The only feed on the stage, and framed like any other: its own
             // shape, the same corner, the same margin.
-            LocalVideoSurface(track: localCameraTrack, contentMode: .fit) { size in
+            LocalVideoSurface(
+              track: localCameraTrack, mirrored: mirrorsCameraPreview, contentMode: .fit
+            ) { size in
               guard size.width > 0, size.height > 0 else { return }
               selfVideoAspect = size.width / size.height
             }
@@ -697,7 +705,7 @@ struct NativeMeetingSurface<Controls: View>: View {
       if let localCameraTrack = model.localCameraTrack, !controller.isVideoMuted,
         !model.tiles.isEmpty, controller.usesTileGrid
       {
-        LocalVideoSurface(track: localCameraTrack)
+        LocalVideoSurface(track: localCameraTrack, mirrored: mirrorsCameraPreview)
           .frame(width: 132, height: 176)
           .concentricClipShape(minimumRadius: 14)
           .concentricBorder(.white.opacity(0.22), minimumRadius: 14)
@@ -2211,7 +2219,9 @@ final class NativeMeetingModel: ObservableObject {
             "event: camerasChanged count=\(available.count)"
               + " current=\(currentDeviceID ?? "none")")
           controller.didChangeCameras(
-            available.map { MeetingController.CameraOption(id: $0.id, name: $0.name) },
+            available.map { MeetingController.CameraOption(
+                id: $0.id, name: $0.name, isBackFacing: $0.isBackFacing)
+            },
             currentID: currentDeviceID
           )
         case .breakoutRoomsUpdated(let rooms):
@@ -2615,6 +2625,8 @@ final class NativeMeetingModel: ObservableObject {
 
   private struct LocalVideoSurface: UIViewRepresentable {
     let track: LocalVideoTrack?
+    /// Flipped like a mirror — the camera's self view, never a screen share.
+    var mirrored = false
     var contentMode: VideoContentMode = .fill
     /// The camera's own dimensions, so a self view can take its shape.
     var onVideoSize: ((CGSize) -> Void)?
@@ -2625,6 +2637,7 @@ final class NativeMeetingModel: ObservableObject {
 
     func updateUIView(_ view: NativeVideoRendererView, context: Context) {
       view.videoContentMode = contentMode
+      view.isMirrored = mirrored
       view.onVideoSize = onVideoSize
       view.display(local: track)
     }
@@ -2658,6 +2671,8 @@ final class NativeMeetingModel: ObservableObject {
 
   private struct LocalVideoSurface: NSViewRepresentable {
     let track: LocalVideoTrack?
+    /// Flipped like a mirror — the camera's self view, never a screen share.
+    var mirrored = false
     var contentMode: VideoContentMode = .fill
     /// The camera's own dimensions, so a self view can take its shape.
     var onVideoSize: ((CGSize) -> Void)?
@@ -2668,6 +2683,7 @@ final class NativeMeetingModel: ObservableObject {
 
     func updateNSView(_ view: NativeVideoRendererView, context: Context) {
       view.videoContentMode = contentMode
+      view.isMirrored = mirrored
       view.onVideoSize = onVideoSize
       view.display(local: track)
     }

@@ -19,6 +19,15 @@
       }
     }
 
+    /// Whether the picture is drawn flipped left to right. Set from the main
+    /// actor, read while drawing.
+    var isMirrored = false {
+      didSet {
+        guard isMirrored != oldValue else { return }
+        DispatchQueue.main.async { [weak view] in view?.needsDisplay = true }
+      }
+    }
+
     private let store = MacVideoFrameStore()
     private let commandQueue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
@@ -100,7 +109,8 @@
         videoHeight: packet.height,
         rotation: packet.rotation,
         drawableSize: view.drawableSize,
-        contentMode: videoContentMode
+        contentMode: videoContentMode,
+        mirrored: isMirrored
       )
       encoder.setRenderPipelineState(pipeline)
       vertices.withUnsafeBytes { storage in
@@ -159,7 +169,8 @@
       videoHeight: Int,
       rotation: RTCVideoRotation,
       drawableSize: CGSize,
-      contentMode: VideoContentMode
+      contentMode: VideoContentMode,
+      mirrored: Bool = false
     ) -> [MacVideoVertex] {
       let rotated = rotation == ._90 || rotation == ._270
       let width = rotated ? videoHeight : videoWidth
@@ -206,6 +217,9 @@
         default: point
         }
       }
+      // Mirroring happens on screen, after rotation: the quad itself is
+      // flipped, so the frame's left edge lands on the view's right.
+      if mirrored { quadX = -quadX }
       return [
         MacVideoVertex(position: SIMD2(-quadX, -quadY), texture: rotate(SIMD2(left, bottom))),
         MacVideoVertex(position: SIMD2(quadX, -quadY), texture: rotate(SIMD2(right, bottom))),

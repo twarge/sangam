@@ -77,6 +77,8 @@ final class MeetingController {
   struct CameraOption: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
+    /// A rear camera, whose self-preview is never mirrored.
+    var isBackFacing = false
   }
 
   /// One room in the breakout roster (including the main room), for the
@@ -118,6 +120,10 @@ final class MeetingController {
   private(set) var cameras: [CameraOption] = []
   /// The camera currently capturing; nil when none is (every camera gone).
   private(set) var currentCameraID: String?
+  /// Whether the capturing camera points away from the user.
+  var isCameraBackFacing: Bool {
+    cameras.first { $0.id == currentCameraID }?.isBackFacing ?? false
+  }
   /// The address other people join with, for the invite button.
   private(set) var meetingLink: URL?
   /// Whether this client moderates the room; gates the moderation controls.

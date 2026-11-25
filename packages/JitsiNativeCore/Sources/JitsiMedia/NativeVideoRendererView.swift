@@ -31,6 +31,15 @@ public enum VideoContentMode: Sendable {
       }
     }
 
+    /// Whether the picture is flipped left to right, the way a mirror shows
+    /// it. Only ever a self-preview: what is sent is never flipped.
+    public var isMirrored = false {
+      didSet {
+        guard isMirrored != oldValue else { return }
+        renderer.transform = isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
+      }
+    }
+
     public override init(frame: CGRect) {
       super.init(frame: frame)
       backgroundColor = .black
@@ -103,6 +112,13 @@ public enum VideoContentMode: Sendable {
     public var videoContentMode: VideoContentMode {
       get { renderer.videoContentMode }
       set { renderer.videoContentMode = newValue }
+    }
+
+    /// Whether the picture is flipped left to right, the way a mirror shows
+    /// it. Only ever a self-preview: what is sent is never flipped.
+    public var isMirrored: Bool {
+      get { renderer.isMirrored }
+      set { renderer.isMirrored = newValue }
     }
 
     public override init(frame frameRect: NSRect) {
