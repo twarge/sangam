@@ -32,13 +32,6 @@ struct SangamApp: App {
       // CallKit owns audio activation; WebRTC must be in manual-audio mode
       // before the first call's audio units exist.
       CallSessionManager.prepareAudio()
-      // The meeting's Live Activity is gone — CallKit already puts the call
-      // on the lock screen and in the Dynamic Island, so the card said it all
-      // twice. An activity outlives the process that started it, though, so a
-      // build that still ran one can have left a card behind. Nothing is
-      // running yet at launch, which makes any card still up stale by
-      // definition.
-      MeetingActivityController.shared.end()
     #endif
   }
 

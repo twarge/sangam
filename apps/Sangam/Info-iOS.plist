@@ -33,8 +33,6 @@
 	<array>
 		<string>com.twarge.sangam.meeting</string>
 	</array>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>

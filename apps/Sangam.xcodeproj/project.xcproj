@@ -44,7 +44,6 @@
             { "path": "FeedWindow.swift", "target-membership": [ { "build-phase": "Sangam/compile-sources", "platforms": [ "ios", "macos" ] } ] },
             { "path": "JoinView.swift", "target-membership": [ "Sangam/compile-sources" ] },
             { "path": "MacScreenShareController.swift", "target-membership": [ { "build-phase": "Sangam/compile-sources", "platforms": [ "ios", "macos" ] } ] },
-            { "path": "MeetingActivityController.swift", "target-membership": [ { "build-phase": "Sangam/compile-sources", "platforms": [ "ios", "macos" ] } ] },
             { "path": "MeetingConfiguration.swift", "target-membership": [ "Sangam/compile-sources" ] },
             { "path": "MeetingControlBar.swift", "target-membership": [ { "build-phase": "Sangam/compile-sources", "platforms": [ "ios", "macos" ] } ] },
             { "path": "MeetingController.swift", "target-membership": [ { "build-phase": "Sangam/compile-sources", "platforms": [ "ios", "macos" ] } ] },
@@ -83,30 +82,10 @@
       ],
     }, {
       "kind": "group",
-      "path": "SangamShared",
-      "children": [
-        {
-          "path": "MeetingActivityAttributes.swift",
-          "target-membership": [
-            "Sangam/compile-sources",
-            "SangamWidgets/compile-sources",
-          ],
-        },
-      ],
-    }, {
-      "kind": "group",
-      "path": "SangamWidgets",
-      "children": [
-        { "path": "Info.plist" },
-        { "path": "SangamWidgets.swift", "target-membership": [ "SangamWidgets/compile-sources" ] },
-      ],
-    }, {
-      "kind": "group",
       "name": "Products",
       "children": [
         { "path": "<PRODUCTS>/Sangam.app", "id": "978911C6FFA40F9C1D762C5F", "index": false },
         { "path": "<PRODUCTS>/SangamBroadcastExtension.appex", "id": "0F43CEDFACF4E584D9316019", "index": false, "target-membership": [ { "build-phase": "Sangam/copy/Embed Foundation Extensions", "platforms": [ "ios" ], "header-preservation": "remove-on-copy" } ] },
-        { "path": "<PRODUCTS>/SangamWidgets.appex", "id": "4161D0C3DE1CB3CE797055F2", "index": false, "target-membership": [ { "build-phase": "Sangam/copy/Embed Foundation Extensions", "platforms": [ "ios" ], "header-preservation": "remove-on-copy" } ] },
       ],
     },
   ],
@@ -119,7 +98,6 @@
       "legacy-team-id": "257KW9ZJFP",
       "dependencies": [
         { "target": "SangamBroadcastExtension", "platforms": [ "ios" ] },
-        { "target": "SangamWidgets", "platforms": [ "ios" ] },
       ],
       "build-phases": [
         "compile-sources",
@@ -179,29 +157,6 @@
         "TARGETED_DEVICE_FAMILY": "1,2",
         "TARGETED_DEVICE_FAMILY[sdk=xros*]": "7",
         "TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]": "7",
-      },
-    }, {
-      "name": "SangamWidgets",
-      "id": "8C409DDAF3F54BDBE2173257",
-      "product": "Products/SangamWidgets.appex",
-      "product-type": "app-extension",
-      "legacy-team-id": "257KW9ZJFP",
-      "build-phases": [
-        "compile-sources",
-      ],
-      "build-settings": {
-        "INFOPLIST_FILE": "SangamWidgets/Info.plist",
-        "LD_RUNPATH_SEARCH_PATHS": [
-          "$(inherited)",
-          "@executable_path/Frameworks",
-          "@executable_path/../../Frameworks",
-        ],
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.twarge.sangam.widgets",
-        "PRODUCT_NAME": "SangamWidgets",
-        "SDKROOT": "iphoneos",
-        "SKIP_INSTALL": "YES",
-        "SWIFT_DEFAULT_ACTOR_ISOLATION": "nonisolated",
-        "TARGETED_DEVICE_FAMILY": "1,2",
       },
     }, {
       "name": "SangamBroadcastExtension",
